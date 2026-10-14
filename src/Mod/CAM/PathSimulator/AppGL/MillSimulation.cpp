@@ -878,29 +878,10 @@ void MillSimulation::StartDexelSimulation()
         segments[i].tool = (int)(std::find(toolIds.begin(), toolIds.end(), id) - toolIds.begin());
     }
 
-    // cell size from the quality, 138 to 480 cells along the larger side of the stock
-    float minx = 1e30f, maxx = -1e30f, miny = 1e30f, maxy = -1e30f;
-    for (size_t i = 0; i + 2 < mStockXyz.size(); i += 3) {
-        minx = std::min(minx, mStockXyz[i]);
-        maxx = std::max(maxx, mStockXyz[i]);
-        miny = std::min(miny, mStockXyz[i + 1]);
-        maxy = std::max(maxy, mStockXyz[i + 1]);
-    }
-    const float stockSize = std::max(maxx - minx, maxy - miny);
-    const float cells = 100 + 38 * std::clamp(mQuality, 1.0f, 10.0f);
-    float cellSize = stockSize / cells;
-    // cells small enough for the smallest tool to cut, but not more than 1200 along the stock
-    for (const auto& tool : tools) {
-        if (tool->Radius() > 0) {
-            cellSize = std::min(cellSize, tool->Radius() * 0.75f);
-        }
-    }
-    cellSize = std::max({cellSize, stockSize / 1200, 0.005f});
-
     if (!mDexel) {
         mDexel = std::make_unique<DexelSimulation>();
     }
-    mDexel->Start(std::move(tools), std::move(segments), mStockXyz, mStockTriangles, cellSize);
+    mDexel->Start(std::move(tools), std::move(segments), mStockXyz, mStockTriangles, mQuality);
     mDexelRenderer.Reset(mDexel->Stock());
 }
 
@@ -935,7 +916,7 @@ void MillSimulation::UpdateDexelSimulation()
         simDisplay.updateDisplay = true;
     }
     const int rebuilt
-        = mDexelRenderer.Update(mDexel->Stock(), mDexel->Initial(), mDexel->Pool(), meshMs, mMeshPending);
+        = mDexelRenderer.Update(mDexel->Stock(), mDexel->Pool(), meshMs, mMeshPending);
     if (rebuilt > 0 || mDexel->Pending() || mMeshPending) {
         simDisplay.updateDisplay = true;
     }

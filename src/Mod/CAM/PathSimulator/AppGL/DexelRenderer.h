@@ -34,23 +34,19 @@ namespace CAMSimulator
 class SimDisplay;
 class ThreadPool;
 
-// Renders a DexelStock as a mesh, divided into chunks that are rebuilt when their tiles change
+// Renders a DexelStock as a mesh. The mesh is built per mesh unit of the layout, small groups of
+// leaves that are rebuilt when they change, and drawn per chunk of units, to keep the number of
+// draw calls low.
 class DexelRenderer
 {
 public:
     ~DexelRenderer();
 
-    // Start with a new stock, all chunks are rebuilt by the next Update
+    // Start with a new stock, all units are built by the next Update
     void Reset(const DexelStock& stock);
-    // Rebuild the chunks of the dirty tiles of the stock, for about budgetMs. Returns the number
-    // of rebuilt chunks, 'pending' tells if chunks are left to rebuild.
-    int Update(
-        DexelStock& stock,
-        const DexelStock& initial,
-        ThreadPool& pool,
-        double budgetMs,
-        bool& pending
-    );
+    // Rebuild the units of the dirty leaves of the stock, for about budgetMs. Returns the number
+    // of rebuilt units, 'pending' tells if units are left to rebuild.
+    int Update(DexelStock& stock, ThreadPool& pool, double budgetMs, bool& pending);
     void Render(SimDisplay& display, const float stockColor[3], const float cutColor[3]);
     void FreeResources();
 
@@ -63,18 +59,22 @@ private:
         unsigned int ibo = 0;
         int stockCount = 0;
         int cutCount = 0;
+        bool changed = false;
+        std::vector<int> units;
+    };
+    struct Unit
+    {
+        DexelMesh mesh;
         bool dirty = true;
     };
 
     void Draw(const Chunk& chunk, bool cut) const;
-    static void Upload(Chunk& chunk, DexelMesh& mesh);
+    void Upload(Chunk& chunk);
 
+    std::shared_ptr<const DexelLayout> mLayout;
+    DexelMeshCache mCache;
+    std::vector<Unit> mUnits;
     std::vector<Chunk> mChunks;
-    int mChunksX = 0;
-    int mChunksY = 0;
-    int mNX = 0;
-    int mNY = 0;
-    int mTilesX = 0;
 };
 
 }  // namespace CAMSimulator

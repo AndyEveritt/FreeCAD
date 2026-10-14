@@ -30,6 +30,7 @@
 #include "ThreadPool.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 
@@ -38,8 +39,6 @@
 
 namespace CAMSimulator
 {
-
-constexpr int ChunkSize = 32;  // cells, a multiple of DexelTileSize
 
 DexelRenderer::~DexelRenderer()
 {
@@ -53,120 +52,141 @@ void DexelRenderer::FreeResources()
         GLDELETE_BUFFER(chunk.ibo);
     }
     mChunks.clear();
-    mChunksX = mChunksY = 0;
+    mUnits.clear();
+    mLayout.reset();
 }
 
 void DexelRenderer::Reset(const DexelStock& stock)
 {
     FreeResources();
-    mNX = stock.NX();
-    mNY = stock.NY();
-    mTilesX = stock.TilesX();
-    mChunksX = (mNX + ChunkSize - 1) / ChunkSize;
-    mChunksY = (mNY + ChunkSize - 1) / ChunkSize;
-    mChunks.assign((size_t)mChunksX * mChunksY, Chunk());
+    mLayout = stock.LayoutRef();
+    mUnits.assign(mLayout->UnitCount(), Unit());
+    mCache.Reset(mLayout->LeafCount());
+    mChunks.assign(mLayout->ChunkCount(), Chunk());
+    for (int unit = 0; unit < mLayout->UnitCount(); unit++) {
+        mChunks[mLayout->UnitChunk(unit)].units.push_back(unit);
+    }
 }
 
-int DexelRenderer::Update(
-    DexelStock& stock,
-    const DexelStock& initial,
-    ThreadPool& pool,
-    double budgetMs,
-    bool& pending
-)
+int DexelRenderer::Update(DexelStock& stock, ThreadPool& pool, double budgetMs, bool& pending)
 {
-    // a changed tile changes the chunk containing it, and the faces of neighboring chunks along
-    // its border
-    constexpr int tilesPerChunk = ChunkSize / DexelTileSize;
-    for (int tile : stock.TakeDirtyTiles()) {
-        const int tx = tile % mTilesX, ty = tile / mTilesX;
-        for (int ny = ty - 1; ny <= ty + 1; ny++) {
-            for (int nx = tx - 1; nx <= tx + 1; nx++) {
-                const int cx = nx / tilesPerChunk, cy = ny / tilesPerChunk;
-                if (nx >= 0 && ny >= 0 && cx < mChunksX && cy < mChunksY) {
-                    mChunks[cy * mChunksX + cx].dirty = true;
-                }
-            }
+    if (!mLayout) {
+        pending = false;
+        return 0;
+    }
+    // a changed leaf changes the polygons of its unit and of the units of its neighbors
+    for (int leaf : stock.TakeDirtyLeaves()) {
+        mCache.Invalidate(leaf);
+        for (int unit : mLayout->AffectedUnits(leaf)) {
+            mUnits[unit].dirty = true;
         }
     }
-
     std::vector<int> dirty;
-    for (int i = 0; i < (int)mChunks.size(); i++) {
-        if (mChunks[i].dirty) {
+    for (int i = 0; i < (int)mUnits.size(); i++) {
+        if (mUnits[i].dirty) {
             dirty.push_back(i);
         }
     }
+    if (dirty.empty()) {
+        pending = false;
+        return 0;
+    }
 
-    // batches of one chunk per thread, until the time is used up
-    const auto start = std::chrono::steady_clock::now();
-    const int workers = pool.Size();
-    std::vector<DexelMesh> meshes(workers);
-    size_t done = 0;
-    while (done < dirty.size()) {
-        const size_t count = std::min(dirty.size() - done, (size_t)workers);
-        pool.Run([&](int worker) {
-            if ((size_t)worker >= count) {
-                return;
-            }
-            const int chunk = dirty[done + worker];
-            const int cx = chunk % mChunksX, cy = chunk / mChunksX;
-            BuildDexelMesh(
-                stock,
-                initial,
-                cx * ChunkSize,
-                cy * ChunkSize,
-                std::min(mNX, (cx + 1) * ChunkSize),
-                std::min(mNY, (cy + 1) * ChunkSize),
-                meshes[worker]
-            );
-        });
-        for (size_t i = 0; i < count; i++) {
-            Upload(mChunks[dirty[done + i]], meshes[i]);
+    // batches of units until the time is used up: the surface of the leaves they need, then
+    // their polygons
+    const auto deadline = std::chrono::steady_clock::now()
+        + std::chrono::duration<double, std::milli>(budgetMs);
+    std::vector<uint8_t> built(dirty.size(), 0);
+    const size_t batch = 4 * (size_t)pool.Size();
+    std::vector<int> leaves;
+    for (size_t first = 0; first < dirty.size() && std::chrono::steady_clock::now() < deadline;
+         first += batch) {
+        const size_t last = std::min(dirty.size(), first + batch);
+        leaves.clear();
+        for (size_t i = first; i < last; i++) {
+            const auto& needed = mLayout->UnitDependencies(dirty[i]);
+            leaves.insert(leaves.end(), needed.begin(), needed.end());
         }
-        done += count;
-        const std::chrono::duration<double, std::milli> elapsed = std::chrono::steady_clock::now()
-            - start;
-        if (elapsed.count() > budgetMs) {
-            break;
+        mCache.Update(stock, leaves, pool);
+        std::atomic<size_t> next {first};
+        pool.Run([&](int) {
+            while (true) {
+                const size_t i = next++;
+                if (i >= last) {
+                    break;
+                }
+                BuildDexelMesh(stock, mCache, mLayout->UnitLeaves(dirty[i]), mUnits[dirty[i]].mesh);
+                built[i] = 1;
+            }
+        });
+    }
+    int count = 0;
+    for (size_t i = 0; i < dirty.size(); i++) {
+        if (built[i]) {
+            mUnits[dirty[i]].dirty = false;
+            mChunks[mLayout->UnitChunk(dirty[i])].changed = true;
+            count++;
         }
     }
-    pending = done < dirty.size();
-    return (int)done;
+    for (Chunk& chunk : mChunks) {
+        if (chunk.changed) {
+            Upload(chunk);
+        }
+    }
+    pending = count < (int)dirty.size();
+    return count;
 }
 
-void DexelRenderer::Upload(Chunk& chunk, DexelMesh& mesh)
+void DexelRenderer::Upload(Chunk& chunk)
 {
-    chunk.dirty = false;
-    chunk.stockCount = (int)mesh.stockIndices.size();
-    chunk.cutCount = (int)mesh.cutIndices.size();
-    if (mesh.vertices.empty()) {
+    chunk.changed = false;
+    std::vector<DexelVertex> vertices;
+    std::vector<uint32_t> indices;
+    size_t nv = 0, ni = 0;
+    for (int u : chunk.units) {
+        nv += mUnits[u].mesh.vertices.size();
+        ni += mUnits[u].mesh.stockIndices.size() + mUnits[u].mesh.cutIndices.size();
+    }
+    vertices.reserve(nv);
+    indices.reserve(ni);
+    // stock faces first, then cut faces
+    for (int pass = 0; pass < 2; pass++) {
+        size_t base = 0;
+        for (int u : chunk.units) {
+            const DexelMesh& mesh = mUnits[u].mesh;
+            const auto& list = pass == 0 ? mesh.stockIndices : mesh.cutIndices;
+            for (uint32_t index : list) {
+                indices.push_back((uint32_t)(base + index));
+            }
+            base += mesh.vertices.size();
+        }
+        if (pass == 0) {
+            chunk.stockCount = (int)indices.size();
+        }
+    }
+    chunk.cutCount = (int)indices.size() - chunk.stockCount;
+    for (int u : chunk.units) {
+        const auto& v = mUnits[u].mesh.vertices;
+        vertices.insert(vertices.end(), v.begin(), v.end());
+    }
+    if (vertices.empty()) {
+        chunk.stockCount = chunk.cutCount = 0;
         return;
     }
     if (chunk.vbo == 0) {
         glGenBuffers(1, &chunk.vbo);
         glGenBuffers(1, &chunk.ibo);
     }
-    mesh.stockIndices.insert(mesh.stockIndices.end(), mesh.cutIndices.begin(), mesh.cutIndices.end());
     glBindBuffer(GL_ARRAY_BUFFER, chunk.vbo);
-    glBufferData(
-        GL_ARRAY_BUFFER,
-        mesh.vertices.size() * sizeof(DexelVertex),
-        mesh.vertices.data(),
-        GL_STATIC_DRAW
-    );
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(DexelVertex), vertices.data(), GL_STATIC_DRAW);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, chunk.ibo);
-    glBufferData(
-        GL_ELEMENT_ARRAY_BUFFER,
-        mesh.stockIndices.size() * sizeof(uint32_t),
-        mesh.stockIndices.data(),
-        GL_STATIC_DRAW
-    );
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(uint32_t), indices.data(), GL_STATIC_DRAW);
 }
 
 void DexelRenderer::Draw(const Chunk& chunk, bool cut) const
 {
     const int count = cut ? chunk.cutCount : chunk.stockCount;
-    if (count == 0) {
+    if (count == 0 || chunk.vbo == 0) {
         return;
     }
     glBindBuffer(GL_ARRAY_BUFFER, chunk.vbo);
@@ -189,9 +209,7 @@ void DexelRenderer::Render(SimDisplay& display, const float stockColor[3], const
         display.StartGeometryPass(colors[pass], false);
         CurrentShader->UpdateModelMat(identityMat, identityMat);
         for (const Chunk& chunk : mChunks) {
-            if (chunk.vbo) {
-                Draw(chunk, pass == 1);
-            }
+            Draw(chunk, pass == 1);
         }
     }
 }

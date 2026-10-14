@@ -36,12 +36,14 @@ namespace
 
 using Clock = std::chrono::steady_clock;
 
-// Work (cells) between two snapshots of the background simulation, and between checks of the
-// time budget in Update
+// Work (lines) between two snapshots of the background simulation, and the least between checks
+// of the time budget in Update
 constexpr double CheckpointWork = 2e6;
 constexpr double UpdateChunkWork = 1e5;
-// Memory of snapshot tiles after which every other snapshot is dropped
+// Memory of snapshot bricks after which every other snapshot is dropped
 constexpr long CheckpointMemory = 512L * 1024 * 1024;
+// Leaves of the layout at most, the finest level is dropped until it fits
+constexpr int MaxLeaves = 400000;
 
 int WorkerThreads()
 {
@@ -105,7 +107,7 @@ void DexelSimulation::Start(
     std::vector<CutSegment> segments,
     const std::vector<float>& xyz,
     const std::vector<uint32_t>& triangles,
-    float cellSize
+    float quality
 )
 {
     Stop();
@@ -113,27 +115,13 @@ void DexelSimulation::Start(
     mSegments = std::move(segments);
     mCheckpoints.clear();
 
-    // grid covering the stock
-    float minx = 1e30f, maxx = -1e30f, miny = 1e30f, maxy = -1e30f;
-    for (size_t i = 0; i + 2 < xyz.size(); i += 3) {
-        minx = std::min(minx, xyz[i]);
-        maxx = std::max(maxx, xyz[i]);
-        miny = std::min(miny, xyz[i + 1]);
-        maxy = std::max(maxy, xyz[i + 1]);
-    }
-    if (minx > maxx) {
-        minx = maxx = miny = maxy = 0;
-    }
-    const int nx = std::max(1, (int)std::ceil((maxx - minx) / cellSize));
-    const int ny = std::max(1, (int)std::ceil((maxy - miny) / cellSize));
-    const float x0 = (minx + maxx) / 2 - nx * cellSize / 2;
-    const float y0 = (miny + maxy) / 2 - ny * cellSize / 2;
-    mInitial.Init(x0, y0, cellSize, nx, ny);
+    BuildLayout(xyz, quality);
+    mInitial.Init(mLayout);
     mInitial.SetMesh(xyz, triangles, mPool);
     mInitial.Freeze();
-    mInitial.TakeDirtyTiles();
-    mStock.Init(x0, y0, cellSize, nx, ny);
-    mStock.Restore(mInitial.Tiles());
+    mInitial.TakeDirtyLeaves();
+    mStock.Init(mLayout);
+    mStock.Restore(mInitial.Bricks());
     mStock.SetTopZ(mInitial.TopZ());
 
     // timeline and work estimate
@@ -156,6 +144,113 @@ void DexelSimulation::Start(
     mWorker = std::thread([this] { Worker(); });
 }
 
+void DexelSimulation::BuildLayout(const std::vector<float>& xyz, float quality)
+{
+    float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+    for (size_t i = 0; i + 2 < xyz.size(); i += 3) {
+        for (int k = 0; k < 3; k++) {
+            lo[k] = std::min(lo[k], xyz[i + k]);
+            hi[k] = std::max(hi[k], xyz[i + k]);
+        }
+    }
+    if (lo[0] > hi[0]) {
+        for (int k = 0; k < 3; k++) {
+            lo[k] = hi[k] = 0;
+        }
+    }
+    const float longest = std::max({hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2], 1e-3f});
+    const float topZ = hi[2];
+
+    // Cells of the stock away from the tools: 32 to 104 along the longest side. Cells where a
+    // tool cuts: 0.5 to 0.1 times the size of the features of the tool.
+    const float q = std::clamp(quality, 1.0f, 10.0f);
+    const float baseCell = longest / (24 + 8 * q);
+    const float relative = 0.5f * std::pow(0.2f, (q - 1) / 9);
+    const float minCell = std::max(0.005f, longest / 4096);
+    std::vector<float> toolCell;
+    for (const auto& tool : mTools) {
+        toolCell.push_back(std::clamp(relative * tool->FeatureSize(), minCell, baseCell));
+    }
+    // the finest level for the smallest tool, the others at the level closest to their cells
+    float fineCell = baseCell;
+    for (const CutSegment& seg : mSegments) {
+        fineCell = std::min(fineCell, toolCell[seg.tool]);
+    }
+    int levels = std::clamp((int)std::floor(std::log2(baseCell / fineCell) + 1e-3), 0, 12);
+
+    while (true) {
+        auto layout = std::make_shared<DexelLayout>();
+        layout->Init(lo, hi, fineCell, levels);
+        for (const CutSegment& seg : mSegments) {
+            const CutterProfile& tool = *mTools[seg.tool];
+            const int level = std::clamp(
+                levels - (int)std::lround(std::log2(toolCell[seg.tool] / fineCell)),
+                0,
+                levels
+            );
+            if (level == 0) {
+                continue;
+            }
+            // pieces of arcs, the chords deviate at most a quarter of the tool radius
+            const float tolerance = std::max(tool.Radius() / 4, fineCell);
+            int pieces = 1;
+            if (seg.arc && seg.radius > tolerance) {
+                const float maxAngle = 2 * std::acos(1 - tolerance / seg.radius);
+                pieces = std::max(1, (int)std::ceil(std::abs(seg.sweep) / maxAngle));
+            }
+            for (int i = 0; i < pieces; i++) {
+                const float t0 = (float)i / pieces, t1 = (float)(i + 1) / pieces;
+                float p0[3], p1[3], a0[3], a1[3];
+                seg.PositionAt(t0, p0);
+                seg.PositionAt(t1, p1);
+                seg.AxisAt(t0, a0);
+                seg.AxisAt(t1, a1);
+                LayoutRegion region {};
+                const float axisZ = std::min(a0[2], a1[2]);
+                float length = tool.Height();
+                if (axisZ >= 0.05f) {
+                    const float side = tool.Radius() * std::sqrt(std::max(0.0f, 1 - axisZ * axisZ));
+                    length = std::clamp((topZ - std::min(p0[2], p1[2]) + side) / axisZ, 0.0f, length);
+                }
+                if (a0[2] > 0.999999f && a1[2] > 0.999999f) {
+                    std::copy(p0, p0 + 3, region.a);
+                    std::copy(p1, p1 + 3, region.b);
+                    region.radius = tool.Radius() + (seg.arc ? tolerance : 0);
+                    region.vertical = true;
+                    region.zlo = std::min(p0[2], p1[2]);
+                    region.zhi = std::max(p0[2], p1[2]) + length;
+                }
+                else {
+                    // spheres around the middle of the cutting part of the tool
+                    float turn = 0;
+                    for (int k = 0; k < 3; k++) {
+                        region.a[k] = p0[k] + a0[k] * length / 2;
+                        region.b[k] = p1[k] + a1[k] * length / 2;
+                        turn = std::max(turn, std::abs(a1[k] - a0[k]));
+                    }
+                    region.radius = std::hypot(tool.Radius(), length / 2) + turn * turn * length / 4
+                        + (seg.arc ? tolerance : 0);
+                    region.vertical = false;
+                }
+                region.UpdateBounds();
+                if (region.lo[2] > topZ) {
+                    continue;  // above the stock
+                }
+                layout->Refine(region, level);
+            }
+        }
+        layout->Finish();
+        if (layout->LeafCount() <= MaxLeaves || levels == 0) {
+            mLayout = layout;
+            break;
+        }
+        // too large, drop the finest level
+        levels--;
+        fineCell *= 2;
+    }
+    mArcTolerance = mLayout->FineCell() * 0.25f;
+}
+
 void DexelSimulation::SetTarget(long step)
 {
     mTarget = std::clamp(step, 0L, TotalSteps());
@@ -166,7 +261,7 @@ void DexelSimulation::AppendMoves(long from, long to, std::vector<CutMove>& move
     if (to <= from || mSegments.empty()) {
         return;
     }
-    const float tolerance = mInitial.CellSize() * 0.25f;
+    const float tolerance = mArcTolerance;
     size_t s = std::upper_bound(mBase.begin(), mBase.end(), from) - mBase.begin() - 1;
     for (; s < mSegments.size() && mBase[s] < to; s++) {
         const CutSegment& seg = mSegments[s];
@@ -235,8 +330,8 @@ void DexelSimulation::Worker()
     // the snapshots are a convenience, rendering and the visible simulation come first
     ThreadPool::LowerCurrentThreadPriority();
     DexelStock stock;
-    stock.Init(mInitial.X0(), mInitial.Y0(), mInitial.CellSize(), mInitial.NX(), mInitial.NY());
-    stock.Restore(mInitial.Tiles());
+    stock.Init(mLayout);
+    stock.Restore(mInitial.Bricks());
     stock.SetTopZ(mInitial.TopZ());
     double checkpointWork = CheckpointWork;
     long memory = 0;
@@ -252,10 +347,10 @@ void DexelSimulation::Worker()
         }
         step = next;
         stock.Freeze();
-        memory += stock.TakeNewTileBytes();
+        memory += stock.TakeNewBrickBytes();
 
         std::lock_guard<std::mutex> lock(mMutex);
-        mCheckpoints.push_back({step, stock.Tiles()});
+        mCheckpoints.push_back({step, stock.Bricks()});
         if (memory > CheckpointMemory && mCheckpoints.size() > 2) {
             // keep every other snapshot, and the latest
             std::vector<Checkpoint> kept;
@@ -293,7 +388,7 @@ bool DexelSimulation::Update(double budgetMs)
         if (it != mCheckpoints.begin()) {
             --it;
             bestStep = it->step;
-            best = it->tiles;
+            best = it->bricks;
         }
     }
     if (mTarget < mCurrent || bestStep > mCurrent) {
@@ -302,18 +397,27 @@ bool DexelSimulation::Update(double budgetMs)
             mCurrent = bestStep;
         }
         else {
-            mStock.Restore(mInitial.Tiles());
+            mStock.Restore(mInitial.Bricks());
             mCurrent = 0;
         }
         changed = true;
     }
 
+    // chunks of the work that fits in half of the remaining time, at the measured speed: larger
+    // chunks keep more threads busy
     std::vector<CutMove> moves;
     while (mCurrent < mTarget) {
-        const long next = std::min(mTarget, AdvanceByWork(mCurrent, (long)UpdateChunkWork));
+        const auto start = Clock::now();
+        const double remaining = std::chrono::duration<double, std::milli>(deadline - start).count();
+        const double chunk = std::max(UpdateChunkWork, mWorkPerMs * remaining / 2);
+        const long next = std::min(mTarget, AdvanceByWork(mCurrent, (long)chunk));
         moves.clear();
         AppendMoves(mCurrent, next, moves);
         mStock.Cut(moves, mPool);
+        const double ms = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
+        if (ms > 0.5) {
+            mWorkPerMs = 0.7 * mWorkPerMs + 0.3 * (WorkAt(next) - WorkAt(mCurrent)) / ms;
+        }
         mCurrent = next;
         changed = true;
         if (Clock::now() > deadline) {

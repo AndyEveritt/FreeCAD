@@ -29,6 +29,8 @@ SET(CAMSimulator_SRCS_Module
 SET(CAMSimulator_SRCS_Core
     CutterProfile.cpp
     CutterProfile.h
+    DexelLayout.cpp
+    DexelLayout.h
     DexelMesher.cpp
     DexelMesher.h
     DexelRenderer.cpp

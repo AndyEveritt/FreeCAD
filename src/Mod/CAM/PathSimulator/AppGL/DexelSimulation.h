@@ -60,7 +60,11 @@ struct CutSegment
     void AxisAt(float t, float axis[3]) const;
 };
 
-// Simulation of the stock material along the toolpath, with Z-dexels.
+// Simulation of the stock material along the toolpath, with tri-dexels at adaptive resolution.
+//
+// The resolution follows the tools: before simulating, the layout of the stock is refined
+// along the path of every tool to cells of a fraction of its size, so the detail doesn't depend on
+// the size of the stock.
 //
 // The simulation moves to a target step on the timeline. A background thread simulates the whole
 // toolpath once and keeps snapshots of the stock at regular intervals, so moving to any step only
@@ -71,14 +75,13 @@ public:
     DexelSimulation();
     ~DexelSimulation();
 
-    // Start a simulation. xyz/triangles: closed stock mesh. The grid covers the stock with cells
-    // of the given size.
+    // Start a simulation. xyz/triangles: closed stock mesh. quality: 1 (coarse) to 10 (fine)
     void Start(
         std::vector<std::unique_ptr<CutterProfile>> tools,
         std::vector<CutSegment> segments,
         const std::vector<float>& xyz,
         const std::vector<uint32_t>& triangles,
-        float cellSize
+        float quality
     );
     void Stop();
 
@@ -120,9 +123,10 @@ private:
     struct Checkpoint
     {
         long step;
-        DexelStock::Snapshot tiles;
+        DexelStock::Snapshot bricks;
     };
 
+    void BuildLayout(const std::vector<float>& xyz, float quality);
     void Worker();
     // Timeline step at which about 'work' more work than at 'from' is done
     long AdvanceByWork(long from, long work) const;
@@ -132,6 +136,10 @@ private:
     std::vector<CutSegment> mSegments;
     std::vector<long> mBase;    // timeline step of the start of each segment, and the total
     std::vector<double> mWork;  // estimated work up to the start of each segment, and the total
+    float mArcTolerance = 0.01f;  // largest deviation of the chords of arcs
+    double mWorkPerMs = 1e4;      // measured speed of Update
+
+    std::shared_ptr<const DexelLayout> mLayout;
 
     DexelStock mInitial;
     DexelStock mStock;

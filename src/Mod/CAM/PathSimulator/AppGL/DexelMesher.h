@@ -22,15 +22,19 @@
  *                                                                         *
  ***************************************************************************/
 
+
 #pragma once
 
 #include "DexelStock.h"
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace CAMSimulator
 {
+
+class ThreadPool;
 
 // Vertex of the stock mesh: position and normalized normal
 struct DexelVertex
@@ -47,21 +51,60 @@ struct DexelMesh
     std::vector<uint32_t> cutIndices;
 };
 
-// Build the mesh of the cells [ix0, ix1) x [iy0, iy1) of the stock. Faces are cut faces where they
-// are not on the surface of the initial stock.
+struct LeafGeometry;
+
+// Surface of the leaves of a stock, the input of the mesh: inside state of the grid points,
+// crossings of the edges, cells merged into cubes and their vertices. Kept while the material of
+// a leaf doesn't change.
+class DexelMeshCache
+{
+public:
+    DexelMeshCache();
+    ~DexelMeshCache();
+
+    void Reset(int leaves);
+    void Invalidate(int leaf);
+    // Compute the leaves that are missing, in parallel
+    void Update(const DexelStock& stock, const std::vector<int>& leaves, ThreadPool& pool);
+    // nullptr: no surface in the leaf, completely inside or outside
+    const LeafGeometry* Get(int leaf) const
+    {
+        return mLeaves[leaf].get();
+    }
+    bool IsSolid(int leaf) const
+    {
+        return mState[leaf] == Solid;
+    }
+
+private:
+    enum State : uint8_t
+    {
+        Missing,
+        Empty,
+        Solid,
+        Surface
+    };
+    std::vector<std::unique_ptr<LeafGeometry>> mLeaves;
+    std::vector<State> mState;
+};
+
+// Build the mesh of the given leaves of the stock layout, with dual contouring. The cache must
+// hold the leaves and their neighbors, see DexelLayout::UnitDependencies.
 //
-// Tops of neighboring cells within a few cells of height of each other form one smooth surface:
-// the corners of the cell tops are at the average height of the surface tops around them, so the
-// tops connect without side faces. Side faces are only made between cells not on one surface.
-// Equal flat faces are merged into rectangles.
+// Grid points are inside the material if the Z dexel through them is. Cells of a brick are
+// merged into larger cubes where the surface is simple. Every cube with a surface gets a vertex
+// where the planes of the crossings of the dexels along its edges meet, so sharp edges and
+// corners are kept. Every edge with a change of inside gets a quad of the vertices of the 4
+// cubes around it. Edges are taken from the smallest cubes around them, where larger cubes make
+// quads into triangles, so cubes of different sizes connect without cracks. Each edge belongs to
+// one cube, so meshes of neighboring groups of leaves fit together.
 void BuildDexelMesh(
     const DexelStock& stock,
-    const DexelStock& initial,
-    int ix0,
-    int iy0,
-    int ix1,
-    int iy1,
+    const DexelMeshCache& cache,
+    const std::vector<int>& leaves,
     DexelMesh& mesh
 );
+// The same, computing the needed leaves
+void BuildDexelMesh(const DexelStock& stock, const std::vector<int>& leaves, DexelMesh& mesh);
 
 }  // namespace CAMSimulator
