@@ -25,6 +25,7 @@
 #include "MillPathSegment.h"
 
 #include "GlUtils.h"
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <numbers>
@@ -80,7 +81,7 @@ MillPathSegment::MillPathSegment(const EndMill& _endmill, const MillMotion& from
         }
         else {
             mStepAngRad = asinf(mResolution / mRadius);
-            mStepAngRad = std::min(std::fmax(mStepAngRad, MAX_SEG_DEG), MIN_SEG_DEG);
+            mStepAngRad = std::clamp(mStepAngRad, MIN_SEG_DEG, MAX_SEG_DEG);
         }
 
         MotionPosToVec(mCenter, from);
