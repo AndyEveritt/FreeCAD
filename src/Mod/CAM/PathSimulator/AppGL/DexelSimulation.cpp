@@ -83,7 +83,7 @@ void CutSegment::AxisAt(float t, float axis[3]) const
 }
 
 DexelSimulation::DexelSimulation()
-    : mWorkerPool(WorkerThreads())
+    : mWorkerPool(WorkerThreads(), true)
 {}
 
 DexelSimulation::~DexelSimulation()
@@ -134,6 +134,7 @@ void DexelSimulation::Start(
     mInitial.TakeDirtyTiles();
     mStock.Init(x0, y0, cellSize, nx, ny);
     mStock.Restore(mInitial.Tiles());
+    mStock.SetTopZ(mInitial.TopZ());
 
     // timeline and work estimate
     mBase.assign(1, 0);
@@ -231,9 +232,12 @@ long DexelSimulation::AdvanceByWork(long from, long work) const
 
 void DexelSimulation::Worker()
 {
+    // the snapshots are a convenience, rendering and the visible simulation come first
+    ThreadPool::LowerCurrentThreadPriority();
     DexelStock stock;
     stock.Init(mInitial.X0(), mInitial.Y0(), mInitial.CellSize(), mInitial.NX(), mInitial.NY());
     stock.Restore(mInitial.Tiles());
+    stock.SetTopZ(mInitial.TopZ());
     double checkpointWork = CheckpointWork;
     long memory = 0;
     long step = 0;

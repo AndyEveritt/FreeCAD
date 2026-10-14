@@ -26,10 +26,32 @@
 
 #include <algorithm>
 
+#if defined(__linux__)
+# include <sys/resource.h>
+# include <sys/syscall.h>
+# include <unistd.h>
+#elif defined(_WIN32)
+# ifndef NOMINMAX
+#  define NOMINMAX
+# endif
+# include <windows.h>
+#endif
+
 namespace CAMSimulator
 {
 
-ThreadPool::ThreadPool(int threads)
+void ThreadPool::LowerCurrentThreadPriority()
+{
+#if defined(__linux__)
+    // on Linux the nice value applies to the thread
+    setpriority(PRIO_PROCESS, (id_t)syscall(SYS_gettid), 10);
+#elif defined(_WIN32)
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+#endif
+}
+
+ThreadPool::ThreadPool(int threads, bool lowPriority)
+    : mLowPriority(lowPriority)
 {
     if (threads <= 0) {
         threads = std::max(1, (int)std::thread::hardware_concurrency());
@@ -72,6 +94,9 @@ void ThreadPool::Run(const std::function<void(int)>& fn)
 
 void ThreadPool::WorkerLoop(int worker)
 {
+    if (mLowPriority) {
+        LowerCurrentThreadPriority();
+    }
     unsigned generation = 0;
     while (true) {
         const std::function<void(int)>* task;

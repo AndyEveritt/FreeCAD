@@ -39,7 +39,7 @@
 namespace CAMSimulator
 {
 
-constexpr int ChunkSize = 64;  // cells, a multiple of DexelTileSize
+constexpr int ChunkSize = 32;  // cells, a multiple of DexelTileSize
 
 DexelRenderer::~DexelRenderer()
 {

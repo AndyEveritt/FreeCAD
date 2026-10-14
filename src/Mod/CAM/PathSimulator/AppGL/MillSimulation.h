@@ -168,6 +168,8 @@ protected:
     DexelRenderer mDexelRenderer;
     bool mDexelNeedsStart = false;
     bool mMeshPending = false;
+    double mBudgetScale = 1;  // of the time per frame for simulating and meshing
+    std::chrono::steady_clock::time_point mLastFrameStart;
     float mQuality = 10;
     std::vector<float> mStockXyz;
     std::vector<uint32_t> mStockTriangles;

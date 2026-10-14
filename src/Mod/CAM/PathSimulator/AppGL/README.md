@@ -17,27 +17,32 @@ across the grid is the cell size, along Z it is exact.
   owning a subset of the tiles; cutting is order independent, so no locking is needed.
   - vertical tools: a linear move removes, at every dexel, the tool solid at its closest approach,
     over the height range of the move, split into pieces of at most a quarter cell of height
-  - tilted or turning tools (5 axis): tool instances along the move, at most half a cell apart
+  - tilted or turning tools (5 axis): tool instances along the move, at most half a cell apart,
+    limited to the part of the tool below the top of the stock
 - `DexelSimulation`: maps the simulation timeline (steps of the toolpath segments) to cuts. A
   background thread simulates the whole toolpath once and keeps snapshots of the stock at regular
-  amounts of work. Moving to any step restores the closest snapshot before it and cuts the rest,
-  within a time budget per frame; `MillSimulation::IsRenderPending` tells if the view is not up to
-  date yet.
+  amounts of work, with low thread priority. Moving to any step restores the closest snapshot
+  before it and cuts the rest, within a time budget per frame; `MillSimulation::IsRenderPending`
+  tells if the view is not up to date yet.
 
 ## Display
 
-- `DexelMesher`: builds triangles from the dexels, per chunk of 64 x 64 cells. Neighboring cell
-  tops within 3 cells of height form a smooth surface with shared vertices and normals; side faces
+- `DexelMesher`: builds triangles from the dexels, per chunk of 32 x 32 cells. Neighboring cell
+  tops within 5 cells of height form a smooth surface with shared vertices and normals; side faces
   only separate tops that are not on one surface. Flat faces and straight walls are merged. Faces
   not on the surface of the initial stock are cut faces, drawn in the cut color.
 - `DexelRenderer`: keeps the chunks in vertex buffers and rebuilds the chunks of changed tiles,
   within a time budget per frame.
 - `SimDisplay`: deferred shading with optional ambient occlusion (SSAO, at half resolution).
 
-Rotating or zooming the view only draws the chunk meshes, independent of the toolpath length.
+Rotating or zooming the view only draws the chunk meshes, independent of the toolpath length. The
+time budgets for simulating and meshing shrink while frames take longer than 30 ms, so heavy scenes
+keep their frame rate and take a few more frames to show the current state. The view is only
+rendered when something changed.
 
 The cell size follows the accuracy of the simulator task panel: 138 (lowest) to 480 (highest)
-cells along the larger side of the stock.
+cells along the larger side of the stock. Cells are at most 0.75 times the radius of the smallest
+tool, so small tools cut on large stock, but not more than 1200 along the larger side.
 
 ## 5 axis toolpaths
 

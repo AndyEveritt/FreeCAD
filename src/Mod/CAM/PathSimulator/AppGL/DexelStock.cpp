@@ -129,6 +129,11 @@ void DexelStock::SetMesh(
     ThreadPool& pool
 )
 {
+    mTopZ = -1e30f;
+    for (size_t i = 2; i < xyz.size(); i += 3) {
+        mTopZ = std::max(mTopZ, xyz[i]);
+    }
+
     // triangles overlapping each tile
     std::vector<std::vector<int>> tileTriangles(mTiles.size());
     const int nTriangles = (int)triangles.size() / 3;
@@ -314,6 +319,18 @@ long DexelStock::TakeNewTileBytes()
     return mNewTileBytes.exchange(0);
 }
 
+float DexelStock::CuttingLength(const CutMove& move) const
+{
+    const float h = move.tool->Height();
+    const float axisZ = std::min(move.a0[2], move.a1[2]);
+    if (axisZ < 0.05f) {
+        return h;  // (almost) horizontal tools reach the material with their whole length
+    }
+    const float tipZ = std::min(move.p0[2], move.p1[2]);
+    const float side = move.tool->Radius() * std::sqrt(std::max(0.0f, 1 - axisZ * axisZ));
+    return std::clamp((mTopZ - tipZ + side) / axisZ, 0.0f, h);
+}
+
 long DexelStock::EstimateWork(const CutMove& move) const
 {
     const float r = move.tool->Radius() + mCell;
@@ -323,7 +340,7 @@ long DexelStock::EstimateWork(const CutMove& move) const
     float area = (length + 2 * r) * 2 * r;
     if (!IsVertical(move.a0) || !IsVertical(move.a1)) {
         // sampled instances, each covering the tool footprint
-        const float h = move.tool->Height();
+        const float h = CuttingLength(move);
         float dist = std::hypot(length, move.p1[2] - move.p0[2]);
         for (int k = 0; k < 3; k++) {
             dist = std::max(dist, std::abs(move.a1[k] - move.a0[k]) * h);
@@ -381,9 +398,9 @@ void DexelStock::CutWorker(const CutMove& move, int worker, int workers, long& w
         return;
     }
 
-    // General motion: tool instances, close enough that neither the tip nor the top of the tool
-    // moves more than half a cell between them.
-    const float h = tool.Height();
+    // General motion: tool instances, close enough that neither the tip nor the top of the
+    // cutting part of the tool moves more than half a cell between them.
+    const float h = CuttingLength(move);
     float dist = 0;
     for (int k = 0; k < 3; k++) {
         const float tip = move.p1[k] - move.p0[k];
@@ -507,7 +524,15 @@ void DexelStock::CutInstance(
 )
 {
     const float r = tool.Radius();
-    const float h = tool.Height();
+    // only the part of the tool below the top of the material can cut
+    float h = tool.Height();
+    const float side = r * std::sqrt(std::max(0.0f, 1 - axis[2] * axis[2]));
+    if (tip[2] - side > mTopZ && axis[2] >= 0) {
+        return;
+    }
+    if (axis[2] > 1e-6f) {
+        h = std::min(h, (mTopZ - tip[2] + side) / axis[2]);
+    }
     const float top[3] = {tip[0] + axis[0] * h, tip[1] + axis[1] * h, tip[2] + axis[2] * h};
     const int ix0 = std::max(0, (int)std::floor((std::min(tip[0], top[0]) - r - mX0) / mCell));
     const int ix1 = std::min(mNX - 1, (int)std::floor((std::max(tip[0], top[0]) + r - mX0) / mCell));

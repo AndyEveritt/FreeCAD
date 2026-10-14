@@ -135,6 +135,17 @@ public:
     // Estimated work of cutting a move, in cells
     long EstimateWork(const CutMove& move) const;
 
+    // Upper bound of the height of the material, parts of tools above it are not cut. Set by
+    // SetMesh, unbounded otherwise.
+    float TopZ() const
+    {
+        return mTopZ;
+    }
+    void SetTopZ(float z)
+    {
+        mTopZ = z;
+    }
+
 private:
     int TileIndex(int ix, int iy) const
     {
@@ -164,6 +175,8 @@ private:
         std::vector<Interval>& scratch
     );
     bool SubtractCell(int tile, int local, const Interval* removal, int count);
+    // Length of the tool from its tip that can reach the material during a move
+    float CuttingLength(const CutMove& move) const;
 
     float mX0 = 0;
     float mY0 = 0;
@@ -175,6 +188,7 @@ private:
     Snapshot mTiles;
     std::vector<uint8_t> mDirty;
     std::atomic<long> mNewTileBytes {0};
+    float mTopZ = 1e30f;
 };
 
 }  // namespace CAMSimulator

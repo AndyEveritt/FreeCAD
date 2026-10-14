@@ -34,7 +34,7 @@ namespace
 {
 
 // Largest height difference between neighboring cell tops on one smooth surface, in cells
-constexpr float SmoothStep = 3.0f;
+constexpr float SmoothStep = 5.0f;
 
 class Mesher
 {

@@ -915,9 +915,22 @@ void MillSimulation::UpdateDexelSimulation()
     }
     const long target = mPathStep < 0 ? 0 : mDexel->GlobalStep(mPathStep, mSubStep);
     mDexel->SetTarget(target);
-    // time for simulating and meshing, leaving time for rendering the frame
-    constexpr double simulateMs = 5;
-    constexpr double meshMs = 6;
+    // Time for simulating and meshing, leaving time for rendering the frame. While frames are
+    // rendered continuously, the time is reduced when frames take longer than 30 ms, so heavy
+    // scenes keep their frame rate and take a few more frames to show the current state.
+    const auto now = std::chrono::steady_clock::now();
+    const std::chrono::duration<double, std::milli> interval = now - mLastFrameStart;
+    mLastFrameStart = now;
+    if (interval.count() < 100) {
+        if (interval.count() > 30) {
+            mBudgetScale = std::max(0.15, mBudgetScale * 0.7);
+        }
+        else if (interval.count() < 24) {
+            mBudgetScale = std::min(1.0, mBudgetScale * 1.15);
+        }
+    }
+    const double simulateMs = 5 * mBudgetScale;
+    const double meshMs = 6 * mBudgetScale;
     if (mDexel->Update(simulateMs)) {
         simDisplay.updateDisplay = true;
     }

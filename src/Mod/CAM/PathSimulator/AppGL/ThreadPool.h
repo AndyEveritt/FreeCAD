@@ -37,8 +37,9 @@ namespace CAMSimulator
 class ThreadPool
 {
 public:
-    // threads <= 0 uses one thread per hardware thread
-    explicit ThreadPool(int threads = 0);
+    // threads <= 0 uses one thread per hardware thread. Low priority threads yield to other work,
+    // like rendering.
+    explicit ThreadPool(int threads = 0, bool lowPriority = false);
     ~ThreadPool();
 
     ThreadPool(const ThreadPool&) = delete;
@@ -53,8 +54,13 @@ public:
     // The calling thread runs worker 0.
     void Run(const std::function<void(int)>& fn);
 
+    // Lower the scheduling priority of the calling thread
+    static void LowerCurrentThreadPriority();
+
 private:
     void WorkerLoop(int worker);
+
+    bool mLowPriority = false;
 
     std::vector<std::thread> mThreads;
     std::mutex mMutex;
