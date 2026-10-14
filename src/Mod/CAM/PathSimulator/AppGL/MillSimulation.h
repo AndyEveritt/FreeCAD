@@ -87,6 +87,7 @@ public:
 
     void SetSimulationStage(float stage);
     bool IsRenderPending() const;
+    void SetScrubbing(bool b);
     void SetState(const MillSimulationState& state);
     const MillSimulationState& GetState() const;
 
@@ -119,6 +120,7 @@ protected:
     void GlsimEnd(void);
     void RenderStockCuts(bool incremental);
     bool GetSegmentStepRange(int iSeg, bool newOnly, int& first, int& last) const;
+    void UpdateSimulationCheckpoint();
     void renderSegmentForward(int iSeg, bool newOnly);
     void renderSegmentReversed(int iSeg, bool newOnly);
     void CalcSegmentPositions();
@@ -128,10 +130,25 @@ protected:
 protected:
     bool simulationInitiated = false;
 
+    // position in the simulation, ordered by mCurStep
+    struct SimPosition
+    {
+        int curStep = -1;
+        int pathStep = -1;
+        int subStep = 0;
+    };
+
     // simulation position held by the simulation cache of simDisplay
     int mCachedPathStep = -1;
     int mCachedSubStep = 0;
+    int mCachedCurStep = -1;
     bool mCacheIncremental = false;
+
+    // positions of the simulation checkpoints of simDisplay, curStep < 0 for unused slots
+    std::vector<SimPosition> mCheckpoints;
+
+    // true while the user drags the simulation stage slider
+    bool mScrubbing = false;
 
     // protected:
 public:

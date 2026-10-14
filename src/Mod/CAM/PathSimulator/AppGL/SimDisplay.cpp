@@ -46,6 +46,10 @@ namespace CAMSimulator
 
 constexpr auto pi = std::numbers::pi_v<float>;
 
+// limits for the GPU memory used by simulation checkpoints
+constexpr int SIM_CHECKPOINT_MAX = 16;
+constexpr std::size_t SIM_CHECKPOINT_MEMORY_BUDGET = 512 * 1024 * 1024;
+
 void SimDisplay::InitShaders()
 {
     // use shaders
@@ -327,6 +331,11 @@ void SimDisplay::CleanFbos()
     GLDELETE_TEXTURE(mSimPosTexture);
     GLDELETE_TEXTURE(mSimNormTexture);
     GLDELETE_RENDERBUFFER(mSimRboDepthStencil);
+
+    for (auto& checkpoint : mSimCheckpoints) {
+        DeleteGBufferFbo(checkpoint);
+    }
+    mSimCheckpoints.clear();
 }
 
 void SimDisplay::CleanGL()
@@ -386,14 +395,21 @@ void SimDisplay::StartSimulationPass(bool clear)
 void SimDisplay::EndSimulationPass()
 {
     mTargetFbo = mFbo;
+    BlitGBuffer(mSimFbo, mFbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, mFbo);
+    simCacheValid = true;
+}
 
+// Copy all attachments of one geometric info frame buffer to another
+void SimDisplay::BlitGBuffer(unsigned int fromFbo, unsigned int toFbo)
+{
     // make sure all buffers are writable
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glDepthMask(GL_TRUE);
     glStencilMask(0xFF);
 
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, mSimFbo);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, mFbo);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, fromFbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, toFbo);
 
     // blit only copies a single color buffer at a time
     for (int i = 0; i < 3; i++) {
@@ -430,9 +446,66 @@ void SimDisplay::EndSimulationPass()
     unsigned int attachments[3] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2};
     glDrawBuffers(3, attachments);
     glReadBuffer(GL_COLOR_ATTACHMENT0);
-    glBindFramebuffer(GL_FRAMEBUFFER, mFbo);
+}
 
-    simCacheValid = true;
+// Number of simulation checkpoints that fit the memory budget at the current window size
+int SimDisplay::MaxSimulationCheckpoints() const
+{
+    if (!CanCacheSimulation()) {
+        return 0;
+    }
+    // color (RGBA8) + position and normal (RGB32F, usually padded to RGBA) + depth/stencil
+    constexpr std::size_t bytesPerPixel = 4 + 16 + 16 + 4;
+    const std::size_t bytesPerCheckpoint = (std::size_t)mWidth * mHeight * bytesPerPixel;
+    const std::size_t count
+        = SIM_CHECKPOINT_MEMORY_BUDGET / std::max<std::size_t>(bytesPerCheckpoint, 1);
+    return (int)std::min<std::size_t>(count, SIM_CHECKPOINT_MAX);
+}
+
+// Copy the simulation frame buffer to checkpoint 'slot'. Returns false if it could not be created.
+bool SimDisplay::SaveSimulationCheckpoint(int slot)
+{
+    if (slot < 0 || slot >= MaxSimulationCheckpoints()) {
+        return false;
+    }
+    if (slot >= (int)mSimCheckpoints.size()) {
+        mSimCheckpoints.resize(slot + 1);
+    }
+
+    GBufferFbo& checkpoint = mSimCheckpoints[slot];
+    if (checkpoint.fbo == 0) {
+        const bool complete = CreateGBufferFbo(
+            checkpoint.fbo,
+            checkpoint.colTexture,
+            checkpoint.posTexture,
+            checkpoint.normTexture,
+            checkpoint.rboDepthStencil
+        );
+        if (!complete) {
+            DeleteGBufferFbo(checkpoint);
+            return false;
+        }
+    }
+
+    BlitGBuffer(mSimFbo, checkpoint.fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, mTargetFbo);
+    return true;
+}
+
+// Copy checkpoint 'slot' to the simulation frame buffer
+void SimDisplay::RestoreSimulationCheckpoint(int slot)
+{
+    BlitGBuffer(mSimCheckpoints.at(slot).fbo, mSimFbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, mTargetFbo);
+}
+
+void SimDisplay::DeleteGBufferFbo(GBufferFbo& gbuf)
+{
+    GLDELETE_FRAMEBUFFER(gbuf.fbo);
+    GLDELETE_TEXTURE(gbuf.colTexture);
+    GLDELETE_TEXTURE(gbuf.posTexture);
+    GLDELETE_TEXTURE(gbuf.normTexture);
+    GLDELETE_RENDERBUFFER(gbuf.rboDepthStencil);
 }
 
 // Reset the geometric info of all pixels where the stencil value is 0 to the cleared state

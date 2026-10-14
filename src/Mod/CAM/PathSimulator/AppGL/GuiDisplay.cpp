@@ -52,6 +52,8 @@ GuiDisplay::GuiDisplay(QWidget* parent)
     connect(ui->rotateButton, &QToolButton::toggled, this, &GuiDisplay::rotateEnableChanged);
     connect(ui->pathButton, &QToolButton::toggled, this, &GuiDisplay::pathVisibleChanged);
     connect(ui->ssaoButton, &QToolButton::toggled, this, &GuiDisplay::ssaoEnableChanged);
+    connect(ui->stageSlider, &QSlider::sliderPressed, this, [this] { Q_EMIT scrubbing(true); });
+    connect(ui->stageSlider, &QSlider::sliderReleased, this, [this] { Q_EMIT scrubbing(false); });
 }
 
 GuiDisplay::~GuiDisplay()

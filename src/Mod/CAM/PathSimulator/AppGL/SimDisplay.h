@@ -44,6 +44,16 @@ struct Point3D
     float x, y, z;
 };
 
+// frame buffer holding the geometric info of a rendered simulation
+struct GBufferFbo
+{
+    unsigned int fbo = 0;
+    unsigned int colTexture = 0;
+    unsigned int posTexture = 0;
+    unsigned int normTexture = 0;
+    unsigned int rboDepthStencil = 0;
+};
+
 class SimDisplay
 {
 public:
@@ -59,6 +69,9 @@ public:
     void EndSimulationPass();
     void ClearGeometryOutsideStencil();
     bool CanCacheSimulation() const;
+    int MaxSimulationCheckpoints() const;
+    bool SaveSimulationCheckpoint(int slot);
+    void RestoreSimulationCheckpoint(int slot);
     void RenderLightObject();
     void ScaleViewToStock(StockObject* obj);
     void RenderResult(bool recalculate, bool ssao);
@@ -87,6 +100,8 @@ protected:
         unsigned int& rboDepthStencil
     );
     void CreateSsaoFbos();
+    void DeleteGBufferFbo(GBufferFbo& gbuf);
+    void BlitGBuffer(unsigned int fromFbo, unsigned int toFbo);
     void CreateFboQuad();
     void SetupVertexAttribs() const;
     void CreateGBufTex(GLenum texUnit, GLint intFormat, GLenum format, GLenum type, GLuint& texid);
@@ -151,6 +166,9 @@ protected:
     unsigned int mSimPosTexture = 0;
     unsigned int mSimNormTexture = 0;
     unsigned int mSimRboDepthStencil = 0;
+
+    // copies of the simulation frame buffer at different simulation positions, created on demand
+    std::vector<GBufferFbo> mSimCheckpoints;
 
     // ssao frame buffers
     bool mSsaoValid = false;

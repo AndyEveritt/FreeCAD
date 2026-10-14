@@ -316,25 +316,83 @@ void MillSimulation::RenderSimulation()
     }
 
     const bool cacheValid = simDisplay.simCacheValid;
-    const bool samePosition = mPathStep == mCachedPathStep && mSubStep == mCachedSubStep;
-    const bool forward = mPathStep > mCachedPathStep
-        || (mPathStep == mCachedPathStep && mSubStep >= mCachedSubStep);
+    if (!cacheValid) {
+        // checkpoints are invalidated along with the cache
+        mCheckpoints.clear();
+    }
 
     // An incremental update only subtracts the new steps from the cached result, so it may miss
     // overlaps that the full render resolves by re-applying all steps in several orders. It is
-    // therefore only used while playing, and a full render is done once the simulation rests.
-    const bool reuse = cacheValid && samePosition && (mSimPlaying || !mCacheIncremental);
-    const bool incremental = !reuse && cacheValid && forward && mSimPlaying;
+    // therefore only used while playing or scrubbing, and a full render is done once the
+    // simulation rests.
+    const bool interactive = mSimPlaying || mScrubbing;
 
-    if (!reuse) {
-        simDisplay.StartSimulationPass(!incremental);
-        RenderStockCuts(incremental);
-        mCachedPathStep = mPathStep;
-        mCachedSubStep = mSubStep;
-        mCacheIncremental = incremental;
+    const bool samePosition = mPathStep == mCachedPathStep && mSubStep == mCachedSubStep;
+    if (cacheValid && samePosition && (interactive || !mCacheIncremental)) {
+        // nothing changed, reuse the cached result
+        simDisplay.EndSimulationPass();
+        return;
     }
 
+    bool incremental = false;
+    if (cacheValid && interactive) {
+        const bool forward = mPathStep > mCachedPathStep
+            || (mPathStep == mCachedPathStep && mSubStep >= mCachedSubStep);
+        incremental = forward;
+
+        // continue from the latest checkpoint before the current position, unless the cache is
+        // already closer
+        int bestSlot = -1;
+        int bestStep = forward ? mCachedCurStep : -1;
+        for (int i = 0; i < (int)mCheckpoints.size(); i++) {
+            const int step = mCheckpoints[i].curStep;
+            if (step >= 0 && step <= mCurStep && step > bestStep) {
+                bestSlot = i;
+                bestStep = step;
+            }
+        }
+        if (bestSlot >= 0) {
+            simDisplay.RestoreSimulationCheckpoint(bestSlot);
+            mCachedPathStep = mCheckpoints[bestSlot].pathStep;
+            mCachedSubStep = mCheckpoints[bestSlot].subStep;
+            mCachedCurStep = mCheckpoints[bestSlot].curStep;
+            incremental = true;
+        }
+    }
+
+    simDisplay.StartSimulationPass(!incremental);
+    RenderStockCuts(incremental);
+    mCachedPathStep = mPathStep;
+    mCachedSubStep = mSubStep;
+    mCachedCurStep = mCurStep;
+    mCacheIncremental = incremental;
+
+    UpdateSimulationCheckpoint();
+
     simDisplay.EndSimulationPass();
+}
+
+// Keep a copy of the simulation cache at evenly spaced positions, so moving backwards in the
+// simulation can continue from a nearby checkpoint instead of rendering all steps again.
+void MillSimulation::UpdateSimulationCheckpoint()
+{
+    const int nCheckpoints = simDisplay.MaxSimulationCheckpoints();
+    if (nCheckpoints <= 0 || mNTotalSteps <= 0) {
+        return;
+    }
+    mCheckpoints.resize(nCheckpoints);
+
+    // each slot covers a range of steps, prefer the earliest position within that range
+    const int slot
+        = std::min((int)((long long)mCurStep * nCheckpoints / mNTotalSteps), nCheckpoints - 1);
+    SimPosition& checkpoint = mCheckpoints[slot];
+    if (checkpoint.curStep >= 0 && checkpoint.curStep <= mCurStep) {
+        return;
+    }
+
+    if (simDisplay.SaveSimulationCheckpoint(slot)) {
+        checkpoint = {mCurStep, mPathStep, mSubStep};
+    }
 }
 
 // Render the stock with all cuts up to the current simulation position. If 'incremental' is set,
@@ -695,6 +753,16 @@ void MillSimulation::SetSimulationStage(float stage)
 bool MillSimulation::IsRenderPending() const
 {
     return false;
+}
+
+void MillSimulation::SetScrubbing(bool b)
+{
+    if (b == mScrubbing) {
+        return;
+    }
+
+    mScrubbing = b;
+    simDisplay.updateDisplay = true;
 }
 
 void MillSimulation::SetState(const MillSimulationState& state)

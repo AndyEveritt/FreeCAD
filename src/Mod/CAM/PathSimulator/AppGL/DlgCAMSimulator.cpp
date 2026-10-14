@@ -110,6 +110,10 @@ void DlgCAMSimulator::connectTo(GuiDisplay& gui, Dummy3DViewer& dv)
         mMillSimulator->SetSimulationStage(f);
     });
 
+    connect(&gui, &GuiDisplay::scrubbing, this, [this](bool b) {
+        mMillSimulator->SetScrubbing(b);
+    });
+
     connect(&gui, &GuiDisplay::rotateEnableChanged, this, &DlgCAMSimulator::setRotateEnabled);
 
     connect(&gui, &GuiDisplay::pathVisibleChanged, this, [this](bool b) {

@@ -53,6 +53,7 @@ Q_SIGNALS:
     void singleStep();
     void speedChanged(int s);
     void stageChanged(float f);
+    void scrubbing(bool b);
 
     void viewAll();
     void stockVisibleChanged(bool b);
