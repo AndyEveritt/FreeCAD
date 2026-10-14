@@ -55,6 +55,10 @@ public:
     void StartDepthPass();
     void StartGeometryPass(const vec3& objColor, bool invertNormals);
     void StartCloserGeometryPass(const vec3& objColor);
+    void StartSimulationPass(bool clear);
+    void EndSimulationPass();
+    void ClearGeometryOutsideStencil();
+    bool CanCacheSimulation() const;
     void RenderLightObject();
     void ScaleViewToStock(StockObject* obj);
     void RenderResult(bool recalculate, bool ssao);
@@ -69,10 +73,19 @@ public:
 public:
     bool updateDisplay = false;
     bool displayInitiated = false;
+    // true while the simulation FBO holds a valid result for the current view
+    bool simCacheValid = false;
 
 protected:
     void InitShaders();
     void CreateDisplayFbos();
+    bool CreateGBufferFbo(
+        unsigned int& fbo,
+        unsigned int& colTex,
+        unsigned int& posTex,
+        unsigned int& normTex,
+        unsigned int& rboDepthStencil
+    );
     void CreateSsaoFbos();
     void CreateFboQuad();
     void SetupVertexAttribs() const;
@@ -93,6 +106,7 @@ protected:
     Shader shaderGeom, shaderSSAO, shaderSSAOLighting, shaderSSAOBlur;
     Shader shaderGeomCloser;
     Shader shaderLinePath;
+    Shader shaderClearGeom;
 
     vec3 lightColor = {0.5f, 0.6f, 0.7f};
     vec3 lightPos = {20.0f, 20.0f, 10.0f};
@@ -126,6 +140,17 @@ protected:
     unsigned int mFboNormTexture = 0;
     unsigned int mRboDepthStencil = 0;
     unsigned int mFboQuadVBO = 0;
+    // fbo currently receiving geometry passes, either mFbo or mSimFbo
+    unsigned int mTargetFbo = 0;
+
+    // simulation frame buffer, keeps the simulated stock without tool/path/base overlays so it
+    // can be updated incrementally while the simulation advances
+    bool mSimFboSupported = false;
+    unsigned int mSimFbo = 0;
+    unsigned int mSimColTexture = 0;
+    unsigned int mSimPosTexture = 0;
+    unsigned int mSimNormTexture = 0;
+    unsigned int mSimRboDepthStencil = 0;
 
     // ssao frame buffers
     bool mSsaoValid = false;

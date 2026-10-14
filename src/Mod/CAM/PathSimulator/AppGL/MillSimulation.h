@@ -117,14 +117,21 @@ protected:
     void GlsimRenderStock(void);
     void GlsimRenderTools(void);
     void GlsimEnd(void);
-    void renderSegmentForward(int iSeg);
-    void renderSegmentReversed(int iSeg);
+    void RenderStockCuts(bool incremental);
+    bool GetSegmentStepRange(int iSeg, bool newOnly, int& first, int& last) const;
+    void renderSegmentForward(int iSeg, bool newOnly);
+    void renderSegmentReversed(int iSeg, bool newOnly);
     void CalcSegmentPositions();
     EndMill* GetTool(int tool);
     void RemoveTool(int toolId);
 
 protected:
     bool simulationInitiated = false;
+
+    // simulation position held by the simulation cache of simDisplay
+    int mCachedPathStep = -1;
+    int mCachedSubStep = 0;
+    bool mCacheIncremental = false;
 
     // protected:
 public:

@@ -34,6 +34,7 @@
 
 #include <Inventor/nodes/SoOrthographicCamera.h>
 #include <Inventor/nodes/SoPerspectiveCamera.h>
+#include <QOpenGLContext>
 #include <algorithm>
 #include <numbers>
 
@@ -87,6 +88,9 @@ void SimDisplay::InitShaders()
 
     // Mill Path Line Shader
     shaderLinePath.CompileShader("PathLine", VertShader3DLine, FragShader3DLine);
+
+    // clear geometric info texture of fragments that passes the stencil test
+    shaderClearGeom.CompileShader("ClearGeom", VertShader2DFbo, FragShaderClearGeom);
 }
 
 void SimDisplay::CreateFboQuad()
@@ -142,29 +146,34 @@ void SimDisplay::UniformCircle(vec3& randVec)
     randVec[2] = 0;
 }
 
-void SimDisplay::CreateDisplayFbos()
+bool SimDisplay::CreateGBufferFbo(
+    unsigned int& fbo,
+    unsigned int& colTex,
+    unsigned int& posTex,
+    unsigned int& normTex,
+    unsigned int& rboDepthStencil
+)
 {
-    // setup frame buffer for simulation
-    glGenFramebuffers(1, &mFbo);
-    glBindFramebuffer(GL_FRAMEBUFFER, mFbo);
+    glGenFramebuffers(1, &fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
 
     // a color texture for the frame buffer
-    CreateGBufTex(GL_TEXTURE0, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, mFboColTexture);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mFboColTexture, 0);
+    CreateGBufTex(GL_TEXTURE0, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, colTex);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colTex, 0);
 
     // a position texture for the frame buffer
-    CreateGBufTex(GL_TEXTURE1, GL_RGB32F, GL_RGBA, GL_FLOAT, mFboPosTexture);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, mFboPosTexture, 0);
+    CreateGBufTex(GL_TEXTURE1, GL_RGB32F, GL_RGBA, GL_FLOAT, posTex);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, posTex, 0);
 
     // a normal texture for the frame buffer
-    CreateGBufTex(GL_TEXTURE2, GL_RGB32F, GL_RGBA, GL_FLOAT, mFboNormTexture);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, mFboNormTexture, 0);
+    CreateGBufTex(GL_TEXTURE2, GL_RGB32F, GL_RGBA, GL_FLOAT, normTex);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, normTex, 0);
 
     unsigned int attachments[3] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2};
     glDrawBuffers(3, attachments);
 
-    glGenRenderbuffers(1, &mRboDepthStencil);
-    glBindRenderbuffer(GL_RENDERBUFFER, mRboDepthStencil);
+    glGenRenderbuffers(1, &rboDepthStencil);
+    glBindRenderbuffer(GL_RENDERBUFFER, rboDepthStencil);
     glRenderbufferStorage(
         GL_RENDERBUFFER,
         GL_DEPTH24_STENCIL8,
@@ -175,11 +184,34 @@ void SimDisplay::CreateDisplayFbos()
         GL_FRAMEBUFFER,
         GL_DEPTH_STENCIL_ATTACHMENT,
         GL_RENDERBUFFER,
-        mRboDepthStencil
+        rboDepthStencil
     );  // now actually attach it
 
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+    return glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+}
+
+void SimDisplay::CreateDisplayFbos()
+{
+    simCacheValid = false;
+
+    // setup frame buffer for simulation
+    bool complete
+        = CreateGBufferFbo(mFbo, mFboColTexture, mFboPosTexture, mFboNormTexture, mRboDepthStencil);
+    mTargetFbo = mFbo;
+    if (!complete) {
         return;
+    }
+
+    // setup frame buffer that keeps the simulation result between frames
+    if (mSimFboSupported
+        && !CreateGBufferFbo(
+            mSimFbo,
+            mSimColTexture,
+            mSimPosTexture,
+            mSimNormTexture,
+            mSimRboDepthStencil
+        )) {
+        GLDELETE_FRAMEBUFFER(mSimFbo);
     }
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -257,6 +289,13 @@ void SimDisplay::InitGL()
     // setup light object
     mlightObject.GenerateBoxStock(-0.5f, -0.5f, -0.5f, 1, 1, 1);
 
+    // keeping the simulation result in a separate FBO requires blitting between frame buffers
+    // (OpenGL 3.0, OpenGL ES 3.0 or ARB_framebuffer_object)
+    const QOpenGLContext* context = QOpenGLContext::currentContext();
+    mSimFboSupported = context
+        && (context->format().version() >= qMakePair(3, 0)
+            || context->hasExtension("GL_ARB_framebuffer_object"));
+
     InitShaders();
     CreateFboQuad();
 
@@ -267,8 +306,12 @@ void SimDisplay::InitGL()
 
 void SimDisplay::CleanFbos()
 {
+    simCacheValid = false;
+    mTargetFbo = 0;
+
     // cleanup frame buffers
     GLDELETE_FRAMEBUFFER(mFbo);
+    GLDELETE_FRAMEBUFFER(mSimFbo);
     GLDELETE_FRAMEBUFFER(mSsaoFbo);
     GLDELETE_FRAMEBUFFER(mSsaoBlurFbo);
 
@@ -280,6 +323,10 @@ void SimDisplay::CleanFbos()
     GLDELETE_TEXTURE(mFboSsaoBlurTexture);
     GLDELETE_TEXTURE(mFboRandTexture);
     GLDELETE_RENDERBUFFER(mRboDepthStencil);
+    GLDELETE_TEXTURE(mSimColTexture);
+    GLDELETE_TEXTURE(mSimPosTexture);
+    GLDELETE_TEXTURE(mSimNormTexture);
+    GLDELETE_RENDERBUFFER(mSimRboDepthStencil);
 }
 
 void SimDisplay::CleanGL()
@@ -298,18 +345,112 @@ void SimDisplay::CleanGL()
     shaderSSAO.Destroy();
     shaderSSAOLighting.Destroy();
     shaderSSAOBlur.Destroy();
+    shaderClearGeom.Destroy();
 
     displayInitiated = false;
 }
 
 void SimDisplay::PrepareFrameBuffer()
 {
+    mTargetFbo = mFbo;
     glBindFramebuffer(GL_FRAMEBUFFER, mFbo);
     glClearColor(0, 0, 0, 0);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
     glEnable(GL_CULL_FACE);
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
+}
+
+bool SimDisplay::CanCacheSimulation() const
+{
+    return mSimFbo != 0;
+}
+
+// Direct the following simulation passes to the simulation FBO. When 'clear' is false, the
+// passes are added on top of the previous simulation result.
+void SimDisplay::StartSimulationPass(bool clear)
+{
+    mTargetFbo = mSimFbo;
+    glBindFramebuffer(GL_FRAMEBUFFER, mSimFbo);
+    if (clear) {
+        glClearColor(0, 0, 0, 0);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+    }
+    glEnable(GL_CULL_FACE);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LESS);
+}
+
+// Copy the simulation result to the display FBO, so tool, path and base shape can be added
+// on top of it without changing the simulation FBO.
+void SimDisplay::EndSimulationPass()
+{
+    mTargetFbo = mFbo;
+
+    // make sure all buffers are writable
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glDepthMask(GL_TRUE);
+    glStencilMask(0xFF);
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, mSimFbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, mFbo);
+
+    // blit only copies a single color buffer at a time
+    for (int i = 0; i < 3; i++) {
+        unsigned int buffers[3] = {GL_NONE, GL_NONE, GL_NONE};
+        buffers[i] = GL_COLOR_ATTACHMENT0 + i;
+        glReadBuffer(buffers[i]);
+        glDrawBuffers(i + 1, buffers);
+        glBlitFramebuffer(
+            0,
+            0,
+            mWidth,
+            mHeight,
+            0,
+            0,
+            mWidth,
+            mHeight,
+            GL_COLOR_BUFFER_BIT,
+            GL_NEAREST
+        );
+    }
+    glBlitFramebuffer(
+        0,
+        0,
+        mWidth,
+        mHeight,
+        0,
+        0,
+        mWidth,
+        mHeight,
+        GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT,
+        GL_NEAREST
+    );
+
+    unsigned int attachments[3] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2};
+    glDrawBuffers(3, attachments);
+    glReadBuffer(GL_COLOR_ATTACHMENT0);
+    glBindFramebuffer(GL_FRAMEBUFFER, mFbo);
+
+    simCacheValid = true;
+}
+
+// Reset the geometric info of all pixels where the stencil value is 0 to the cleared state
+void SimDisplay::ClearGeometryOutsideStencil()
+{
+    glBindFramebuffer(GL_FRAMEBUFFER, mTargetFbo);
+    shaderClearGeom.Activate();
+    SetupVertexAttribs();
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_BLEND);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glEnable(GL_STENCIL_TEST);
+    glStencilFunc(GL_EQUAL, 0, 0xFF);
+    glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glEnable(GL_CULL_FACE);
+    glEnable(GL_DEPTH_TEST);
 }
 
 void SimDisplay::StartDepthPass()
@@ -323,7 +464,7 @@ void SimDisplay::StartDepthPass()
 
 void SimDisplay::StartGeometryPass(const vec3& objColor, bool invertNormals)
 {
-    glBindFramebuffer(GL_FRAMEBUFFER, mFbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, mTargetFbo);
     shaderGeom.Activate();
     shaderGeom.UpdateNormalState(invertNormals);
     shaderGeom.UpdateViewMat(mMatLookAt);
@@ -336,7 +477,7 @@ void SimDisplay::StartGeometryPass(const vec3& objColor, bool invertNormals)
 // slightly closer to the camera. This mitigates overlapping faces artifacts.
 void SimDisplay::StartCloserGeometryPass(const vec3& objColor)
 {
-    glBindFramebuffer(GL_FRAMEBUFFER, mFbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, mTargetFbo);
     shaderGeomCloser.Activate();
     shaderGeomCloser.UpdateNormalState(false);
     shaderGeomCloser.UpdateViewMat(mMatLookAt);
@@ -592,6 +733,7 @@ void SimDisplay::UpdateViewMatrix()
     const auto target = mCameraPosition + dir;
     mat4x4_look_at(mMatLookAt, mCameraPosition.getValue(), target.getValue(), up.getValue());
 
+    simCacheValid = false;
     updateDisplay = true;
 }
 
@@ -629,6 +771,7 @@ void SimDisplay::UpdateProjectionMatrix()
     shaderGeomCloser.Activate();
     shaderGeomCloser.UpdateProjectionMat(projmat);
 
+    simCacheValid = false;
     updateDisplay = true;
 }
 

@@ -63,6 +63,7 @@ extern QOpenGLExtraFunctions gOpenGLFunctions;
 #define glDepthFunc gOpenGLFunctions.glDepthFunc
 #define glStencilFunc gOpenGLFunctions.glStencilFunc
 #define glStencilOp gOpenGLFunctions.glStencilOp
+#define glStencilMask gOpenGLFunctions.glStencilMask
 #define glDepthMask gOpenGLFunctions.glDepthMask
 #define glDisable gOpenGLFunctions.glDisable
 #define glFinish gOpenGLFunctions.glFinish
@@ -90,6 +91,8 @@ extern QOpenGLExtraFunctions gOpenGLFunctions;
 #define glGenFramebuffers gOpenGLFunctions.glGenFramebuffers
 #define glFramebufferTexture2D gOpenGLFunctions.glFramebufferTexture2D
 #define glDrawBuffers gOpenGLFunctions.glDrawBuffers
+#define glReadBuffer gOpenGLFunctions.glReadBuffer
+#define glBlitFramebuffer gOpenGLFunctions.glBlitFramebuffer
 #define glGenRenderbuffers gOpenGLFunctions.glGenRenderbuffers
 #define glBindRenderbuffer gOpenGLFunctions.glBindRenderbuffer
 #define glRenderbufferStorage gOpenGLFunctions.glRenderbufferStorage

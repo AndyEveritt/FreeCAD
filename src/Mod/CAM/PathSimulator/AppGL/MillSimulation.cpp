@@ -125,6 +125,7 @@ void MillSimulation::InitSimulation(float quality, float maxStockDimension)
     millPathLine.GenerateModel();
 
     InitDisplay(quality);
+    simDisplay.simCacheValid = false;
 
     simulationInitiated = true;
 }
@@ -234,12 +235,33 @@ void MillSimulation::GlsimEnd(void)
     glStencilFunc(GL_ALWAYS, 1, 0xFF);
 }
 
-void MillSimulation::renderSegmentForward(int iSeg)
+// Get the range of steps of segment iSeg up to the current simulation position. If 'newOnly' is
+// set, steps already contained in the simulation cache are excluded. Returns false if the range
+// is empty.
+bool MillSimulation::GetSegmentStepRange(int iSeg, bool newOnly, int& first, int& last) const
 {
+    const MillPathSegment* p = MillPathSegments.at(iSeg);
+    last = iSeg == mPathStep ? mSubStep : p->numSimSteps;
+    first = p->isMultyPart ? 1 : last;
+    if (newOnly && iSeg == mCachedPathStep) {
+        if (last <= mCachedSubStep) {
+            return false;
+        }
+        if (p->isMultyPart) {
+            first = mCachedSubStep + 1;
+        }
+    }
+    return first <= last;
+}
+
+void MillSimulation::renderSegmentForward(int iSeg, bool newOnly)
+{
+    int first, last;
+    if (!GetSegmentStepRange(iSeg, newOnly, first, last)) {
+        return;
+    }
     MillPathSegment* p = MillPathSegments.at(iSeg);
-    int step = iSeg == mPathStep ? mSubStep : p->numSimSteps;
-    int start = p->isMultyPart ? 1 : step;
-    for (int i = start; i <= step; i++) {
+    for (int i = first; i <= last; i++) {
         GlsimToolStep1();
         p->render(i);
         GlsimToolStep2();
@@ -247,12 +269,14 @@ void MillSimulation::renderSegmentForward(int iSeg)
     }
 }
 
-void MillSimulation::renderSegmentReversed(int iSeg)
+void MillSimulation::renderSegmentReversed(int iSeg, bool newOnly)
 {
+    int first, last;
+    if (!GetSegmentStepRange(iSeg, newOnly, first, last)) {
+        return;
+    }
     MillPathSegment* p = MillPathSegments.at(iSeg);
-    int step = iSeg == mPathStep ? mSubStep : p->numSimSteps;
-    int end = p->isMultyPart ? 1 : step;
-    for (int i = step; i >= end; i--) {
+    for (int i = last; i >= first; i--) {
         GlsimToolStep1();
         p->render(i);
         GlsimToolStep2();
@@ -281,49 +305,94 @@ void MillSimulation::CalcSegmentPositions()
 
 void MillSimulation::RenderSimulation()
 {
-    if ((mViewItems & VIEWITEM_SIMULATION) == 0) {
+    const bool visible = (mViewItems & VIEWITEM_SIMULATION) != 0;
+    if (!visible || !simDisplay.CanCacheSimulation()) {
+        // render directly to the display frame buffer
+        simDisplay.PrepareFrameBuffer();
+        if (visible) {
+            RenderStockCuts(false);
+        }
         return;
     }
+
+    const bool cacheValid = simDisplay.simCacheValid;
+    const bool samePosition = mPathStep == mCachedPathStep && mSubStep == mCachedSubStep;
+    const bool forward = mPathStep > mCachedPathStep
+        || (mPathStep == mCachedPathStep && mSubStep >= mCachedSubStep);
+
+    // An incremental update only subtracts the new steps from the cached result, so it may miss
+    // overlaps that the full render resolves by re-applying all steps in several orders. It is
+    // therefore only used while playing, and a full render is done once the simulation rests.
+    const bool reuse = cacheValid && samePosition && (mSimPlaying || !mCacheIncremental);
+    const bool incremental = !reuse && cacheValid && forward && mSimPlaying;
+
+    if (!reuse) {
+        simDisplay.StartSimulationPass(!incremental);
+        RenderStockCuts(incremental);
+        mCachedPathStep = mPathStep;
+        mCachedSubStep = mSubStep;
+        mCacheIncremental = incremental;
+    }
+
+    simDisplay.EndSimulationPass();
+}
+
+// Render the stock with all cuts up to the current simulation position. If 'incremental' is set,
+// only the cuts that are not yet part of the simulation cache are added to it.
+void MillSimulation::RenderStockCuts(bool incremental)
+{
+    const int firstSeg = incremental ? std::max(mCachedPathStep, 0) : 0;
 
     simDisplay.StartDepthPass();
 
     GlsimStart();
-    mStockObject.render();
+    if (!incremental) {
+        mStockObject.render();
+    }
 
     GlsimToolStep2();
 
-    for (int i = 0; i <= mPathStep; i++) {
-        renderSegmentForward(i);
+    for (int i = firstSeg; i <= mPathStep; i++) {
+        renderSegmentForward(i, incremental);
     }
 
-    for (int i = mPathStep; i >= 0; i--) {
-        renderSegmentForward(i);
+    for (int i = mPathStep; i >= firstSeg; i--) {
+        renderSegmentForward(i, incremental);
     }
 
-    for (int i = 0; i < mPathStep; i++) {
-        renderSegmentReversed(i);
+    for (int i = firstSeg; i < mPathStep; i++) {
+        renderSegmentReversed(i, incremental);
     }
 
-    for (int i = mPathStep; i >= 0; i--) {
-        renderSegmentReversed(i);
+    for (int i = mPathStep; i >= firstSeg; i--) {
+        renderSegmentReversed(i, incremental);
     }
 
     GlsimClipBack();
     mStockObject.render();
 
     // start coloring
-    simDisplay.StartGeometryPass(stockColor, false);
-    GlsimRenderStock();
-    mStockObject.render();
+    if (incremental) {
+        // the stock surface only changed where new cuts were made. Those are either colored by
+        // the cuts below, or are cut through the stock and need to be cleared.
+        simDisplay.ClearGeometryOutsideStencil();
+        GlsimRenderStock();
+    }
+    else {
+        simDisplay.StartGeometryPass(stockColor, false);
+        GlsimRenderStock();
+        mStockObject.render();
+    }
 
     // render cuts (back faces of tools)
     simDisplay.StartGeometryPass(cutColor, true);
     GlsimRenderTools();
-    for (int i = 0; i <= mPathStep; i++) {
-        MillPathSegment* p = MillPathSegments.at(i);
-        int step = (i == mPathStep) ? mSubStep : p->numSimSteps;
-        int start = p->isMultyPart ? 1 : step;
-        for (int j = start; j <= step; j++) {
+    for (int i = firstSeg; i <= mPathStep; i++) {
+        int first, last;
+        if (!GetSegmentStepRange(i, incremental, first, last)) {
+            continue;
+        }
+        for (int j = first; j <= last; j++) {
             MillPathSegments.at(i)->render(j);
         }
     }
@@ -385,7 +454,6 @@ void MillSimulation::Render()
     // render the simulation offscreen in an FBO
 
     if (simDisplay.updateDisplay) {
-        simDisplay.PrepareFrameBuffer();
         RenderSimulation();
         RenderTool();
         RenderBaseShape();
@@ -482,6 +550,7 @@ void MillSimulation::SetBoxStock(float x, float y, float z, float l, float w, fl
 {
     mStockObject.GenerateBoxStock(x, y, z, l, w, h);
     simDisplay.ScaleViewToStock(&mStockObject);
+    simDisplay.simCacheValid = false;
 }
 
 void MillSimulation::SetArbitraryStock(
@@ -491,6 +560,7 @@ void MillSimulation::SetArbitraryStock(
 {
     mStockObject.GenerateSolid(verts, indices);
     simDisplay.ScaleViewToStock(&mStockObject);
+    simDisplay.simCacheValid = false;
 }
 
 void MillSimulation::SetStockVisible(bool b)
@@ -500,6 +570,7 @@ void MillSimulation::SetStockVisible(bool b)
     }
 
     mViewItems ^= VIEWITEM_SIMULATION;
+    simDisplay.simCacheValid = false;
     simDisplay.updateDisplay = true;
 }
 
@@ -638,6 +709,9 @@ void MillSimulation::SetState(const MillSimulationState& state)
 
     SetSpeed(state.mSimSpeed);
 
+    if (mViewItems != state.mViewItems) {
+        simDisplay.simCacheValid = false;
+    }
     mViewItems = state.mViewItems;
     mViewPath = state.mViewPath;
     mViewSSAO = state.mViewSSAO;

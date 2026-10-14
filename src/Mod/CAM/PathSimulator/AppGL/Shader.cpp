@@ -515,6 +515,18 @@ const char* FragShaderGeom = R"(
     }
 )";
 
+const char* FragShaderClearGeom = R"(
+    #version 120
+
+    void main()
+    {
+        // Reset all geometric info textures to their cleared state
+        gl_FragData[0] = vec4(0.0);
+        gl_FragData[1] = vec4(0.0);
+        gl_FragData[2] = vec4(0.0);
+    }
+)";
+
 const char* FragShaderSSAO = R"(
     #version 120
 

@@ -102,6 +102,7 @@ extern const char* VertShader2DFbo;
 extern const char* FragShader2dFbo;
 extern const char* VertShaderGeom;
 extern const char* FragShaderGeom;
+extern const char* FragShaderClearGeom;
 extern const char* FragShaderSSAO;
 extern const char* FragShaderSSAOLighting;
 extern const char* FragShaderStdLighting;
