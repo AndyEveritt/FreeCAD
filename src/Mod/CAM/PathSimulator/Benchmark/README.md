@@ -11,8 +11,8 @@ FreeCAD.
 - `sim_benchmark.py`: runs inside the FreeCAD GUI, drives the simulator and records results.
 - `run_benchmark.py`: launcher. Starts FreeCAD, prints a summary, compares with a baseline and
   reports a verdict.
-- `reference/`: correctness reference images for the default options, for `mixed` at sizes
-  `small` (quick mode) and `medium`.
+- `reference/`: correctness reference images for the default options: `mixed` at sizes `small`
+  (quick mode) and `medium`, and `five_axis` at size `small` (quick mode).
 
 ## Running
 
@@ -46,11 +46,10 @@ A run fails on any failure or regression. Improvements are reported but never fa
 
 ### Quick and full mode
 
-Quick mode (default) runs the `mixed` job at size `small` (2k moves, all tool shapes) in one
-FreeCAD process. A responsive simulator finishes it in well under a minute; the original
-simulator takes about two minutes on llvmpipe.
+Quick mode (default) runs the `mixed` (all tool shapes) and `five_axis` jobs at size `small` (2k
+moves each) in one FreeCAD process. A responsive simulator finishes in about a minute.
 
-`--full` runs `pocket`, `surface3d`, `adaptive`, `tool_shapes` and `mixed` at sizes `small`,
+`--full` runs `pocket`, `surface3d`, `adaptive`, `tool_shapes`, `mixed` and `five_axis` at sizes `small`,
 `medium` and `large`, every job in its own FreeCAD process, with more samples per scenario and 3
 repeats. Repeats are combined by the median of their medians. Use `--repeats` in quick mode when a
 result looks noisy.
@@ -97,6 +96,7 @@ number can be given instead of a size name.
 | job | content |
 | --- | --- |
 | `mixed` | a complex part, every operation in its own quarter of the stock: pocket, adaptive clearing, 3D finishing and the `tool_shapes` operations |
+| `five_axis` | 5 axis machining, every operation in its own quarter of the stock: a dome roughed with waterline rings and finished with a ball end mill whose axis follows the surface normal with a lead angle (simultaneous 5 axis, tilt limited to 20°), flank (swarf) milling of an island with drafted walls where the tool axis turns at the corners, grooves where the tool swivels while moving, and holes and a slot machined into the side faces with a horizontal tool |
 | `pocket` | pocket with zigzag clearing and a wall finishing pass at every step down level |
 | `surface3d` | ball end semi finishing and finishing of a free form surface, many short 3D moves |
 | `adaptive` | trochoidal slots side by side at several depths, lots of small arcs |
@@ -104,13 +104,16 @@ number can be given instead of a size name.
 | `tool_shapes` | a pocket machined with every tool shape FreeCAD supports: roughing, bull nose floor finishing, ball end channels, a dovetail undercut and a slitting saw groove in the walls, corner radius rounding of the top edges, a bored and thread milled hole, a V groove and drilled holes |
 
 Operations are laid out like on a real part: every operation cuts material, in its own area of the
-stock or on features made by an earlier operation. Step sizes stay realistic, at least 0.5 step
+stock or on features made by an earlier operation. 5 axis operations turn the tool only at safe
+positions, the tool axis follows the convention of the simulator (`MotionToolAxis`, see
+`../AppGL/README.md`). Step sizes stay realistic, at least 0.5 step
 down and 1.0 stepover for pockets and 0.5 advance per loop for adaptive clearing. Like on real
 jobs, most of the moves of large `mixed` jobs come from 3D finishing. The standalone `pocket` and
 `adaptive` jobs therefore stop growing at about 5k and 50k moves, and `tool_shapes` and `drilling`
 are smaller than the size target.
 
-`python3 jobs.py analyze JOB SIZE` simulates a job on a coarse voxel model (0.5 x 0.5 x 0.2) and
+`python3 jobs.py analyze JOB SIZE` simulates a job, including tilted tools, on a coarse voxel model
+(0.5 x 0.5 x 0.2) and
 prints, for every operation, the fraction of feed moves that remove material and the removed
 volume. Positioning feeds, like plunging into an already cleared pocket, and the return half of
 trochoidal loops remove nothing by design.
@@ -155,8 +158,10 @@ is at most `--max-image-diff` (default 1%). A missing reference image is reporte
 but does not fail the run. The correctness checks always run completely, the timeout does not
 apply.
 
-The reference images were rendered by the original stencil based simulator at rest, in quick mode
-on Xvfb. They depend on the window size, view, quality and job, so they only apply to runs with the
+The `mixed` reference images were rendered by the original stencil based simulator at rest, in quick
+mode on Xvfb, an independent check of the dexel simulation. The original simulator can't simulate
+5 axis toolpaths, so the `five_axis` reference images were rendered by the dexel simulation itself,
+they only detect changes. They depend on the window size, view, quality and job, so they only apply to runs with the
 default options. To replace them after an intended visual change, run with `--update-reference`
 and commit the new images.
 

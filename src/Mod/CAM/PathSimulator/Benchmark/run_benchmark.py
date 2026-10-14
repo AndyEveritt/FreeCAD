@@ -49,7 +49,7 @@ SCENARIOS = [
 SCRUBS = ("scrub_forward", "scrub_backward", "scrub_random")
 
 QUICK = {
-    "jobs": "mixed",
+    "jobs": "mixed,five_axis",
     "sizes": "small",
     "window": "1280x800",
     "repeats": 1,
@@ -58,7 +58,7 @@ QUICK = {
     "playback_seconds": 10,
 }
 FULL = {
-    "jobs": "pocket,surface3d,adaptive,tool_shapes,mixed",
+    "jobs": "pocket,surface3d,adaptive,tool_shapes,mixed,five_axis",
     "sizes": "small,medium,large",
     "window": "1280x800",
     "repeats": 3,

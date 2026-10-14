@@ -121,6 +121,15 @@ def corner_radius(radius, pilot_diameter, pilot_length=2.0, segments=6):
     return profile
 
 
+def tool_axis(a, b, c):
+    """Tool axis for rotary axes in degrees, like MotionToolAxis of the simulator: the Z axis
+    rotated by A around X, then B around Y, then C around Z."""
+    a, b, c = math.radians(a), math.radians(b), math.radians(c)
+    x1, y1, z1 = 0.0, -math.sin(a), math.cos(a)
+    x2, y2, z2 = x1 * math.cos(b) + z1 * math.sin(b), y1, -x1 * math.sin(b) + z1 * math.cos(b)
+    return (x2 * math.cos(c) - y2 * math.sin(c), x2 * math.sin(c) + y2 * math.cos(c), z2)
+
+
 # G-code helpers
 
 
@@ -142,11 +151,11 @@ class _Writer:
             self.tools.append((number, diameter, profile))
         self.lines.append(f"M6 T{number}")
 
-    def rapid(self, x=None, y=None, z=None):
-        self.lines.append("G0" + self._xyz(x, y, z))
+    def rapid(self, x=None, y=None, z=None, a=None, b=None, c=None):
+        self.lines.append("G0" + self._xyz(x, y, z) + self._abc(a, b, c))
 
-    def line(self, x=None, y=None, z=None):
-        self.lines.append("G1" + self._xyz(x, y, z))
+    def line(self, x=None, y=None, z=None, a=None, b=None, c=None):
+        self.lines.append("G1" + self._xyz(x, y, z) + self._abc(a, b, c))
 
     def arc(self, cw, x, y, i, j, z=None):
         cmd = "G2" if cw else "G3"
@@ -171,6 +180,14 @@ class _Writer:
             s += f" Y{_fmt(y)}"
         if z is not None:
             s += f" Z{_fmt(z)}"
+        return s
+
+    @staticmethod
+    def _abc(a, b, c):
+        s = ""
+        for letter, value in (("A", a), ("B", b), ("C", c)):
+            if value is not None:
+                s += f" {letter}{_fmt(value)}"
         return s
 
     def job(self, name):
@@ -419,6 +436,253 @@ def op_tool_shapes(w, area, n_moves):
     w.retract()
 
 
+# 5 axis operations
+
+
+class _Dome:
+    """A dome of radius 'radius' and height 'height' on a floor at 'base', centered in an area."""
+
+    def __init__(self, area, radius=10.0, height=6.0, base=-9.0):
+        self.cx = (area[0] + area[2]) / 2
+        self.cy = (area[1] + area[3]) / 2
+        self.radius = radius
+        self.height = height
+        self.base = base
+
+    def z(self, x, y):
+        r = min(1.0, math.hypot(x - self.cx, y - self.cy) / self.radius)
+        return self.base + self.height * math.cos(r * math.pi / 2)
+
+    def normal(self, x, y):
+        e = 1e-3
+        dx = (self.z(x + e, y) - self.z(x - e, y)) / (2 * e)
+        dy = (self.z(x, y + e) - self.z(x, y - e)) / (2 * e)
+        n = math.sqrt(dx * dx + dy * dy + 1)
+        return (-dx / n, -dy / n, 1 / n), (dx, dy)
+
+    def center_heights(self, ball, step=0.02, extent=None):
+        """Height of the center of a ball of radius 'ball' touching the dome from above, by its
+        distance from the dome axis, in steps of 'step': the drop cutter of the ball. The dome is
+        rotationally symmetric, so the ball touches it in the plane through the axis and the
+        center."""
+        extent = extent or self.radius + 2 * ball
+        table = []
+        samples = int(2 * ball / step)
+        for i in range(int(extent / step) + 2):
+            rc = i * step
+            best = -1e9
+            for k in range(samples + 1):
+                d = -ball + 2 * ball * k / samples  # along the radial line through the center
+                r = abs(rc + d)
+                z = self.base + self.height * math.cos(min(1.0, r / self.radius) * math.pi / 2)
+                best = max(best, z + math.sqrt(max(0.0, ball * ball - d * d)))
+            table.append(best)
+        return table, step
+
+    def island_radius(self, z):
+        """Radius of the dome at height z."""
+        if z <= self.base:
+            return self.radius
+        if z >= self.base + self.height:
+            return 0.0
+        return self.radius * 2 / math.pi * math.acos((z - self.base) / self.height)
+
+
+def rotary_for_axis(axis):
+    """A and B (C = 0) in degrees for a tool axis, the inverse of tool_axis."""
+    ax, ay, az = axis
+    return math.degrees(-math.asin(max(-1.0, min(1.0, ay)))), math.degrees(math.atan2(ax, az))
+
+
+def op_dome(w, area, n_moves, lead=10.0, max_tilt=20.0):
+    """A dome: roughed with waterline rings around it, then finished with a ball end mill whose
+    axis follows the surface normal, leaning forward by the lead angle in the feed direction and
+    limited to max_tilt from vertical: simultaneous 5 axis motion along every row."""
+    dome = _Dome(area)
+    half = min(area[2] - area[0], area[3] - area[1]) / 2
+
+    w.section("dome roughing")
+    rough_radius = 3.0
+    w.tool(25, 2 * rough_radius, flat_endmill(2 * rough_radius))
+    floor = dome.base
+    outer = half - 0.5 - rough_radius  # ring centers, the pocket wall half a mm inside the area
+    w.rapid(z=10)
+    levels = 6
+    for level in range(1, levels + 1):
+        z = floor * level / levels
+        inner = dome.island_radius(z) + 1.0 + rough_radius  # leave 1 for finishing
+        # rings from the wall inwards, the last one at the finishing allowance
+        rings = []
+        r = outer
+        while r > inner:
+            rings.append(r)
+            r -= 2.5
+        rings.append(inner)
+        w.rapid(dome.cx + outer, dome.cy)
+        w.line(z=z)
+        for r in rings:
+            w.line(dome.cx + r, dome.cy)
+            w.arc(True, dome.cx - r, dome.cy, -r, 0)
+            w.arc(True, dome.cx + r, dome.cy, r, 0)
+        w.rapid(z=10)
+
+    w.section("dome finish")
+    radius = 3.0
+    w.tool(21, 2 * radius, ball_endmill(2 * radius))
+    extent = dome.radius + 1.5  # the dome and the allowance left by roughing around it
+    n = max(10, int(math.sqrt(n_moves / 2 * 4 / math.pi)))
+    tan_lead = math.tan(math.radians(lead))
+    max_tilt = math.radians(max_tilt)
+    for allowance in (1.0, 0.0):
+        # ball center heights of a ball bigger by the allowance, the actual ball stays the
+        # allowance away from the dome
+        table, step = dome.center_heights(radius + allowance, extent=extent + 1)
+
+        def center_z(r):
+            f = r / step
+            i = min(int(f), len(table) - 2)
+            return table[i] + (table[i + 1] - table[i]) * (f - i)
+
+        first = True
+        for row in range(n):
+            y = dome.cy - extent + 2 * extent * row / (n - 1)
+            xs = [dome.cx - extent + 2 * extent * i / (n - 1) for i in range(n)]
+            feed = 1.0 if row % 2 == 0 else -1.0
+            if feed < 0:
+                xs.reverse()
+            # only over the dome and its rim
+            xs = [x for x in xs if math.hypot(x - dome.cx, y - dome.cy) <= extent]
+            if not xs:
+                continue
+            for i, x in enumerate(xs):
+                # normal of the surface of the ball centers, which is the contact normal
+                r = math.hypot(x - dome.cx, y - dome.cy)
+                slope = (center_z(r + step) - center_z(max(0.0, r - step))) / (2 * step)
+                ux, uy = ((x - dome.cx) / r, (y - dome.cy) / r) if r > 1e-9 else (0.0, 0.0)
+                dx, dy = slope * ux, slope * uy
+                nl = math.sqrt(dx * dx + dy * dy + 1)
+                normal = (-dx / nl, -dy / nl, 1 / nl)
+                # feed direction in the tangent plane, the axis leans forward in it
+                t = (feed, 0.0, feed * dx)
+                tl = math.sqrt(t[0] * t[0] + t[2] * t[2])
+                axis = [normal[k] + tan_lead * t[k] / tl for k in range(3)]
+                length = math.sqrt(sum(v * v for v in axis))
+                axis = [v / length for v in axis]
+                if math.acos(axis[2]) > max_tilt:
+                    h = math.hypot(axis[0], axis[1])
+                    axis = [
+                        axis[0] / h * math.sin(max_tilt),
+                        axis[1] / h * math.sin(max_tilt),
+                        math.cos(max_tilt),
+                    ]
+                # the tip is a radius from the ball center, along the axis
+                center = (x, y, center_z(r))
+                tip = [center[k] - axis[k] * radius for k in range(3)]
+                a, b = rotary_for_axis(axis)
+                if i == 0:
+                    # to the start of the row above the stock, then down with its orientation
+                    w.rapid(z=10 if first else 2)
+                    first = False
+                    w.rapid(tip[0], tip[1], a=a, b=b)
+                w.line(tip[0], tip[1], tip[2], a=a, b=b)
+        w.rapid(z=10)
+    w.rapid(a=0, b=0)
+
+
+def op_swarf_island(w, area, n_moves, draft=15.0):
+    """Flank milling of a square island with drafted walls: the tool axis is parallel to the
+    walls, leaning towards the island, and turns at the corners."""
+    w.section("swarf island")
+    radius = 4.0
+    w.tool(22, 2 * radius, flat_endmill(2 * radius))
+    x0, y0, x1, y1 = area
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    half = 8.0  # half the island width at the top
+    tan = math.tan(math.radians(draft))
+    levels = max(3, min(20, n_moves // 40))
+    corners = [  # (x sign, y sign, A, B): the axis leans towards the island
+        (1, -1, -draft, -draft),
+        (1, 1, draft, -draft),
+        (-1, 1, draft, draft),
+        (-1, -1, -draft, draft),
+    ]
+    w.rapid(z=10)
+    for level in range(1, levels + 1):
+        z = -10.0 * level / levels
+        # the wall at the depth of the tool tip, and the tool axis a radius away from it
+        offset = half - z * tan + radius / math.cos(math.radians(draft))
+        sx, sy, a, b = corners[-1]
+        w.rapid(cx + sx * (offset + 5), cy + sy * (offset + 5), a=a, b=b)
+        w.line(z=z)
+        w.line(cx + sx * offset, cy + sy * offset)
+        for sx, sy, a, b in corners:
+            w.line(cx + sx * offset, cy + sy * offset, a=a, b=b)
+        w.rapid(z=10)
+    w.rapid(a=0, b=0)
+
+
+def op_swivel_grooves(w, area, n_moves, swivel=30.0):
+    """Grooves along X, the tool swivels from one side to the other along each groove: moves
+    with simultaneous motion of the linear and the rotary axes."""
+    w.section("swivel grooves")
+    w.tool(21, 6.0, ball_endmill(6.0))
+    x0, y0, x1, y1 = _shrink(area, 4.0)
+    grooves = 4
+    steps = max(10, n_moves // grooves)
+    w.rapid(z=10)
+    for g in range(grooves):
+        y = y0 + (y1 - y0) * g / (grooves - 1)
+        w.rapid(x0, y, a=-swivel)
+        for i in range(steps + 1):
+            t = i / steps
+            x = x0 + (x1 - x0) * t
+            z = -2.0 - 2.0 * math.sin(t * math.pi)
+            w.line(x, y, z, a=-swivel + 2 * swivel * t)
+        w.rapid(z=10)
+    w.rapid(a=0)
+
+
+def op_side_features(w, area, n_moves):
+    """Holes drilled into two side faces of the stock and a slot milled into a side face, with
+    the tool horizontal. The tool turns only at a safe height, away from the stock."""
+    x0, y0, x1, y1 = area
+    safe = 30.0
+    w.section("side drilling")
+    w.tool(23, 5.0, drill(5.0))
+    holes = max(3, min(12, n_moves // 20))
+    # into the face at x = 100: B 90 points the shank towards +X
+    w.rapid(z=safe)
+    w.rapid(110, y0 + 5, safe, b=90)
+    for i in range(holes):
+        y = y0 + 5 + (y1 - y0 - 10) * i / (holes - 1)
+        w.rapid(110, y, -6)
+        w.line(88, y, -6)
+        w.rapid(110, y, -6)
+    w.rapid(z=safe)
+    # into the face at y = 0: A 90 points the shank towards -Y
+    w.rapid(x0 + 5, -50, safe, a=90, b=0)
+    for i in range(holes):
+        x = x0 + 5 + (x1 - x0 - 10) * i / (holes - 1)
+        w.rapid(x, -10, -14)
+        w.line(x, 12, -14)
+        w.rapid(x, -10, -14)
+    w.rapid(y=-50)
+    w.rapid(z=safe)
+    w.rapid(a=0)
+
+    w.section("side slot")
+    w.tool(24, 6.0, flat_endmill(6.0))
+    w.rapid(110, y0 + 4, safe, b=90)
+    w.rapid(z=-10)
+    for depth in (96.0, 92.0):
+        w.line(depth, y0 + 4, -10)
+        w.line(depth, y1 - 4, -10)
+        w.line(110, y1 - 4, -10)
+        w.rapid(110, y0 + 4, -10)
+    w.rapid(z=safe)
+    w.rapid(b=0)
+
+
 # Jobs
 
 
@@ -479,6 +743,18 @@ def mixed(n_moves):
     return w.job("mixed")
 
 
+def five_axis(n_moves):
+    """5 axis machining: dome finishing with the tool following the surface normal, flank milling
+    with a turning tool axis, swiveling grooves and horizontal side features, every operation in
+    its own quarter of the stock."""
+    w = _Writer()
+    op_swarf_island(w, (55.0, 55.0, 95.0, 95.0), n_moves * 5 // 100)
+    op_swivel_grooves(w, (5.0, 55.0, 45.0, 95.0), n_moves * 25 // 100)
+    op_side_features(w, (55.0, 5.0, 95.0, 45.0), n_moves * 5 // 100)
+    op_dome(w, (5.0, 5.0, 45.0, 45.0), max(n_moves * 20 // 100, n_moves - len(w.lines)))
+    return w.job("five_axis")
+
+
 JOBS = {
     "pocket": pocket,
     "surface3d": surface3d,
@@ -486,6 +762,7 @@ JOBS = {
     "drilling": drilling,
     "tool_shapes": tool_shapes,
     "mixed": mixed,
+    "five_axis": five_axis,
 }
 
 
@@ -519,8 +796,10 @@ def _profile_radius_table(profile, step):
 
 
 def _moves(job, step):
-    """Yield (line index, cutting, [tool tip positions]) for every motion, like the simulator."""
+    """Yield (line index, cutting, [tool tip positions and axes]) for every motion, like the
+    simulator. Points are (x, y, z, axis x, axis y, axis z)."""
     pos = [0.0, 0.0, 10.0]
+    rotary = [0.0, 0.0, 0.0]
     for index, line in enumerate(job["gcode"]):
         words = {}
         for token in line.split():
@@ -530,6 +809,19 @@ def _moves(job, step):
             yield index, None, int(words["T"])
             continue
         target = [words.get("X", pos[0]), words.get("Y", pos[1]), words.get("Z", pos[2])]
+        new_rotary = [words.get(k, rotary[i]) for i, k in enumerate("ABC")]
+        a0, a1 = tool_axis(*rotary), tool_axis(*new_rotary)
+        rotary = new_rotary
+
+        def with_axes(points):
+            out = []
+            for i, p in enumerate(points):
+                t = (i + 1) / len(points)
+                axis = [a0[k] + (a1[k] - a0[k]) * t for k in range(3)]
+                length = math.sqrt(sum(v * v for v in axis))
+                out.append(list(p) + [v / length for v in axis])
+            return out
+
         if g == 81:
             r_plane = words["R"]
             path = [(target[0], target[1], r_plane), target[:], (target[0], target[1], r_plane)]
@@ -539,18 +831,22 @@ def _moves(job, step):
                 points += _line_points(prev, p, step)
                 prev = p
             pos = list(path[-1])
-            yield index, True, points
+            yield index, True, with_axes(points)
         elif g in (2, 3):
-            yield index, True, _arc_points(pos, target, words["I"], words["J"], g == 2, step)
+            points = _arc_points(pos, target, words["I"], words["J"], g == 2, step)
+            yield index, True, with_axes(points)
             pos = target
         else:
-            yield index, g == 1, _line_points(pos, target, step)
+            # rotation only moves are sampled by the motion of the tool top
+            dist = max(math.dist(pos, target), 40 * math.dist(a0, a1))
+            points = _line_points(pos, target, step, max(1, math.ceil(dist / step)))
+            yield index, g == 1, with_axes(points)
             pos = target
 
 
-def _line_points(a, b, step):
-    length = math.dist(a, b)
-    n = max(1, math.ceil(length / step))
+def _line_points(a, b, step, n=None):
+    if n is None:
+        n = max(1, math.ceil(math.dist(a, b) / step))
     return [[a[k] + (b[k] - a[k]) * i / n for k in range(3)] for i in range(1, n + 1)]
 
 
@@ -575,11 +871,40 @@ def _arc_points(a, b, i, j, cw, step):
     ]
 
 
-def analyze(job, cell=0.5, layer=0.2):
+def _cut_tilted(material, stock, cell, layer, table, radius, height, tip, axis):
+    """Remove the voxels inside a tilted tool, returns their number."""
+    import numpy
+
+    x0, y0, z0 = stock[0], stock[1], stock[2]
+    nx, ny, nz = material.shape
+    top = [tip[k] + axis[k] * height for k in range(3)]
+    lo = [min(tip[k], top[k]) - radius for k in range(3)]
+    hi = [max(tip[k], top[k]) + radius for k in range(3)]
+    i0, i1 = max(0, int((lo[0] - x0) / cell)), min(nx, int((hi[0] - x0) / cell) + 2)
+    j0, j1 = max(0, int((lo[1] - y0) / cell)), min(ny, int((hi[1] - y0) / cell) + 2)
+    k0, k1 = max(0, int((lo[2] - z0) / layer)), min(nz, int((hi[2] - z0) / layer) + 2)
+    if i0 >= i1 or j0 >= j1 or k0 >= k1:
+        return 0
+    vx = (x0 + (numpy.arange(i0, i1) + 0.5) * cell - tip[0])[:, None, None]
+    vy = (y0 + (numpy.arange(j0, j1) + 0.5) * cell - tip[1])[None, :, None]
+    vz = (z0 + (numpy.arange(k0, k1) + 0.5) * layer - tip[2])[None, None, :]
+    h = vx * axis[0] + vy * axis[1] + vz * axis[2]
+    rho2 = vx * vx + vy * vy + vz * vz - h * h
+    index = numpy.clip((h / (layer / 2)).astype(int), 0, len(table) - 1)
+    inside = (h >= 0) & (h < height) & (rho2 <= table[index] ** 2)
+    block = material[i0:i1, j0:j1, k0:k1]
+    count = int((block & inside).sum())
+    if count:
+        block &= ~inside
+    return count
+
+
+def analyze(job, cell=0.5, layer=0.2, result=None):
     """Material removed by every operation, using a coarse voxel model of the stock.
 
     Returns a list of dicts per section: name, moves, cutting (fraction of the feed moves that
-    remove material) and removed (mm³).
+    remove material) and removed (mm³). The voxels (x, y, z) are stored in result["material"] if
+    a result dict is given.
     """
     import numpy
 
@@ -608,7 +933,21 @@ def analyze(job, cell=0.5, layer=0.2):
         if table is None or not points:
             continue
         removed = 0
-        for px, py, pz in points:
+        height = (len(table) - 1) * layer / 2
+        for px, py, pz, ax, ay, az in points:
+            if abs(ax) > 1e-6 or abs(ay) > 1e-6:
+                removed += _cut_tilted(
+                    material,
+                    job["stock"],
+                    cell,
+                    layer,
+                    table,
+                    radius,
+                    height,
+                    (px, py, pz),
+                    (ax, ay, az),
+                )
+                continue
             i0 = max(0, int((px - radius - x0) / cell))
             i1 = min(nx, int((px + radius - x0) / cell) + 2)
             j0 = max(0, int((py - radius - y0) / cell))
@@ -638,6 +977,8 @@ def analyze(job, cell=0.5, layer=0.2):
             s["removed"] += removed * cell * cell * layer
     for s in stats:
         s["cutting"] = s["cutting"] / s["moves"] if s["moves"] else 0.0
+    if result is not None:
+        result["material"] = material
     return stats
 
 
