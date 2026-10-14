@@ -172,6 +172,42 @@ PyObject* CAMSimPy::AddCommand(PyObject* args)
     return Py_None;
 }
 
+PyObject* CAMSimPy::SetFrameTiming(PyObject* args)
+{
+    PyObject* enabled;
+    if (!PyArg_ParseTuple(args, "O!", &PyBool_Type, &enabled)) {
+        return nullptr;
+    }
+    getCAMSimPtr()->SetFrameTiming(PyObject_IsTrue(enabled));
+
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+PyObject* CAMSimPy::TakeFrameTimes()
+{
+    const std::vector<double> times = getCAMSimPtr()->TakeFrameTimes();
+    Py::List list;
+    for (double time : times) {
+        list.append(Py::Float(time));
+    }
+    return Py::new_reference_to(list);
+}
+
+PyObject* CAMSimPy::IsRenderPending()
+{
+    return Py::new_reference_to(Py::Boolean(getCAMSimPtr()->IsRenderPending()));
+}
+
+PyObject* CAMSimPy::GetRendererInfo()
+{
+    Py::Dict dict;
+    for (const auto& [key, value] : getCAMSimPtr()->GetRendererInfo()) {
+        dict.setItem(key, Py::String(value));
+    }
+    return Py::new_reference_to(dict);
+}
+
 PyObject* CAMSimPy::getCustomAttributes(const char* /*attr*/) const
 {
     return nullptr;

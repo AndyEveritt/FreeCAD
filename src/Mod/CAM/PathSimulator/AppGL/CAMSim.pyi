@@ -59,3 +59,32 @@ class CAMSim(BaseClass):
         Add a path command to the simulation.
         """
         ...
+
+    def SetFrameTiming(self, enabled: bool, /) -> None:
+        """
+        Enable or disable recording the time of each simulator frame, for performance
+        measurements. While enabled, every frame waits for the GPU to finish.
+        """
+        ...
+
+    @no_args
+    def TakeFrameTimes(self) -> list:
+        """
+        Return the recorded frame times in milliseconds since the last call and clear them.
+        """
+        ...
+
+    @no_args
+    def IsRenderPending(self) -> bool:
+        """
+        Return True while the simulator view does not yet show the current simulation position,
+        because the simulator spreads the work over several frames.
+        """
+        ...
+
+    @no_args
+    def GetRendererInfo(self) -> dict:
+        """
+        Return the OpenGL vendor, renderer and version and the simulator view size in pixels.
+        """
+        ...

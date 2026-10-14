@@ -35,6 +35,7 @@
 #include <deque>
 #include <limits>
 #include <numeric>
+#include <utility>
 
 // include this last as the defines can mess up other includes
 #include "OpenGlWrapper.h"
@@ -482,10 +483,48 @@ void DlgCAMSimulator::updateCamera()
 void DlgCAMSimulator::initializeGL()
 {
     gOpenGLFunctions.initializeOpenGLFunctions();
+
+    auto glString = [](GLenum name) {
+        const auto str = reinterpret_cast<const char*>(glGetString(name));
+        return std::string(str ? str : "");
+    };
+    mGlVendor = glString(GL_VENDOR);
+    mGlRenderer = glString(GL_RENDERER);
+    mGlVersion = glString(GL_VERSION);
+}
+
+void DlgCAMSimulator::setFrameTiming(bool b)
+{
+    mFrameTiming = b;
+    mFrameTimes.clear();
+}
+
+std::vector<double> DlgCAMSimulator::takeFrameTimes()
+{
+    return std::exchange(mFrameTimes, {});
+}
+
+bool DlgCAMSimulator::isRenderPending() const
+{
+    return mMillSimulator->IsRenderPending();
+}
+
+std::map<std::string, std::string> DlgCAMSimulator::rendererInfo() const
+{
+    const qreal ratio = devicePixelRatioF();
+    return {
+        {"vendor", mGlVendor},
+        {"renderer", mGlRenderer},
+        {"version", mGlVersion},
+        {"width", std::to_string((int)(width() * ratio))},
+        {"height", std::to_string((int)(height() * ratio))},
+    };
 }
 
 void DlgCAMSimulator::paintGL()
 {
+    const auto frameStart = clock::now();
+
     updateResources();
 
     // We need to call updateWindowScale on every render since the devicePixelRatio we get in
@@ -519,6 +558,12 @@ void DlgCAMSimulator::paintGL()
     mMillSimulator->ProcessSim(elapsed);
 
     mLastProcessSim = now;
+
+    if (mFrameTiming) {
+        glFinish();
+        const std::chrono::duration<double, std::milli> frameTime = clock::now() - frameStart;
+        mFrameTimes.push_back(frameTime.count());
+    }
 }
 
 void DlgCAMSimulator::resizeGL(int w, int h)

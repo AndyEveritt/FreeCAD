@@ -31,6 +31,9 @@
 #include <queue>
 #include <functional>
 #include <chrono>
+#include <map>
+#include <string>
+#include <vector>
 
 #include <QOpenGLWidget>
 #include <QPainter>
@@ -118,6 +121,13 @@ public:
     void setBackgroundColor(const QColor& c);
     void setPathColor(const QColor& normal, const QColor& rapid);
 
+    // Frame timing for performance measurements. While enabled, every frame waits for the GPU to
+    // finish, so the recorded times include the GPU work.
+    void setFrameTiming(bool b);
+    std::vector<double> takeFrameTimes();
+    bool isRenderPending() const;
+    std::map<std::string, std::string> rendererInfo() const;
+
 Q_SIGNALS:
     void simulationStarted();
 
@@ -135,6 +145,10 @@ protected:
     void updateGui();
 
 private:
+    bool mFrameTiming = false;
+    std::vector<double> mFrameTimes;  // milliseconds
+    std::string mGlVendor, mGlRenderer, mGlVersion;
+
     bool mNeedsInitialize = false;
     bool mNeedsClear = false;
     bool mAnimating = false;

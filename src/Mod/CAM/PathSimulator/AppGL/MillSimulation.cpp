@@ -619,6 +619,13 @@ void MillSimulation::SetSimulationStage(float stage)
     simDisplay.updateDisplay = true;
 }
 
+// True while the displayed simulation does not yet match the current simulation position, for
+// renderers that spread the work over several frames.
+bool MillSimulation::IsRenderPending() const
+{
+    return false;
+}
+
 void MillSimulation::SetState(const MillSimulationState& state)
 {
     SetPlaying(state.mSimPlaying);

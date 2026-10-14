@@ -24,7 +24,10 @@
 
 #pragma once
 
+#include <map>
 #include <memory>
+#include <string>
+#include <vector>
 #include <TopoDS_Shape.hxx>
 
 #include <Mod/CAM/App/Command.h>
@@ -68,6 +71,11 @@ public:
     );
     void SetBaseShape(const Part::TopoShape& baseShape, float resolution);
     void AddCommand(Command* cmd);
+
+    void SetFrameTiming(bool enabled);
+    std::vector<double> TakeFrameTimes();
+    bool IsRenderPending();
+    std::map<std::string, std::string> GetRendererInfo();
 };
 
 }  // namespace CAMSimulator

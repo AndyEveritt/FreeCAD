@@ -65,6 +65,8 @@ extern QOpenGLExtraFunctions gOpenGLFunctions;
 #define glStencilOp gOpenGLFunctions.glStencilOp
 #define glDepthMask gOpenGLFunctions.glDepthMask
 #define glDisable gOpenGLFunctions.glDisable
+#define glFinish gOpenGLFunctions.glFinish
+#define glGetString gOpenGLFunctions.glGetString
 #define glMatrixMode gOpenGLFunctions.glMatrixMode
 #define glUseProgram gOpenGLFunctions.glUseProgram
 #define glDrawElements gOpenGLFunctions.glDrawElements

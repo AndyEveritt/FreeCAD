@@ -86,6 +86,7 @@ public:
     void SetSpeed(int s);
 
     void SetSimulationStage(float stage);
+    bool IsRenderPending() const;
     void SetState(const MillSimulationState& state);
     const MillSimulationState& GetState() const;
 

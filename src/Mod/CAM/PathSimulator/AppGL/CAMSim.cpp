@@ -71,4 +71,24 @@ void CAMSim::AddCommand(Command* cmd)
     DlgCAMSimulator::instance()->addGcodeCommand(gline.c_str());
 }
 
+void CAMSim::SetFrameTiming(bool enabled)
+{
+    DlgCAMSimulator::instance()->setFrameTiming(enabled);
+}
+
+std::vector<double> CAMSim::TakeFrameTimes()
+{
+    return DlgCAMSimulator::instance()->takeFrameTimes();
+}
+
+bool CAMSim::IsRenderPending()
+{
+    return DlgCAMSimulator::instance()->isRenderPending();
+}
+
+std::map<std::string, std::string> CAMSim::GetRendererInfo()
+{
+    return DlgCAMSimulator::instance()->rendererInfo();
+}
+
 }  // namespace CAMSimulator
