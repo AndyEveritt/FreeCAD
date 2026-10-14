@@ -34,7 +34,7 @@
 namespace CAMSimulator
 {
 
-static char TokTypes[] = "GTXYZIJKR";
+static char TokTypes[] = "GTXYZIJKRABC";
 
 GCodeParser::~GCodeParser()
 {
@@ -167,6 +167,9 @@ bool GCodeParser::ParseLine(const char* ptr)
     newState.x = lastState.x;
     newState.y = lastState.y;
     newState.z = lastState.z;
+    newState.a = lastState.a;
+    newState.b = lastState.b;
+    newState.c = lastState.c;
 
     newState.tool = lastState.tool;
 
@@ -239,6 +242,21 @@ bool GCodeParser::ParseLine(const char* ptr)
 
             case 'R':
                 newState.r = token.fval;
+                break;
+
+            case 'A':
+                newState.a = token.fval;
+                validMotion = true;
+                break;
+
+            case 'B':
+                newState.b = token.fval;
+                validMotion = true;
+                break;
+
+            case 'C':
+                newState.c = token.fval;
+                validMotion = true;
                 break;
         }
     }

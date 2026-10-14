@@ -96,6 +96,7 @@ MillPathSegment::MillPathSegment(const EndMill& _endmill, const MillMotion& from
         }
         numSimSteps = (int)(mSweepAng / mStepAngRad) + 1;
         mStepAngRad = mArcDir * mSweepAng / numSimSteps;
+        mSweepSteps = numSimSteps;
         if (mSmallRad) {
             // when the radius is too small, we just use the tool itself to carve the stock
             mShape = endmill->toolShape;
@@ -118,6 +119,7 @@ MillPathSegment::MillPathSegment(const EndMill& _endmill, const MillMotion& from
             numSimSteps = 1;
         }
         isMultyPart = false;
+        mSweepSteps = numSimSteps;
         mStepDistance = mXYDistance / numSimSteps;
         mStepLength[PX] = mDiff[PX];
         mStepLength[PY] = mDiff[PY];
@@ -236,6 +238,23 @@ void MillPathSegment::GetHeadPosition(vec3 headPos)
         vec3_add(mHeadPos, mHeadPos, mStartPos);
     }
     vec3_dup(headPos, mHeadPos);
+}
+
+void MillPathSegment::GetArc(float center[2], float& radius, float& startAngle, float& sweep) const
+{
+    center[0] = mCenter[PX];
+    center[1] = mCenter[PY];
+    radius = mRadius;
+    startAngle = mStartAngRad;
+    sweep = -mArcDir * mSweepAng;
+}
+
+void MillPathSegment::GetEndPoints(float start[3], float end[3]) const
+{
+    for (int k = 0; k < 3; k++) {
+        start[k] = mStartPos[k];
+        end[k] = mStartPos[k] + mDiff[k];
+    }
 }
 
 float MillPathSegment::SetQuality(float quality, float maxStockDimension)

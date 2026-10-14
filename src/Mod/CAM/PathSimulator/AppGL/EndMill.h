@@ -38,6 +38,7 @@ class EndMill
 {
 public:
     std::vector<float> profilePoints;
+    std::vector<float> rawProfile;  // the profile as given, radius/height pairs from top to tip
     float radius;
     int nPoints = 0;
     int toolId = -1;

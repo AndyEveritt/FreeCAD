@@ -121,12 +121,22 @@ void SimDisplay::SetupVertexAttribs() const
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
 }
 
-void SimDisplay::CreateGBufTex(GLenum texUnit, GLint intFormat, GLenum format, GLenum type, GLuint& texid)
+void SimDisplay::CreateGBufTex(
+    GLenum texUnit,
+    GLint intFormat,
+    GLenum format,
+    GLenum type,
+    GLuint& texid,
+    int width,
+    int height
+)
 {
     glActiveTexture(texUnit);
     glGenTextures(1, &texid);
     glBindTexture(GL_TEXTURE_2D, texid);
-    glTexImage2D(GL_TEXTURE_2D, 0, intFormat, mWidth, mHeight, 0, format, type, NULL);
+    width = width < 0 ? mWidth : width;
+    height = height < 0 ? mHeight : height;
+    glTexImage2D(GL_TEXTURE_2D, 0, intFormat, width, height, 0, format, type, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
@@ -207,14 +217,10 @@ void SimDisplay::CreateDisplayFbos()
     }
 
     // setup frame buffer that keeps the simulation result between frames
-    if (mSimFboSupported
-        && !CreateGBufferFbo(
-            mSimFbo,
-            mSimColTexture,
-            mSimPosTexture,
-            mSimNormTexture,
-            mSimRboDepthStencil
-        )) {
+    if (
+        mSimFboSupported
+        && !CreateGBufferFbo(mSimFbo, mSimColTexture, mSimPosTexture, mSimNormTexture, mSimRboDepthStencil)
+    ) {
         GLDELETE_FRAMEBUFFER(mSimFbo);
     }
 
@@ -229,7 +235,10 @@ void SimDisplay::CreateSsaoFbos()
     glGenFramebuffers(1, &mSsaoFbo);
     glBindFramebuffer(GL_FRAMEBUFFER, mSsaoFbo);
     // SSAO color buffer
-    CreateGBufTex(GL_TEXTURE0, GL_R16F, GL_RED, GL_FLOAT, mFboSsaoTexture);
+    // ambient occlusion is smooth, computing it at half resolution is enough
+    mSsaoWidth = std::max(1, mWidth / 2);
+    mSsaoHeight = std::max(1, mHeight / 2);
+    CreateGBufTex(GL_TEXTURE0, GL_R16F, GL_RED, GL_FLOAT, mFboSsaoTexture, mSsaoWidth, mSsaoHeight);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mFboSsaoTexture, 0);
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
         mSsaoValid = false;
@@ -239,7 +248,10 @@ void SimDisplay::CreateSsaoFbos()
     // setup framebuffer for SSAO blur processing
     glGenFramebuffers(1, &mSsaoBlurFbo);
     glBindFramebuffer(GL_FRAMEBUFFER, mSsaoBlurFbo);
-    CreateGBufTex(GL_TEXTURE0, GL_R16F, GL_RED, GL_FLOAT, mFboSsaoBlurTexture);
+    CreateGBufTex(GL_TEXTURE0, GL_R16F, GL_RED, GL_FLOAT, mFboSsaoBlurTexture, mSsaoWidth, mSsaoHeight);
+    // upscaled to full resolution in the lighting pass
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mFboSsaoBlurTexture, 0);
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
         mSsaoValid = false;
@@ -249,7 +261,7 @@ void SimDisplay::CreateSsaoFbos()
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     // generate sample kernel
-    int kernSize = 64;
+    int kernSize = 32;
     for (int i = 0; i < kernSize; i++) {
         vec3 sample;
         UniformHemisphere(sample);
@@ -417,18 +429,7 @@ void SimDisplay::BlitGBuffer(unsigned int fromFbo, unsigned int toFbo)
         buffers[i] = GL_COLOR_ATTACHMENT0 + i;
         glReadBuffer(buffers[i]);
         glDrawBuffers(i + 1, buffers);
-        glBlitFramebuffer(
-            0,
-            0,
-            mWidth,
-            mHeight,
-            0,
-            0,
-            mWidth,
-            mHeight,
-            GL_COLOR_BUFFER_BIT,
-            GL_NEAREST
-        );
+        glBlitFramebuffer(0, 0, mWidth, mHeight, 0, 0, mWidth, mHeight, GL_COLOR_BUFFER_BIT, GL_NEAREST);
     }
     glBlitFramebuffer(
         0,
@@ -457,8 +458,8 @@ int SimDisplay::MaxSimulationCheckpoints() const
     // color (RGBA8) + position and normal (RGB32F, usually padded to RGBA) + depth/stencil
     constexpr std::size_t bytesPerPixel = 4 + 16 + 16 + 4;
     const std::size_t bytesPerCheckpoint = (std::size_t)mWidth * mHeight * bytesPerPixel;
-    const std::size_t count
-        = SIM_CHECKPOINT_MEMORY_BUDGET / std::max<std::size_t>(bytesPerCheckpoint, 1);
+    const std::size_t count = SIM_CHECKPOINT_MEMORY_BUDGET
+        / std::max<std::size_t>(bytesPerCheckpoint, 1);
     return (int)std::min<std::size_t>(count, SIM_CHECKPOINT_MAX);
 }
 
@@ -625,7 +626,8 @@ void SimDisplay::RenderResultSSAO(bool recalculate)
         shaderSSAO.UpdateRandomTexSlot(0);
         shaderSSAO.UpdatePositionTexSlot(1);
         shaderSSAO.UpdateNormalTexSlot(2);
-        shaderSSAO.UpdateScreenDimension(mWidth, mHeight);
+        glViewport(0, 0, mSsaoWidth, mSsaoHeight);
+        shaderSSAO.UpdateScreenDimension(mSsaoWidth, mSsaoHeight);
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, mFboRandTexture);
@@ -644,9 +646,10 @@ void SimDisplay::RenderResultSSAO(bool recalculate)
         shaderSSAOBlur.UpdateSsaoTexSlot(0);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, mFboSsaoTexture);
-        shaderSSAOBlur.UpdateScreenDimension(mWidth, mHeight);
+        shaderSSAOBlur.UpdateScreenDimension(mSsaoWidth, mSsaoHeight);
         SetupVertexAttribs();
         glDrawArrays(GL_TRIANGLES, 0, 6);
+        glViewport(0, 0, mWidth, mHeight);
     }
 
     // lighting pass:

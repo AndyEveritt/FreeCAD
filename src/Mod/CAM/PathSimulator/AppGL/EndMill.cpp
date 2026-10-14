@@ -36,6 +36,7 @@ EndMill::EndMill(int toolid, float diameter)
 EndMill::EndMill(const std::vector<float>& toolProfile, int toolid, float diameter)
     : EndMill(toolid, diameter)
 {
+    rawProfile = toolProfile;
     profilePoints.clear();
 
     int srcBuffSize = toolProfile.size();

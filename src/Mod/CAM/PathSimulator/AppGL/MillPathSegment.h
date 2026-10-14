@@ -57,6 +57,21 @@ public:
     virtual void GetHeadPosition(vec3 headPos);
     static float SetQuality(float quality, float maxStockDimension);  // 1 minimum, 10 maximum
 
+    // Geometry of the motion of the tool tip, for simulators sampling it
+    bool IsArc() const
+    {
+        return mMotionType == MTCurved;
+    }
+    // arcs: angle(t) = startAngle + t * sweep, for t in [0, 1]
+    // position = (center.x - sin(angle) * radius, center.y + cos(angle) * radius)
+    void GetArc(float center[2], float& radius, float& startAngle, float& sweep) const;
+    void GetEndPoints(float start[3], float end[3]) const;
+    // steps covering the motion, further steps stay at the end
+    int SweepSteps() const
+    {
+        return mSweepSteps;
+    }
+
 public:
     const EndMill* endmill = nullptr;
     bool isMultyPart;
@@ -79,6 +94,7 @@ protected:
     float mArcDir = 0;
     bool mSmallRad = false;
     int mStepNumber = 0;
+    int mSweepSteps = 1;
 
     static float mSmallRadStep;
     static float mResolution;

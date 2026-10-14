@@ -50,6 +50,7 @@ void CAMSettings::applySettings()
 {
     OnChange(*hGrp, "DefaultNormalPathColor");
     OnChange(*hGrp, "DefaultRapidPathColor");
+    OnChange(*hGrp, "SimulatorStencilRendering");
 }
 
 void CAMSettings::OnChange(ParameterGrp::SubjectType& rCaller, ParameterGrp::MessageType Reason)
@@ -73,6 +74,9 @@ void CAMSettings::OnChange(ParameterGrp::SubjectType& rCaller, ParameterGrp::Mes
         rb = ((rcol >> 8) & 0xff) / 255.0;
 
         mDlg.setPathColor(QColor::fromRgbF(lr, lg, lb), QColor::fromRgbF(rr, rg, rb));
+    }
+    else if (Reason == "SimulatorStencilRendering"sv) {
+        mDlg.setStencilRendering(hGrp->GetBool("SimulatorStencilRendering", false));
     }
 }
 

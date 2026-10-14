@@ -24,6 +24,8 @@
 
 #pragma once
 
+#include "DexelRenderer.h"
+#include "DexelSimulation.h"
 #include "GCodeParser.h"
 #include "MillPathLine.h"
 #include "MillPathSegment.h"
@@ -32,6 +34,7 @@
 #include "StockObject.h"
 #include "linmath.h"
 #include <chrono>
+#include <memory>
 #include <vector>
 
 #define VIEWITEM_SIMULATION 1
@@ -87,6 +90,8 @@ public:
 
     void SetSimulationStage(float stage);
     bool IsRenderPending() const;
+    // True if the next frame changes the display
+    bool NeedsFrame() const;
     void SetScrubbing(bool b);
     void SetState(const MillSimulationState& state);
     const MillSimulationState& GetState() const;
@@ -109,6 +114,10 @@ public:
     void SetBackgroundColor(const vec3& c);
     void SetPathColor(const vec3& normal, const vec3& rapid);
 
+    // Use the original stencil based renderer instead of the dexel simulation. It only supports
+    // 3 axis toolpaths and gets slow on large toolpaths.
+    void SetStencilRendering(bool b);
+
 protected:
     void InitDisplay(float quality);
     void GlsimStart();
@@ -126,6 +135,9 @@ protected:
     void CalcSegmentPositions();
     EndMill* GetTool(int tool);
     void RemoveTool(int toolId);
+    void StartDexelSimulation();
+    void UpdateDexelSimulation();
+    void RenderDexelStock();
 
 protected:
     bool simulationInitiated = false;
@@ -149,6 +161,17 @@ protected:
 
     // true while the user drags the simulation stage slider
     bool mScrubbing = false;
+
+    // dexel simulation, used unless mStencilRendering
+    bool mStencilRendering = false;
+    std::unique_ptr<DexelSimulation> mDexel;
+    DexelRenderer mDexelRenderer;
+    bool mDexelNeedsStart = false;
+    bool mMeshPending = false;
+    float mQuality = 10;
+    std::vector<float> mStockXyz;
+    std::vector<uint32_t> mStockTriangles;
+    std::vector<CutSegment> mCutSegments;  // one per MillPathSegment
 
     // protected:
 public:

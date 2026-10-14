@@ -31,6 +31,7 @@
 #include <queue>
 #include <functional>
 #include <chrono>
+#include <cstdint>
 #include <map>
 #include <string>
 #include <vector>
@@ -120,6 +121,7 @@ public:
 
     void setBackgroundColor(const QColor& c);
     void setPathColor(const QColor& normal, const QColor& rapid);
+    void setStencilRendering(bool b);
 
     // Frame timing for performance measurements. While enabled, every frame waits for the GPU to
     // finish, so the recorded times include the GPU work.
@@ -171,6 +173,8 @@ private:
 
     GuiDisplay* mGui = nullptr;
     Dummy3DViewer* mDummyViewer = nullptr;
+    const void* mLastCamera = nullptr;
+    uint64_t mLastCameraId = 0;
 };
 
 }  // namespace CAMSimulator

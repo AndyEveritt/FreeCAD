@@ -26,6 +26,7 @@
 
 #include "GlUtils.h"
 #include <algorithm>
+#include <cmath>
 #include <iostream>
 
 // include this last as the defines can mess up other includes
@@ -66,6 +67,9 @@ void MillSimulation::Clear()
     mToolTable.clear();
 
     mStockObject.Clear();
+    mDexel.reset();
+    mDexelRenderer.FreeResources();
+    mCutSegments.clear();
     simDisplay.CleanGL();
 
     mCurStep = 0;
@@ -90,6 +94,8 @@ void MillSimulation::InitSimulation(float quality, float maxStockDimension)
     mTotalElapsed = 0s;
 
     MillPathSegment::SetQuality(quality, maxStockDimension);
+    mQuality = quality;
+    mCutSegments.clear();
 
     int nOperations = (int)mCodeParser.Operations.size();
     int segId = 0;
@@ -114,6 +120,19 @@ void MillSimulation::InitSimulation(float quality, float maxStockDimension)
             mNTotalSteps += segment->numSimSteps;
             MillPathSegments.push_back(segment);
             segment->AppendPathPoints(millPathLine.MillPathPointsBuffer);
+
+            CutSegment cut;
+            cut.tool = curMotion.tool;  // tool id, replaced by the index when starting
+            cut.arc = segment->IsArc();
+            segment->GetEndPoints(cut.start, cut.end);
+            if (cut.arc) {
+                segment->GetArc(cut.center, cut.radius, cut.startAngle, cut.sweep);
+            }
+            MotionToolAxis(prevMotion, cut.axis0);
+            MotionToolAxis(curMotion, cut.axis1);
+            cut.steps = segment->numSimSteps;
+            cut.sweepSteps = segment->SweepSteps();
+            mCutSegments.push_back(cut);
         }
 
         prevMotion = curMotion;
@@ -126,6 +145,7 @@ void MillSimulation::InitSimulation(float quality, float maxStockDimension)
 
     InitDisplay(quality);
     simDisplay.simCacheValid = false;
+    mDexelNeedsStart = true;
 
     simulationInitiated = true;
 }
@@ -465,13 +485,46 @@ void MillSimulation::RenderTool()
     }
 
     MillPathSegment* p = MillPathSegments.at(mPathStep);
-    vec3 toolPos;
-    p->GetHeadPosition(toolPos);
-    mat4x4 tmat;
-    mat4x4_translate(tmat, toolPos[0], toolPos[1], toolPos[2]);
-    // mat4x4_translate(tmat, toolPos.x, toolPos.y, toolPos.z);
+    if (mStencilRendering || mPathStep >= (int)mCutSegments.size()) {
+        vec3 toolPos;
+        p->GetHeadPosition(toolPos);
+        mat4x4 tmat;
+        mat4x4_translate(tmat, toolPos[0], toolPos[1], toolPos[2]);
+        simDisplay.StartGeometryPass(toolColor, false);
+        p->endmill->toolShape.Render(tmat, identityMat);
+        return;
+    }
+
+    // tool at its position and orientation at the current step
+    const CutSegment& segment = mCutSegments[mPathStep];
+    const float t = segment.StepParam(mSubStep);
+    float pos[3], axis[3];
+    segment.PositionAt(t, pos);
+    segment.AxisAt(t, axis);
+    float e1[3] = {1, 0, 0};
+    if (std::abs(axis[0]) > 1e-6f || std::abs(axis[1]) > 1e-6f) {
+        // perpendicular to the axis, in the plane of the axis and Z
+        const float h = std::hypot(axis[0], axis[1]);
+        e1[0] = axis[0] * axis[2] / h;
+        e1[1] = axis[1] * axis[2] / h;
+        e1[2] = -h;
+    }
+    const float e2[3] = {
+        axis[1] * e1[2] - axis[2] * e1[1],
+        axis[2] * e1[0] - axis[0] * e1[2],
+        axis[0] * e1[1] - axis[1] * e1[0],
+    };
+    mat4x4 rmat, tmat;
+    mat4x4_identity(rmat);
+    for (int k = 0; k < 3; k++) {
+        rmat[0][k] = e1[k];
+        rmat[1][k] = e2[k];
+        rmat[2][k] = axis[k];
+    }
+    mat4x4_translate(tmat, pos[0], pos[1], pos[2]);
+    mat4x4_mul(tmat, tmat, rmat);
     simDisplay.StartGeometryPass(toolColor, false);
-    p->endmill->toolShape.Render(tmat, identityMat);
+    p->endmill->toolShape.Render(tmat, rmat);
 }
 
 void MillSimulation::RenderPath()
@@ -509,10 +562,19 @@ void MillSimulation::Render()
     glClearColor(bgndColor[0], bgndColor[1], bgndColor[2], 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
+    if (!mStencilRendering) {
+        UpdateDexelSimulation();
+    }
+
     // render the simulation offscreen in an FBO
 
     if (simDisplay.updateDisplay) {
-        RenderSimulation();
+        if (mStencilRendering) {
+            RenderSimulation();
+        }
+        else {
+            RenderDexelStock();
+        }
         RenderTool();
         RenderBaseShape();
         RenderPath();
@@ -609,6 +671,18 @@ void MillSimulation::SetBoxStock(float x, float y, float z, float l, float w, fl
     mStockObject.GenerateBoxStock(x, y, z, l, w, h);
     simDisplay.ScaleViewToStock(&mStockObject);
     simDisplay.simCacheValid = false;
+
+    // box mesh for the dexel simulation, triangles facing outwards
+    mStockXyz.clear();
+    for (int i = 0; i < 8; i++) {
+        mStockXyz.insert(
+            mStockXyz.end(),
+            {x + (i & 1 ? l : 0), y + (i & 2 ? w : 0), z + (i & 4 ? h : 0)}
+        );
+    }
+    mStockTriangles = {0, 2, 1, 1, 2, 3, 4, 5, 6, 5, 7, 6, 0, 1, 4, 1, 5, 4,
+                       2, 6, 3, 3, 6, 7, 0, 4, 2, 2, 4, 6, 1, 3, 5, 3, 7, 5};
+    mDexelNeedsStart = true;
 }
 
 void MillSimulation::SetArbitraryStock(
@@ -619,6 +693,13 @@ void MillSimulation::SetArbitraryStock(
     mStockObject.GenerateSolid(verts, indices);
     simDisplay.ScaleViewToStock(&mStockObject);
     simDisplay.simCacheValid = false;
+
+    mStockXyz.clear();
+    for (const Vertex& v : verts) {
+        mStockXyz.insert(mStockXyz.end(), {v.x, v.y, v.z});
+    }
+    mStockTriangles.assign(indices.begin(), indices.end());
+    mDexelNeedsStart = true;
 }
 
 void MillSimulation::SetStockVisible(bool b)
@@ -752,7 +833,108 @@ void MillSimulation::SetSimulationStage(float stage)
 // renderers that spread the work over several frames.
 bool MillSimulation::IsRenderPending() const
 {
-    return false;
+    return !mStencilRendering && mDexel && (mDexel->Pending() || mMeshPending || mDexelNeedsStart);
+}
+
+bool MillSimulation::NeedsFrame() const
+{
+    return mSimPlaying || mSingleStep || simDisplay.updateDisplay
+        || (!mStencilRendering && mDexelNeedsStart) || IsRenderPending();
+}
+
+void MillSimulation::SetStencilRendering(bool b)
+{
+    if (b == mStencilRendering) {
+        return;
+    }
+    mStencilRendering = b;
+    mDexelNeedsStart = !b;
+    if (b && mDexel) {
+        mDexel->Stop();
+    }
+    simDisplay.simCacheValid = false;
+    simDisplay.updateDisplay = true;
+}
+
+void MillSimulation::StartDexelSimulation()
+{
+    mDexelNeedsStart = false;
+    if (mStockXyz.empty() || mCutSegments.size() != MillPathSegments.size()) {
+        mDexel.reset();
+        mDexelRenderer.FreeResources();
+        return;
+    }
+
+    // tools by their id, segments refer to them by index
+    std::vector<std::unique_ptr<CutterProfile>> tools;
+    std::vector<int> toolIds;
+    for (EndMill* tool : mToolTable) {
+        tools.push_back(std::make_unique<CutterProfile>(tool->rawProfile));
+        toolIds.push_back(tool->toolId);
+    }
+    std::vector<CutSegment> segments = mCutSegments;
+    for (size_t i = 0; i < segments.size(); i++) {
+        const int id = MillPathSegments[i]->endmill->toolId;
+        segments[i].tool = (int)(std::find(toolIds.begin(), toolIds.end(), id) - toolIds.begin());
+    }
+
+    // cell size from the quality, 138 to 480 cells along the larger side of the stock
+    float minx = 1e30f, maxx = -1e30f, miny = 1e30f, maxy = -1e30f;
+    for (size_t i = 0; i + 2 < mStockXyz.size(); i += 3) {
+        minx = std::min(minx, mStockXyz[i]);
+        maxx = std::max(maxx, mStockXyz[i]);
+        miny = std::min(miny, mStockXyz[i + 1]);
+        maxy = std::max(maxy, mStockXyz[i + 1]);
+    }
+    const float stockSize = std::max(maxx - minx, maxy - miny);
+    const float cells = 100 + 38 * std::clamp(mQuality, 1.0f, 10.0f);
+    float cellSize = stockSize / cells;
+    // cells small enough for the smallest tool to cut, but not more than 1200 along the stock
+    for (const auto& tool : tools) {
+        if (tool->Radius() > 0) {
+            cellSize = std::min(cellSize, tool->Radius() * 0.75f);
+        }
+    }
+    cellSize = std::max({cellSize, stockSize / 1200, 0.005f});
+
+    if (!mDexel) {
+        mDexel = std::make_unique<DexelSimulation>();
+    }
+    mDexel->Start(std::move(tools), std::move(segments), mStockXyz, mStockTriangles, cellSize);
+    mDexelRenderer.Reset(mDexel->Stock());
+}
+
+void MillSimulation::UpdateDexelSimulation()
+{
+    if (mDexelNeedsStart) {
+        StartDexelSimulation();
+        simDisplay.updateDisplay = true;
+    }
+    if (!mDexel) {
+        return;
+    }
+    const long target = mPathStep < 0 ? 0 : mDexel->GlobalStep(mPathStep, mSubStep);
+    mDexel->SetTarget(target);
+    // time for simulating and meshing, leaving time for rendering the frame
+    constexpr double simulateMs = 5;
+    constexpr double meshMs = 6;
+    if (mDexel->Update(simulateMs)) {
+        simDisplay.updateDisplay = true;
+    }
+    const int rebuilt
+        = mDexelRenderer.Update(mDexel->Stock(), mDexel->Initial(), mDexel->Pool(), meshMs, mMeshPending);
+    if (rebuilt > 0 || mDexel->Pending() || mMeshPending) {
+        simDisplay.updateDisplay = true;
+    }
+}
+
+void MillSimulation::RenderDexelStock()
+{
+    simDisplay.PrepareFrameBuffer();
+    if ((mViewItems & VIEWITEM_SIMULATION) == 0) {
+        return;
+    }
+    mDexelRenderer.Render(simDisplay, stockColor, cutColor);
 }
 
 void MillSimulation::SetScrubbing(bool b)
@@ -762,7 +944,11 @@ void MillSimulation::SetScrubbing(bool b)
     }
 
     mScrubbing = b;
-    simDisplay.updateDisplay = true;
+    // the stencil renderer replaces the incremental result after scrubbing, the dexel
+    // simulation shows the same result while scrubbing and at rest
+    if (mStencilRendering) {
+        simDisplay.updateDisplay = true;
+    }
 }
 
 void MillSimulation::SetState(const MillSimulationState& state)
@@ -800,6 +986,7 @@ void MillSimulation::SetBackgroundColor(const vec3& c)
 void MillSimulation::SetPathColor(const vec3& normal, const vec3& rapid)
 {
     simDisplay.SetPathColor(normal, rapid);
+    simDisplay.updateDisplay = true;
 }
 
 

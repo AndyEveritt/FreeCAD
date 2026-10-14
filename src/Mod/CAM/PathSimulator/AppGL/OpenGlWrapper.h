@@ -67,6 +67,7 @@ extern QOpenGLExtraFunctions gOpenGLFunctions;
 #define glDepthMask gOpenGLFunctions.glDepthMask
 #define glDisable gOpenGLFunctions.glDisable
 #define glFinish gOpenGLFunctions.glFinish
+#define glViewport gOpenGLFunctions.glViewport
 #define glGetString gOpenGLFunctions.glGetString
 #define glMatrixMode gOpenGLFunctions.glMatrixMode
 #define glUseProgram gOpenGLFunctions.glUseProgram

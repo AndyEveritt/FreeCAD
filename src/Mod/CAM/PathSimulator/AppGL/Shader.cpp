@@ -536,7 +536,7 @@ const char* FragShaderSSAO = R"(
     uniform sampler2D PositionTex;
     uniform sampler2D NormalTex;
 
-    const int kernelSize = 64;
+    const int kernelSize = 32;
     uniform vec3 SampleKernel[kernelSize];
     uniform float Radius = 20.0f;
     uniform float screenWidth = 800.0;

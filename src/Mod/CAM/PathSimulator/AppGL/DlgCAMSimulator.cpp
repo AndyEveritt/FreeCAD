@@ -110,9 +110,7 @@ void DlgCAMSimulator::connectTo(GuiDisplay& gui, Dummy3DViewer& dv)
         mMillSimulator->SetSimulationStage(f);
     });
 
-    connect(&gui, &GuiDisplay::scrubbing, this, [this](bool b) {
-        mMillSimulator->SetScrubbing(b);
-    });
+    connect(&gui, &GuiDisplay::scrubbing, this, [this](bool b) { mMillSimulator->SetScrubbing(b); });
 
     connect(&gui, &GuiDisplay::rotateEnableChanged, this, &DlgCAMSimulator::setRotateEnabled);
 
@@ -204,7 +202,7 @@ void DlgCAMSimulator::setAnimating(bool animating)
     mAnimating = animating;
 
     if (animating && mAnimatingTimer == 0) {
-        mAnimatingTimer = startTimer(0);
+        mAnimatingTimer = startTimer(5);
     }
     else if (!animating && mAnimatingTimer != 0) {
         killTimer(mAnimatingTimer);
@@ -396,15 +394,33 @@ void DlgCAMSimulator::setPathColor(const QColor& normal, const QColor& rapid)
     const vec3 vnormal = {normal.redF(), normal.greenF(), normal.blueF()};
     const vec3 vrapid = {rapid.redF(), rapid.greenF(), rapid.blueF()};
     mMillSimulator->SetPathColor(vnormal, vrapid);
+    update();
+}
+
+void DlgCAMSimulator::setStencilRendering(bool b)
+{
+    mMillSimulator->SetStencilRendering(b);
+    update();
 }
 
 void DlgCAMSimulator::timerEvent(QTimerEvent* event)
 {
     (void)event;
 
-    update();
-
-    // TODO: keep things simple for now, should probably only update gui if something changed
+    // only render when something changed, so an idle simulator does not use the CPU and GPU
+    bool needsFrame = mNeedsInitialize || mNeedsClear || mStock.needsUpdate || mBase.needsUpdate
+        || mState || mLastGCode != mGCode.size() || mMillSimulator->NeedsFrame();
+    if (mDummyViewer) {
+        const SoCamera* camera = mDummyViewer->getCamera();
+        if (camera && (camera != mLastCamera || camera->getNodeId() != mLastCameraId)) {
+            mLastCamera = camera;
+            mLastCameraId = camera->getNodeId();
+            needsFrame = true;
+        }
+    }
+    if (needsFrame) {
+        update();
+    }
 
     updateGui();
 }
@@ -538,7 +554,11 @@ void DlgCAMSimulator::paintGL()
     updateCamera();
 
     const auto now = clock::now();
-    const auto elapsed = mLastProcessSim != clock::time_point::min() ? now - mLastProcessSim : 0s;
+    // frames are only rendered when something changes, limit the time a frame advances the
+    // simulation after a pause
+    const auto elapsed = mLastProcessSim != clock::time_point::min()
+        ? std::min<clock::duration>(now - mLastProcessSim, 250ms)
+        : 0s;
 
 #if 0
 

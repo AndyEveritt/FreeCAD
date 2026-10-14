@@ -27,6 +27,16 @@ SET(CAMSimulator_SRCS_Module
 )
 
 SET(CAMSimulator_SRCS_Core
+    CutterProfile.cpp
+    CutterProfile.h
+    DexelMesher.cpp
+    DexelMesher.h
+    DexelRenderer.cpp
+    DexelRenderer.h
+    DexelSimulation.cpp
+    DexelSimulation.h
+    DexelStock.cpp
+    DexelStock.h
     EndMill.cpp
     EndMill.h
     GCodeParser.cpp
@@ -59,6 +69,8 @@ SET(CAMSimulator_SRCS_Core
     Texture.h
     TextureLoader.cpp
     TextureLoader.h
+    ThreadPool.cpp
+    ThreadPool.h
     ViewCAMSimulator.cpp
     ViewCAMSimulator.h
     Dummy3DViewer.cpp

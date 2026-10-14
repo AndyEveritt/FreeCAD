@@ -104,7 +104,15 @@ protected:
     void BlitGBuffer(unsigned int fromFbo, unsigned int toFbo);
     void CreateFboQuad();
     void SetupVertexAttribs() const;
-    void CreateGBufTex(GLenum texUnit, GLint intFormat, GLenum format, GLenum type, GLuint& texid);
+    void CreateGBufTex(
+        GLenum texUnit,
+        GLint intFormat,
+        GLenum format,
+        GLenum type,
+        GLuint& texid,
+        int width = -1,
+        int height = -1
+    );
     void UniformHemisphere(vec3& randVec);
     void UniformCircle(vec3& randVec);
 
@@ -172,6 +180,8 @@ protected:
 
     // ssao frame buffers
     bool mSsaoValid = false;
+    int mSsaoWidth = 1;
+    int mSsaoHeight = 1;
     std::vector<Point3D> mSsaoKernel;
     unsigned int mSsaoFbo = 0;
     unsigned int mSsaoBlurFbo = 0;
