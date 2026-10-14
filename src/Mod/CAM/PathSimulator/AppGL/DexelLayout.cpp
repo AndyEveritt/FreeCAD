@@ -293,14 +293,14 @@ void DexelLayout::Finish()
         AssignUnits(root, root);
     }
 
-    // units depending on each leaf: its own and those of the leaves touching it, which are found
-    // at both halves of every face and edge, where finer neighbors can be
-    mAffectedUnits.assign(mLeaves.size(), {});
+    // the leaves touching each leaf, found at both halves of every face and edge, where finer
+    // neighbors can be
+    std::vector<std::vector<int>>& neighbors = mNeighbors;
+    neighbors.assign(mLeaves.size(), {});
     for (int i = 0; i < (int)mLeaves.size(); i++) {
         const LayoutLeaf& leaf = mLeaves[i];
         const int size = Size(leaf.level);
-        std::vector<int>& units = mAffectedUnits[i];
-        units.push_back(leaf.unit);
+        std::vector<int>& list = neighbors[i];
         for (int d = 0; d < 27; d++) {
             const int dir[3] = {d % 3 - 1, d / 3 % 3 - 1, d / 9 - 1};
             if (dir[0] == 0 && dir[1] == 0 && dir[2] == 0) {
@@ -328,7 +328,26 @@ void DexelLayout::Finish()
                 }
                 const int neighbor = FindLeaf(p[0], p[1], p[2]);
                 if (neighbor >= 0) {
-                    units.push_back(mLeaves[neighbor].unit);
+                    list.push_back(neighbor);
+                }
+            }
+        }
+        std::sort(list.begin(), list.end());
+        list.erase(std::unique(list.begin(), list.end()), list.end());
+    }
+
+    // units depending on each leaf: its own and those of the leaves touching it. The vertex of a
+    // coarser neighbor without a surface of its own comes from the crossings on its faces, it
+    // depends on all leaves touching that neighbor, so their units depend on the leaf too.
+    mAffectedUnits.assign(mLeaves.size(), {});
+    for (int i = 0; i < (int)mLeaves.size(); i++) {
+        std::vector<int>& units = mAffectedUnits[i];
+        units.push_back(mLeaves[i].unit);
+        for (int n : neighbors[i]) {
+            units.push_back(mLeaves[n].unit);
+            if (mLeaves[n].level < mLeaves[i].level) {
+                for (int m : neighbors[n]) {
+                    units.push_back(mLeaves[m].unit);
                 }
             }
         }

@@ -22,9 +22,10 @@ thread mill) and cuts with tilted tools.
   has 32 to 104 cells along its longest side. Neighboring bricks differ by at most one level.
 - `DexelStock`: the dexels of the bricks. The lines of a brick extend one cell beyond it, so its
   border is known exactly in each brick. Bricks are shared by copies of the stock and copied when
-  they change, so snapshots are cheap; completely empty or filled bricks hold no lines. Cuts are
-  applied in parallel, every thread owning a subset of the bricks, and the material of a line
-  only depends on its position, so the copies of a line in neighboring bricks stay equal.
+  they change, so snapshots are cheap; completely empty or filled bricks hold no lines. A group of
+  moves is cut brick by brick: every brick once, with all moves touching it, divided into parts
+  by axis and lines that the threads take as they become free. The material of a line only
+  depends on its position, so the copies of a line in neighboring bricks stay equal.
   - vertical tools: lines along Z remove the tool solid of the closest approach of moves divided
     into pieces of at most a quarter cell of height, lines along X and Y the cross sections of
     the tool, exactly (convex hull of the sections at the profile vertices)
@@ -47,14 +48,19 @@ thread mill) and cuts with tilted tools.
   it, taken at the smallest cubes around the edge, so bricks and cubes of different sizes
   connect without cracks. Flat faces along the axes are merged into rectangles. Faces get the cut
   color from their crossings. The surface of every brick is kept until it changes.
-- `DexelRenderer`: builds the mesh per mesh unit of the layout (up to 16 bricks), rebuilding the
-  units of changed bricks within a time budget per frame, and draws it per root brick.
+- `DexelMeshUnits`: the mesh per mesh unit of the layout (up to 16 bricks). Changed bricks are
+  updated oldest first within a time budget per frame, every group of touching changed bricks
+  together with all units depending on them, so the mesh never has cracks between new and old
+  parts.
+- `DexelRenderer`: draws the mesh units per root brick.
 - `SimDisplay`: deferred shading with optional ambient occlusion (SSAO, at half resolution).
 
-Rotating or zooming the view only draws the meshes, independent of the toolpath length. The time
-budgets for simulating and meshing shrink while frames take longer than 30 ms, so heavy scenes
-keep their frame rate and take a few more frames to show the current state. The view is only
-rendered when something changed.
+Rotating or zooming the view only draws the meshes, independent of the toolpath length. Every
+frame has a time budget for simulating and meshing: the simulation takes what it needs, the mesh
+the rest; while catching up with a far position, intermediate states are only shown after a
+quarter second. The budget shrinks while frames take longer than 30 ms, so heavy scenes keep
+their frame rate. During playback the tool waits for the stock: the timeline doesn't advance
+while the shown stock is behind the tool. The view is only rendered when something changed.
 
 ## 5 axis toolpaths
 

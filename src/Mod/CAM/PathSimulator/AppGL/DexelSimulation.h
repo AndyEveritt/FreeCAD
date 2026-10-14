@@ -102,6 +102,12 @@ public:
     {
         return mCurrent != mTarget;
     }
+    long Current() const
+    {
+        return mCurrent;
+    }
+    // Step of the last snapshot of the background simulation
+    long SnapshotStep() const;
 
     DexelStock& Stock()
     {

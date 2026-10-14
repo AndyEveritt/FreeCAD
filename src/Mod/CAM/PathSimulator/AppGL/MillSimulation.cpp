@@ -635,6 +635,14 @@ void MillSimulation::SimNext(const clock::duration& elapsed)
         return;
     }
 
+    // the tool waits for the stock: playback doesn't advance while the shown stock is behind
+    // the tool, which can happen when cutting and meshing take longer than the playback speed
+    // allows
+    if (mSimPlaying && !mStencilRendering && mDexel && mShownStep < mTargetStep) {
+        mTotalElapsed = 0s;
+        numSteps = 0;
+    }
+
     // advance simulation
 
     const int oldStep = mCurStep;
@@ -883,6 +891,7 @@ void MillSimulation::StartDexelSimulation()
     }
     mDexel->Start(std::move(tools), std::move(segments), mStockXyz, mStockTriangles, mQuality);
     mDexelRenderer.Reset(mDexel->Stock());
+    mShownStep = mTargetStep = 0;
 }
 
 void MillSimulation::UpdateDexelSimulation()
@@ -896,6 +905,7 @@ void MillSimulation::UpdateDexelSimulation()
     }
     const long target = mPathStep < 0 ? 0 : mDexel->GlobalStep(mPathStep, mSubStep);
     mDexel->SetTarget(target);
+    mTargetStep = target;
     // Time for simulating and meshing, leaving time for rendering the frame. While frames are
     // rendered continuously, the time is reduced when frames take longer than 30 ms, so heavy
     // scenes keep their frame rate and take a few more frames to show the current state.
@@ -910,14 +920,33 @@ void MillSimulation::UpdateDexelSimulation()
             mBudgetScale = std::min(1.0, mBudgetScale * 1.15);
         }
     }
-    const double simulateMs = 5 * mBudgetScale;
-    const double meshMs = 6 * mBudgetScale;
-    if (mDexel->Update(simulateMs)) {
+    // The simulation takes what it needs of the time, the mesh is updated with the rest when it
+    // is done. While catching up with a far target, intermediate states are only shown after a
+    // while: the mesh would be built again right away.
+    const double budgetMs = 11 * mBudgetScale;
+    if (!mDexel->Pending()) {
+        mCatchUpStart = now;
+    }
+    if (mDexel->Update(budgetMs)) {
         simDisplay.updateDisplay = true;
     }
-    const int rebuilt
-        = mDexelRenderer.Update(mDexel->Stock(), mDexel->Pool(), meshMs, mMeshPending);
-    if (rebuilt > 0 || mDexel->Pending() || mMeshPending) {
+    const std::chrono::duration<double, std::milli> used = std::chrono::steady_clock::now() - now;
+    const std::chrono::duration<double, std::milli> catchingUp = now - mCatchUpStart;
+    if (!mDexel->Pending() || catchingUp.count() > 250) {
+        const double meshMs = std::max(budgetMs - used.count(), 2 * mBudgetScale);
+        const int rebuilt
+            = mDexelRenderer.Update(mDexel->Stock(), mDexel->Pool(), meshMs, mMeshPending);
+        if (rebuilt > 0) {
+            simDisplay.updateDisplay = true;
+        }
+        if (!mMeshPending) {
+            mShownStep = mDexel->Current();
+        }
+    }
+    else {
+        mMeshPending = true;
+    }
+    if (mDexel->Pending() || mMeshPending) {
         simDisplay.updateDisplay = true;
     }
 }

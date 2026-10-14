@@ -62,18 +62,11 @@ private:
         bool changed = false;
         std::vector<int> units;
     };
-    struct Unit
-    {
-        DexelMesh mesh;
-        bool dirty = true;
-    };
-
     void Draw(const Chunk& chunk, bool cut) const;
     void Upload(Chunk& chunk);
 
     std::shared_ptr<const DexelLayout> mLayout;
-    DexelMeshCache mCache;
-    std::vector<Unit> mUnits;
+    DexelMeshUnits mUnits;
     std::vector<Chunk> mChunks;
 };
 

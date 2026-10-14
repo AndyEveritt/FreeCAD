@@ -906,4 +906,46 @@ TEST(DexelMesher, tiltedCutIsClosed)
     ExpectClosed(mesh, AllIndices(mesh));
 }
 
+TEST(DexelMesher, partialUpdatesAreClosed)
+{
+    // the mesh is closed after every update, also when only part of the changes is done: cuts in
+    // separate places are updated one after the other
+    const float size = 20, depth = 10;
+    auto layout = MakeLayout(size, depth, 1.0f, 2, {VerticalRegion(2, 2, 18, 18, 2)});
+    Fixture f(layout, size, depth);
+    DexelMeshUnits units;
+    units.Reset(f.stock);
+    units.Update(f.stock, f.pool, 1e9);
+    ASSERT_FALSE(units.Pending());
+    CutterProfile ball(BallProfile(2));
+    int partial = 0, updates = 0;
+    for (int pass = 0; pass < 3; pass++) {
+        const float y = 3 + 1.5f * pass;
+        const float p0[3] = {2, y, -1.5f - 0.3f * pass}, p1[3] = {8, y + 1, -2.0f - 0.3f * pass};
+        const float q0[3] = {12, 19 - y, -1.5f}, q1[3] = {18, 18 - y, -2.5f};
+        f.stock.Cut({Move(ball, p0, p1, Up), Move(ball, q0, q1, Up)}, f.pool);
+        do {
+            units.Update(f.stock, f.pool, 0);
+            partial += units.Pending();
+            if (updates++ % 3 != 0 && units.Pending()) {
+                continue;
+            }
+            DexelMesh all;
+            for (int unit = 0; unit < layout->UnitCount(); unit++) {
+                const DexelMesh& part = units.Mesh(unit);
+                const auto base = (uint32_t)all.vertices.size();
+                all.vertices.insert(all.vertices.end(), part.vertices.begin(), part.vertices.end());
+                for (uint32_t i : part.stockIndices) {
+                    all.stockIndices.push_back(base + i);
+                }
+                for (uint32_t i : part.cutIndices) {
+                    all.stockIndices.push_back(base + i);
+                }
+            }
+            ExpectClosed(all, all.stockIndices);
+        } while (units.Pending());
+    }
+    EXPECT_GT(partial, 0);
+}
+
 // NOLINTEND(cppcoreguidelines-*,readability-*)

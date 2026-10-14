@@ -147,6 +147,11 @@ public:
     {
         return mAffectedUnits[leaf];
     }
+    // Leaves touching a leaf
+    const std::vector<int>& Neighbors(int leaf) const
+    {
+        return mNeighbors[leaf];
+    }
     // Leaves the polygons of a unit depend on: its leaves and their neighbors
     const std::vector<int>& UnitDependencies(int unit) const
     {
@@ -188,6 +193,7 @@ private:
     std::vector<std::vector<int>> mUnits;
     std::vector<int> mUnitChunk;
     std::vector<std::vector<int>> mAffectedUnits;
+    std::vector<std::vector<int>> mNeighbors;
     std::vector<std::vector<int>> mUnitDependencies;
 };
 

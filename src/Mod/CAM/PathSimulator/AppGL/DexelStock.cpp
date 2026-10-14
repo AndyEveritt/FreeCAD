@@ -179,75 +179,13 @@ bool HullChord(
     return true;
 }
 
-// Union of sorted, disjoint span lists into 'acc', keeping the normals of the outer ends
-void Unite(std::vector<Span>& acc, const std::vector<Span>& add, std::vector<Span>& out)
+// True if there is material of the sorted, disjoint spans in [lo, hi]
+bool MaterialIn(const std::vector<Span>& spans, float lo, float hi)
 {
-    out.clear();
-    size_t i = 0, j = 0;
-    while (i < acc.size() || j < add.size()) {
-        const Span& next = j >= add.size() || (i < acc.size() && acc[i].lo <= add[j].lo) ? acc[i++] : add[j++];
-        if (!out.empty() && next.lo <= out.back().hi) {
-            if (next.hi > out.back().hi) {
-                out.back().hi = next.hi;
-                out.back().nhi = next.nhi;
-            }
-        }
-        else {
-            out.push_back(next);
-        }
-    }
-    acc.swap(out);
-}
-
-// Range of s where the line base + s * e_a is inside the cylinder of radius r around the segment
-// from 'tip' along the unit vector 'axis' of 'length'. Returns false if there is none.
-bool CylinderChord(const float base[3], int a, const float tip[3], const float axis[3], float length, float r, float& s0, float& s1)
-{
-    // relative to the tip, the line is o + s * d with d the unit vector of axis a
-    const double o[3] = {(double)base[0] - tip[0], (double)base[1] - tip[1], (double)base[2] - tip[2]};
-    const double ow = o[0] * axis[0] + o[1] * axis[1] + o[2] * axis[2];
-    const double dw = axis[a];
-    // across the axis: o_perp + s * d_perp
-    double op[3], dp[3];
-    for (int k = 0; k < 3; k++) {
-        op[k] = o[k] - ow * axis[k];
-        dp[k] = (k == a ? 1.0 : 0.0) - dw * axis[k];
-    }
-    const double qa = dp[0] * dp[0] + dp[1] * dp[1] + dp[2] * dp[2];
-    const double qb = 2 * (op[0] * dp[0] + op[1] * dp[1] + op[2] * dp[2]);
-    const double qc = op[0] * op[0] + op[1] * op[1] + op[2] * op[2] - (double)r * r;
-    double lo = -1e30, hi = 1e30;
-    if (qa < 1e-12) {
-        if (qc > 0) {
-            return false;
-        }
-    }
-    else {
-        const double disc = qb * qb - 4 * qa * qc;
-        if (disc < 0) {
-            return false;
-        }
-        const double sq = std::sqrt(disc);
-        lo = (-qb - sq) / (2 * qa);
-        hi = (-qb + sq) / (2 * qa);
-    }
-    // between the planes at the tip and the top
-    if (std::abs(dw) < 1e-12) {
-        if (ow < 0 || ow > length) {
-            return false;
-        }
-    }
-    else {
-        double p0 = -ow / dw, p1 = (length - ow) / dw;
-        if (p0 > p1) {
-            std::swap(p0, p1);
-        }
-        lo = std::max(lo, p0);
-        hi = std::min(hi, p1);
-    }
-    s0 = (float)lo;
-    s1 = (float)hi;
-    return lo <= hi;
+    const auto it = std::upper_bound(spans.begin(), spans.end(), lo, [](float x, const Span& s) {
+        return x < s.hi;
+    });
+    return it != spans.end() && it->lo < hi;
 }
 
 const DexelStock::BrickRef& SolidBrick()
@@ -327,6 +265,55 @@ struct DexelStock::Prepared
         float top[3];        // end of the cutting part of the axis
         float length;        // of the cutting part
         bool vertical;
+        // lines along axis a, across the tool axis: o + s * across[a] with |across[a]|^2 = across2[a]
+        float across[3][3];
+        float across2[3];
+
+        // Range of s where the line base + s * e_a is inside the bounding cylinder of the tool
+        bool CylinderChord(const float base[3], int a, float r, float& s0, float& s1) const
+        {
+            const float o[3] = {base[0] - tip[0], base[1] - tip[1], base[2] - tip[2]};
+            const float ow = o[0] * axis[0] + o[1] * axis[1] + o[2] * axis[2];
+            const float op[3] = {o[0] - ow * axis[0], o[1] - ow * axis[1], o[2] - ow * axis[2]};
+            const float* dp = across[a];
+            const float qa = across2[a];
+            const float qb = 2 * (op[0] * dp[0] + op[1] * dp[1] + op[2] * dp[2]);
+            const float qc = op[0] * op[0] + op[1] * op[1] + op[2] * op[2] - r * r * 1.0001f;
+            float lo = -1e30f, hi = 1e30f;
+            if (qa < 1e-8f) {
+                if (qc > 0) {
+                    return false;
+                }
+            }
+            else {
+                const float disc = qb * qb - 4 * qa * qc;
+                if (disc < 0) {
+                    return false;
+                }
+                const float sq = std::sqrt(disc);
+                lo = (-qb - sq) / (2 * qa);
+                hi = (-qb + sq) / (2 * qa);
+            }
+            // between the planes at the tip and the top
+            const float dw = axis[a];
+            if (std::abs(dw) < 1e-8f) {
+                if (ow < -1e-4f || ow > length + 1e-4f) {
+                    return false;
+                }
+            }
+            else {
+                float p0 = -ow / dw, p1 = (length - ow) / dw;
+                if (p0 > p1) {
+                    std::swap(p0, p1);
+                }
+                lo = std::max(lo, p0);
+                hi = std::min(hi, p1);
+            }
+            // a margin for rounding
+            s0 = lo - 1e-4f;
+            s1 = hi + 1e-4f;
+            return lo <= hi;
+        }
     };
 
     const CutMove* move = nullptr;
@@ -342,16 +329,30 @@ struct DexelStock::Prepared
     std::vector<int> leaves;
 };
 
+struct DexelStock::InstanceRef
+{
+    const Prepared* prepared;
+    const CutterProfile* tool;
+    int index;
+};
+
+struct DexelStock::Changes
+{
+    std::vector<int> lines;  // changed lines, in order
+    std::vector<uint32_t> start;
+    std::vector<Span> spans;
+};
+
 struct DexelStock::Scratch
 {
-    std::vector<Span> line, tmp, removal, united, merged;
+    std::vector<const Prepared*> fastMoves;
+    std::vector<InstanceRef> refs;
+    // per line of the current axis: the fast moves and the instances that can reach it
+    std::vector<std::vector<int>> lineMoves, lineRefs;
+    std::vector<Span> line, tmp, removal;
     std::vector<Interval> intervals;
     std::vector<float> normals;
     std::vector<int> instances;
-    // changed lines of the current brick
-    std::vector<int> changed;
-    std::vector<uint32_t> changedStart;
-    std::vector<Span> changedSpans;
     std::vector<Span> out;
     long work = 0;
 };
@@ -833,6 +834,13 @@ void DexelStock::Prepare(const CutMove& move, Prepared& p) const
                 h = std::clamp((mTopZ - inst.tip[2] + side) / axis[2], 0.0f, h);
             }
             inst.length = h;
+            for (int a = 0; a < 3; a++) {
+                inst.across2[a] = 0;
+                for (int k = 0; k < 3; k++) {
+                    inst.across[a][k] = (k == a ? 1.0f : 0.0f) - axis[a] * axis[k];
+                    inst.across2[a] += inst.across[a][k] * inst.across[a][k];
+                }
+            }
             for (int k = 0; k < 3; k++) {
                 inst.top[k] = inst.tip[k] + axis[k] * h;
                 inst.lo[k] = std::min(inst.tip[k], inst.top[k]) - r;
@@ -878,20 +886,76 @@ long DexelStock::Cut(const std::vector<CutMove>& moves, ThreadPool& pool, const 
             Prepare(moves[i], prepared[i]);
         }
     });
+    // the moves touching each brick, every brick is cut once with all of them
+    std::vector<std::pair<int, int>> touches;
+    for (int i = 0; i < (int)prepared.size(); i++) {
+        for (int leaf : prepared[i].leaves) {
+            touches.emplace_back(leaf, i);
+        }
+    }
+    std::sort(touches.begin(), touches.end());
+    // the bricks, those with the most moves first, taken by the threads as they become free
+    std::vector<std::pair<size_t, size_t>> groups;
+    for (size_t first = 0; first < touches.size();) {
+        size_t last = first;
+        while (last < touches.size() && touches[last].first == touches[first].first) {
+            last++;
+        }
+        if (mBricks[touches[first].first]) {
+            groups.emplace_back(first, last);
+        }
+        first = last;
+    }
+    std::stable_sort(groups.begin(), groups.end(), [](const auto& x, const auto& y) {
+        return x.second - x.first > y.second - y.first;
+    });
+    // every brick in parts by axis and lines, so heavy bricks are shared by threads, then the
+    // changes of the parts are put together
+    constexpr int Parts = 3;
+    const size_t tasks = groups.size() * 3 * Parts;
+    std::vector<Changes> changes(tasks);
+    std::atomic<size_t> next {0};
     std::vector<long> work(workers, 0);
     pool.Run([&](int worker) {
         Scratch scratch;
-        for (const Prepared& p : prepared) {
-            if (cancel && *cancel) {
+        std::vector<const Prepared*> list;
+        while (!(cancel && *cancel)) {
+            const size_t task = next++;
+            if (task >= tasks) {
                 break;
             }
-            for (int leaf : p.leaves) {
-                if (leaf % workers == worker && mBricks[leaf]) {
-                    CutBrick(leaf, p, scratch);
-                }
+            const auto& group = groups[task / (3 * Parts)];
+            const int axis = (int)(task / Parts % 3), part = (int)(task % Parts);
+            list.clear();
+            for (size_t t = group.first; t < group.second; t++) {
+                list.push_back(&prepared[touches[t].second]);
             }
+            CutBrick(
+                touches[group.first].first,
+                list.data(),
+                (int)list.size(),
+                axis,
+                part * BrickLines / Parts,
+                (part + 1) * BrickLines / Parts,
+                scratch,
+                changes[task]
+            );
         }
         work[worker] = scratch.work;
+    });
+    if (cancel && *cancel) {
+        return 0;
+    }
+    next = 0;
+    pool.Run([&](int) {
+        Scratch scratch;
+        while (true) {
+            const size_t g = next++;
+            if (g >= groups.size()) {
+                break;
+            }
+            Commit(touches[groups[g].first].first, &changes[g * 3 * Parts], 3 * Parts, scratch);
+        }
     });
     long total = 0;
     for (long w : work) {
@@ -900,36 +964,59 @@ long DexelStock::Cut(const std::vector<CutMove>& moves, ThreadPool& pool, const 
     return total;
 }
 
-void DexelStock::CutBrick(int leaf, const Prepared& p, Scratch& s)
+void DexelStock::CutBrick(
+    int leaf,
+    const Prepared* const* moves,
+    int count,
+    int axis,
+    int lineFrom,
+    int lineTo,
+    Scratch& s,
+    Changes& changes
+)
 {
     const DexelLayout& layout = *mLayout;
     const LayoutLeaf& l = layout.Leaf(leaf);
-    const CutMove& move = *p.move;
-    const CutterProfile& tool = *move.tool;
-    const float r = tool.Radius();
-    const LayoutRegion& region = p.region;
-    s.changed.clear();
-    s.changedStart.clear();
-    s.changedSpans.clear();
+    changes.lines.clear();
+    changes.start.clear();
+    changes.spans.clear();
 
-    // instances near the brick
-    if (!p.fast) {
-        s.instances.clear();
-        for (int i = 0; i < (int)p.instances.size(); i++) {
-            const auto& inst = p.instances[i];
-            bool overlaps = true;
-            for (int k = 0; k < 3; k++) {
-                overlaps &= inst.hi[k] >= layout.Coord(k, l.origin[k] - l.step)
-                    && inst.lo[k] <= layout.Coord(k, l.origin[k] + (BrickCells + 1) * l.step);
+    // tool instances near the brick, by tool, and the moves of vertical tools
+    s.fastMoves.clear();
+    s.refs.clear();
+    float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+    for (int m = 0; m < count; m++) {
+        const Prepared& p = *moves[m];
+        if (p.fast) {
+            s.fastMoves.push_back(&p);
+        }
+        else {
+            for (int i = 0; i < (int)p.instances.size(); i++) {
+                const auto& inst = p.instances[i];
+                bool overlaps = true;
+                for (int k = 0; k < 3; k++) {
+                    overlaps &= inst.hi[k] >= layout.Coord(k, l.origin[k] - l.step)
+                        && inst.lo[k] <= layout.Coord(k, l.origin[k] + (BrickCells + 1) * l.step);
+                }
+                if (overlaps) {
+                    s.refs.push_back({&p, p.move->tool, i});
+                }
             }
-            if (overlaps) {
-                s.instances.push_back(i);
+            if (s.refs.empty() || s.refs.back().prepared != &p) {
+                continue;
             }
         }
-        if (s.instances.empty()) {
-            return;
+        for (int k = 0; k < 3; k++) {
+            lo[k] = std::min(lo[k], p.region.lo[k]);
+            hi[k] = std::max(hi[k], p.region.hi[k]);
         }
     }
+    if (s.fastMoves.empty() && s.refs.empty()) {
+        return;
+    }
+    std::stable_sort(s.refs.begin(), s.refs.end(), [](const InstanceRef& x, const InstanceRef& y) {
+        return x.tool < y.tool;
+    });
 
     // subtract a removal from the current line
     auto apply = [&](const Span* removal, int nr) {
@@ -943,27 +1030,67 @@ void DexelStock::CutBrick(int leaf, const Prepared& p, Scratch& s)
     };
 
     Span solid;
-    for (int a = 0; a < 3; a++) {
+    s.lineMoves.resize(BrickAxisLines);
+    s.lineRefs.resize(BrickAxisLines);
+    for (int a = axis; a == axis; a++) {
         const int u = AxisU(a), v = AxisV(a);
         float tlo, thi;
         LineRange(leaf, a, tlo, thi);
-        if (thi < region.lo[a] || tlo > region.hi[a]) {
+        if (thi < lo[a] || tlo > hi[a]) {
             continue;
         }
-        for (int j = 0; j < BrickLines; j++) {
+        // the lines of the brick inside a box across them
+        float cu[BrickLines], cv[BrickLines];
+        for (int k = 0; k < BrickLines; k++) {
+            cu[k] = layout.Coord(u, l.origin[u] + k * l.step);
+            cv[k] = layout.Coord(v, l.origin[v] + k * l.step);
+        }
+        auto bucket = [&](const float* blo, const float* bhi, int item, std::vector<std::vector<int>>& lists) {
+            if (bhi[a] < tlo || blo[a] > thi) {
+                return;
+            }
+            const int i0 = (int)(std::lower_bound(cu, cu + BrickLines, blo[u]) - cu);
+            const int i1 = (int)(std::upper_bound(cu, cu + BrickLines, bhi[u]) - cu);
+            const int j0 = (int)(std::lower_bound(cv, cv + BrickLines, blo[v]) - cv);
+            const int j1 = (int)(std::upper_bound(cv, cv + BrickLines, bhi[v]) - cv);
+            for (int j = j0; j < j1; j++) {
+                for (int i = i0; i < i1; i++) {
+                    lists[j * BrickLines + i].push_back(item);
+                }
+            }
+        };
+        for (auto& list : s.lineMoves) {
+            list.clear();
+        }
+        for (auto& list : s.lineRefs) {
+            list.clear();
+        }
+        for (int m = 0; m < (int)s.fastMoves.size(); m++) {
+            bucket(s.fastMoves[m]->region.lo, s.fastMoves[m]->region.hi, m, s.lineMoves);
+        }
+        for (int ref = 0; ref < (int)s.refs.size(); ref++) {
+            const auto& inst = s.refs[ref].prepared->instances[s.refs[ref].index];
+            bucket(inst.lo, inst.hi, ref, s.lineRefs);
+        }
+        for (int j = lineFrom; j < lineTo; j++) {
             const float pv = layout.Coord(v, l.origin[v] + j * l.step);
-            if (pv < region.lo[v] || pv > region.hi[v]) {
+            if (pv < lo[v] || pv > hi[v]) {
                 continue;
             }
             for (int i = 0; i < BrickLines; i++) {
                 const float pu = layout.Coord(u, l.origin[u] + i * l.step);
-                if (pu < region.lo[u] || pu > region.hi[u]) {
+                if (pu < lo[u] || pu > hi[u]) {
                     continue;
                 }
                 const int line = a * BrickAxisLines + j * BrickLines + i;
+                const auto& lineMoves = s.lineMoves[j * BrickLines + i];
+                const auto& lineRefs = s.lineRefs[j * BrickLines + i];
+                if (lineMoves.empty() && lineRefs.empty()) {
+                    continue;
+                }
                 const Span* spans;
                 const int n = Line(leaf, line, spans, solid);
-                if (n == 0 || spans[n - 1].hi < region.lo[a] || spans[0].lo > region.hi[a]) {
+                if (n == 0 || spans[n - 1].hi < lo[a] || spans[0].lo > hi[a]) {
                     continue;
                 }
                 s.work++;
@@ -974,193 +1101,213 @@ void DexelStock::CutBrick(int leaf, const Prepared& p, Scratch& s)
                 base[u] = pu;
                 base[v] = pv;
 
-                if (p.fast && a == 2) {
-                    // vertical line through (x, y)
-                    const float cx = base[0], cy = base[1];
-                    for (int piece = 0; piece < p.pieces; piece++) {
-                        float pa[3], pb[3];
-                        for (int k = 0; k < 3; k++) {
-                            pa[k] = move.p0[k] + (move.p1[k] - move.p0[k]) * piece / p.pieces;
-                            pb[k] = move.p0[k] + (move.p1[k] - move.p0[k]) * (piece + 1) / p.pieces;
-                        }
-                        const float dx = pb[0] - pa[0], dy = pb[1] - pa[1];
-                        const float len2 = dx * dx + dy * dy;
-                        float t = 0;
-                        if (len2 > 0) {
-                            t = std::clamp(((cx - pa[0]) * dx + (cy - pa[1]) * dy) / len2, 0.0f, 1.0f);
-                        }
-                        const float d = std::hypot(cx - pa[0] - t * dx, cy - pa[1] - t * dy);
-                        if (d > r) {
-                            continue;
-                        }
-                        const float zmin = std::min(pa[2], pb[2]), zmax = std::max(pa[2], pb[2]);
-                        // With one solid interval per line, the removed material is one interval
-                        // from the lowest bottom to the highest top of the tool along the move,
-                        // taken from the tool at the start, the end and the closest approach.
-                        // Otherwise the solid of the closest approach is extended over the
-                        // height range of the move, which can remove slightly more.
-                        Span removal[64];
-                        int nr = 0;
-                        const Interval* iv;
-                        const ProfileNormal* pn;
-                        if (tool.HasSingleAxialIntervals() && zmin != zmax) {
-                            float lo = 1e30f, hi = -1e30f;
-                            uint32_t nlo = 0, nhi = 0;
-                            for (const float tc : {0.0f, t, 1.0f}) {
-                                const float hx = cx - pa[0] - tc * dx, hy = cy - pa[1] - tc * dy;
-                                const float dc = std::hypot(hx, hy);
-                                if (tool.AxialIntervals(dc, iv, pn) == 1) {
-                                    const float z = pa[2] + tc * (pb[2] - pa[2]);
-                                    const float ux = dc > 1e-9f ? hx / dc : 0, uy = dc > 1e-9f ? hy / dc : 0;
-                                    if (iv[0].lo + z < lo) {
-                                        lo = iv[0].lo + z;
-                                        nlo = ToolNormal(pn[0], ux, uy);
-                                    }
-                                    if (iv[0].hi + z > hi) {
-                                        hi = iv[0].hi + z;
-                                        nhi = ToolNormal(pn[1], ux, uy);
-                                    }
-                                }
-                            }
-                            if (lo < hi) {
-                                removal[nr++] = {lo, hi, nlo, nhi};
-                            }
-                        }
-                        else {
-                            const float hx = cx - pa[0] - t * dx, hy = cy - pa[1] - t * dy;
-                            const float ux = d > 1e-9f ? hx / d : 0, uy = d > 1e-9f ? hy / d : 0;
-                            const int n = std::min(64, tool.AxialIntervals(d, iv, pn));
-                            for (int k = 0; k < n; k++) {
-                                const Span sp {
-                                    iv[k].lo + zmin,
-                                    iv[k].hi + zmax,
-                                    ToolNormal(pn[2 * k], ux, uy),
-                                    ToolNormal(pn[2 * k + 1], ux, uy),
-                                };
-                                if (nr > 0 && sp.lo <= removal[nr - 1].hi) {
-                                    if (sp.hi > removal[nr - 1].hi) {
-                                        removal[nr - 1].hi = sp.hi;
-                                        removal[nr - 1].nhi = sp.nhi;
-                                    }
-                                }
-                                else {
-                                    removal[nr++] = sp;
-                                }
-                            }
-                        }
-                        apply(removal, nr);
+                // vertical tools, move by move
+                for (int m : lineMoves) {
+                    const Prepared& p = *s.fastMoves[m];
+                    const LayoutRegion& region = p.region;
+                    if (pu < region.lo[u] || pu > region.hi[u] || pv < region.lo[v] || pv > region.hi[v]
+                        || s.line.empty() || s.line.back().hi < region.lo[a] || s.line.front().lo > region.hi[a]) {
+                        continue;
                     }
-                }
-                else if (p.fast) {
-                    // horizontal line at height zl, along x (a = 0) or y (a = 1): the tool's
-                    // slices at that height sweep the hull of the slices at the ends of the parts
-                    // of the move between heights of profile vertices, where their radius
-                    // changes linearly
-                    const float zl = base[2];
-                    const int across = a == 0 ? 1 : 0;
-                    const float w = base[across];
-                    const float z0 = move.p0[2], dz = move.p1[2] - move.p0[2];
-                    // range of the move where the line is at the height of the cutting part
-                    float t0 = 0, t1 = 1;
-                    if (std::abs(dz) < 1e-9f) {
-                        if (zl - z0 < 0 || zl - z0 > p.length) {
-                            t1 = -1;
+                    const CutMove& move = *p.move;
+                    const CutterProfile& tool = *move.tool;
+                    const float r = tool.Radius();
+                    (void)r;
+                    if (a == 2) {
+        // vertical line through (x, y)
+        const float cx = base[0], cy = base[1];
+        for (int piece = 0; piece < p.pieces; piece++) {
+            float pa[3], pb[3];
+            for (int k = 0; k < 3; k++) {
+                pa[k] = move.p0[k] + (move.p1[k] - move.p0[k]) * piece / p.pieces;
+                pb[k] = move.p0[k] + (move.p1[k] - move.p0[k]) * (piece + 1) / p.pieces;
+            }
+            const float dx = pb[0] - pa[0], dy = pb[1] - pa[1];
+            const float len2 = dx * dx + dy * dy;
+            float t = 0;
+            if (len2 > 0) {
+                t = std::clamp(((cx - pa[0]) * dx + (cy - pa[1]) * dy) / len2, 0.0f, 1.0f);
+            }
+            const float d = std::hypot(cx - pa[0] - t * dx, cy - pa[1] - t * dy);
+            if (d > r) {
+                continue;
+            }
+            const float zmin = std::min(pa[2], pb[2]), zmax = std::max(pa[2], pb[2]);
+            // With one solid interval per line, the removed material is one interval
+            // from the lowest bottom to the highest top of the tool along the move,
+            // taken from the tool at the start, the end and the closest approach.
+            // Otherwise the solid of the closest approach is extended over the
+            // height range of the move, which can remove slightly more.
+            Span removal[64];
+            int nr = 0;
+            const Interval* iv;
+            const ProfileNormal* pn;
+            if (tool.HasSingleAxialIntervals() && zmin != zmax) {
+                float lo = 1e30f, hi = -1e30f;
+                uint32_t nlo = 0, nhi = 0;
+                for (const float tc : {0.0f, t, 1.0f}) {
+                    const float hx = cx - pa[0] - tc * dx, hy = cy - pa[1] - tc * dy;
+                    const float dc = std::hypot(hx, hy);
+                    if (tool.AxialIntervals(dc, iv, pn) == 1) {
+                        const float z = pa[2] + tc * (pb[2] - pa[2]);
+                        const float ux = dc > 1e-9f ? hx / dc : 0, uy = dc > 1e-9f ? hy / dc : 0;
+                        if (iv[0].lo + z < lo) {
+                            lo = iv[0].lo + z;
+                            nlo = ToolNormal(pn[0], ux, uy);
                         }
-                    }
-                    else {
-                        t0 = (zl - z0 - p.length) / dz;
-                        t1 = (zl - z0) / dz;
-                        if (t0 > t1) {
-                            std::swap(t0, t1);
-                        }
-                        t0 = std::max(t0, 0.0f);
-                        t1 = std::min(t1, 1.0f);
-                    }
-                    if (t0 > t1) {
-                        // not at this height
-                    }
-                    else {
-                        float breaks[66];
-                        int nb = 0;
-                        breaks[nb++] = t0;
-                        if (std::abs(dz) >= 1e-9f) {
-                            for (float h : tool.VertexHeights()) {
-                                const float t = (zl - z0 - h) / dz;
-                                if (t > t0 && t < t1 && nb < 65) {
-                                    breaks[nb++] = t;
-                                }
-                            }
-                        }
-                        breaks[nb++] = t1;
-                        std::sort(breaks, breaks + nb);
-                        float lo = 1e30f, hi = -1e30f, tLo = 0, tHi = 0;
-                        for (int b = 0; b + 1 < nb; b++) {
-                            const float ta = breaks[b], tb = breaks[b + 1];
-                            if (tb < ta || (b > 0 && tb == ta)) {
-                                continue;
-                            }
-                            ProfileNormal unused;
-                            const float ra = std::max(0.0f, tool.SliceRadius(zl - z0 - ta * dz, unused));
-                            const float rb = std::max(0.0f, tool.SliceRadius(zl - z0 - tb * dz, unused));
-                            const float ca[2] = {
-                                move.p0[a] + ta * (move.p1[a] - move.p0[a]),
-                                move.p0[across] + ta * (move.p1[across] - move.p0[across]),
-                            };
-                            const float cb[2] = {
-                                move.p0[a] + tb * (move.p1[a] - move.p0[a]),
-                                move.p0[across] + tb * (move.p1[across] - move.p0[across]),
-                            };
-                            float s0, s1, l0 = 0, l1 = 0;
-                            if (!HullChord(ca, ra, cb, rb, w, s0, s1, l0, l1)) {
-                                continue;
-                            }
-                            if (s0 < lo) {
-                                lo = s0;
-                                tLo = ta + l0 * (tb - ta);
-                            }
-                            if (s1 > hi) {
-                                hi = s1;
-                                tHi = ta + l1 * (tb - ta);
-                            }
-                        }
-                        if (lo < hi) {
-                            // normals from the tool at the ends
-                            uint32_t normal[2];
-                            const float ends[2] = {lo, hi}, times[2] = {tLo, tHi};
-                            for (int e = 0; e < 2; e++) {
-                                const float t = times[e];
-                                ProfileNormal pn {};
-                                tool.SliceRadius(zl - z0 - t * dz, pn);
-                                float h[2] = {
-                                    ends[e] - (move.p0[a] + t * (move.p1[a] - move.p0[a])),
-                                    w - (move.p0[across] + t * (move.p1[across] - move.p0[across])),
-                                };
-                                const float len = std::hypot(h[0], h[1]);
-                                if (len > 1e-9f) {
-                                    h[0] /= len;
-                                    h[1] /= len;
-                                }
-                                else {
-                                    h[0] = e == 0 ? -1.0f : 1.0f;
-                                    h[1] = 0;
-                                }
-                                float hxy[2];
-                                hxy[a] = h[0];
-                                hxy[across] = h[1];
-                                normal[e] = ToolNormal(pn, hxy[0], hxy[1]);
-                            }
-                            const Span removal {lo, hi, normal[0], normal[1]};
-                            apply(&removal, 1);
+                        if (iv[0].hi + z > hi) {
+                            hi = iv[0].hi + z;
+                            nhi = ToolNormal(pn[1], ux, uy);
                         }
                     }
                 }
-                else {
-                    // tool instances. The material removed by convex tools is united first, an
-                    // instance that can't add to it is skipped.
-                    const bool convex = tool.IsConvex();
-                    s.united.clear();
-                    for (int index : s.instances) {
-                        const auto& inst = p.instances[index];
+                if (lo < hi) {
+                    removal[nr++] = {lo, hi, nlo, nhi};
+                }
+            }
+            else {
+                const float hx = cx - pa[0] - t * dx, hy = cy - pa[1] - t * dy;
+                const float ux = d > 1e-9f ? hx / d : 0, uy = d > 1e-9f ? hy / d : 0;
+                const int n = std::min(64, tool.AxialIntervals(d, iv, pn));
+                for (int k = 0; k < n; k++) {
+                    const Span sp {
+                        iv[k].lo + zmin,
+                        iv[k].hi + zmax,
+                        ToolNormal(pn[2 * k], ux, uy),
+                        ToolNormal(pn[2 * k + 1], ux, uy),
+                    };
+                    if (nr > 0 && sp.lo <= removal[nr - 1].hi) {
+                        if (sp.hi > removal[nr - 1].hi) {
+                            removal[nr - 1].hi = sp.hi;
+                            removal[nr - 1].nhi = sp.nhi;
+                        }
+                    }
+                    else {
+                        removal[nr++] = sp;
+                    }
+                }
+            }
+            apply(removal, nr);
+        }
+                    }
+                    else {
+        // horizontal line at height zl, along x (a = 0) or y (a = 1): the tool's
+        // slices at that height sweep the hull of the slices at the ends of the parts
+        // of the move between heights of profile vertices, where their radius
+        // changes linearly
+        const float zl = base[2];
+        const int across = a == 0 ? 1 : 0;
+        const float w = base[across];
+        const float z0 = move.p0[2], dz = move.p1[2] - move.p0[2];
+        // range of the move where the line is at the height of the cutting part
+        float t0 = 0, t1 = 1;
+        if (std::abs(dz) < 1e-9f) {
+            if (zl - z0 < 0 || zl - z0 > p.length) {
+                t1 = -1;
+            }
+        }
+        else {
+            t0 = (zl - z0 - p.length) / dz;
+            t1 = (zl - z0) / dz;
+            if (t0 > t1) {
+                std::swap(t0, t1);
+            }
+            t0 = std::max(t0, 0.0f);
+            t1 = std::min(t1, 1.0f);
+        }
+        if (t0 > t1) {
+            // not at this height
+        }
+        else {
+            float breaks[66];
+            int nb = 0;
+            breaks[nb++] = t0;
+            if (std::abs(dz) >= 1e-9f) {
+                for (float h : tool.VertexHeights()) {
+                    const float t = (zl - z0 - h) / dz;
+                    if (t > t0 && t < t1 && nb < 65) {
+                        breaks[nb++] = t;
+                    }
+                }
+            }
+            breaks[nb++] = t1;
+            std::sort(breaks, breaks + nb);
+            float lo = 1e30f, hi = -1e30f, tLo = 0, tHi = 0;
+            for (int b = 0; b + 1 < nb; b++) {
+                const float ta = breaks[b], tb = breaks[b + 1];
+                if (tb < ta || (b > 0 && tb == ta)) {
+                    continue;
+                }
+                ProfileNormal unused;
+                const float ra = std::max(0.0f, tool.SliceRadius(zl - z0 - ta * dz, unused));
+                const float rb = std::max(0.0f, tool.SliceRadius(zl - z0 - tb * dz, unused));
+                const float ca[2] = {
+                    move.p0[a] + ta * (move.p1[a] - move.p0[a]),
+                    move.p0[across] + ta * (move.p1[across] - move.p0[across]),
+                };
+                const float cb[2] = {
+                    move.p0[a] + tb * (move.p1[a] - move.p0[a]),
+                    move.p0[across] + tb * (move.p1[across] - move.p0[across]),
+                };
+                float s0, s1, l0 = 0, l1 = 0;
+                if (!HullChord(ca, ra, cb, rb, w, s0, s1, l0, l1)) {
+                    continue;
+                }
+                if (s0 < lo) {
+                    lo = s0;
+                    tLo = ta + l0 * (tb - ta);
+                }
+                if (s1 > hi) {
+                    hi = s1;
+                    tHi = ta + l1 * (tb - ta);
+                }
+            }
+            if (lo < hi) {
+                // normals from the tool at the ends
+                uint32_t normal[2];
+                const float ends[2] = {lo, hi}, times[2] = {tLo, tHi};
+                for (int e = 0; e < 2; e++) {
+                    const float t = times[e];
+                    ProfileNormal pn {};
+                    tool.SliceRadius(zl - z0 - t * dz, pn);
+                    float h[2] = {
+                        ends[e] - (move.p0[a] + t * (move.p1[a] - move.p0[a])),
+                        w - (move.p0[across] + t * (move.p1[across] - move.p0[across])),
+                    };
+                    const float len = std::hypot(h[0], h[1]);
+                    if (len > 1e-9f) {
+                        h[0] /= len;
+                        h[1] /= len;
+                    }
+                    else {
+                        h[0] = e == 0 ? -1.0f : 1.0f;
+                        h[1] = 0;
+                    }
+                    float hxy[2];
+                    hxy[a] = h[0];
+                    hxy[across] = h[1];
+                    normal[e] = ToolNormal(pn, hxy[0], hxy[1]);
+                }
+                const Span removal {lo, hi, normal[0], normal[1]};
+                apply(&removal, 1);
+            }
+        }
+                    }
+                }
+
+                // tool instances, skipped if there is no material left in the bounding cylinder
+                // of the tool
+                for (size_t g = 0; g < lineRefs.size();) {
+                    const CutterProfile& tool = *s.refs[lineRefs[g]].tool;
+                    size_t end = g;
+                    while (end < lineRefs.size() && s.refs[lineRefs[end]].tool == &tool) {
+                        end++;
+                    }
+                    const float r = tool.Radius();
+                    for (size_t k = g; k < end; k++) {
+                        const InstanceRef& ref = s.refs[lineRefs[k]];
+                        const Prepared& p = *ref.prepared;
+                        const auto& inst = p.instances[ref.index];
                         if (base[u] < inst.lo[u] || base[u] > inst.hi[u] || base[v] < inst.lo[v]
                             || base[v] > inst.hi[v]) {
                             continue;
@@ -1180,16 +1327,9 @@ void DexelStock::CutBrick(int leaf, const Prepared& p, Scratch& s)
                                 continue;
                             }
                         }
-                        if (convex && !s.united.empty()) {
+                        {
                             float b0, b1;
-                            if (!CylinderChord(base, a, inst.tip, inst.axis, inst.length, r, b0, b1)) {
-                                continue;
-                            }
-                            bool covered = false;
-                            for (const Span& united : s.united) {
-                                covered |= united.lo <= b0 && b1 <= united.hi;
-                            }
-                            if (covered) {
+                            if (!inst.CylinderChord(base, a, r, b0, b1) || !MaterialIn(s.line, b0, b1)) {
                                 continue;
                             }
                         }
@@ -1199,9 +1339,9 @@ void DexelStock::CutBrick(int leaf, const Prepared& p, Scratch& s)
                             const float d = std::hypot(hx, hy);
                             const Interval* iv;
                             const ProfileNormal* pn;
-                            const int n = tool.AxialIntervals(d, iv, pn);
+                            const int na = tool.AxialIntervals(d, iv, pn);
                             const float ux = d > 1e-9f ? hx / d : 0, uy = d > 1e-9f ? hy / d : 0;
-                            for (int k = 0; k < n; k++) {
+                            for (int k = 0; k < na; k++) {
                                 s.removal.push_back({
                                     iv[k].lo + inst.tip[2],
                                     iv[k].hi + inst.tip[2],
@@ -1228,9 +1368,9 @@ void DexelStock::CutBrick(int leaf, const Prepared& p, Scratch& s)
                                 // back to world coordinates
                                 float nw[2][3];
                                 for (int e = 0; e < 2; e++) {
-                                    const float* n = &s.normals[6 * k + 3 * e];
+                                    const float* nt = &s.normals[6 * k + 3 * e];
                                     for (int c = 0; c < 3; c++) {
-                                        nw[e][c] = n[0] * inst.e1[c] + n[1] * inst.e2[c] + n[2] * inst.axis[c];
+                                        nw[e][c] = nt[0] * inst.e1[c] + nt[1] * inst.e2[c] + nt[2] * inst.axis[c];
                                     }
                                 }
                                 s.removal.push_back({
@@ -1241,16 +1381,9 @@ void DexelStock::CutBrick(int leaf, const Prepared& p, Scratch& s)
                                 });
                             }
                         }
-                        if (convex) {
-                            Unite(s.united, s.removal, s.merged);
-                        }
-                        else {
-                            apply(s.removal.data(), (int)s.removal.size());
-                        }
+                        apply(s.removal.data(), (int)s.removal.size());
                     }
-                    if (convex) {
-                        apply(s.united.data(), (int)s.united.size());
-                    }
+                    g = end;
                 }
 
                 // keep the line if it changed
@@ -1259,35 +1392,41 @@ void DexelStock::CutBrick(int leaf, const Prepared& p, Scratch& s)
                     same = s.line[k].lo == spans[k].lo && s.line[k].hi == spans[k].hi;
                 }
                 if (!same) {
-                    s.changed.push_back(line);
-                    s.changedStart.push_back((uint32_t)s.changedSpans.size());
-                    s.changedSpans.insert(s.changedSpans.end(), s.line.begin(), s.line.end());
+                    changes.lines.push_back(line);
+                    changes.start.push_back((uint32_t)changes.spans.size());
+                    changes.spans.insert(changes.spans.end(), s.line.begin(), s.line.end());
                 }
             }
         }
     }
-    Commit(leaf, s);
 }
 
-void DexelStock::Commit(int leaf, Scratch& s)
+void DexelStock::Commit(int leaf, Changes* parts, int count, Scratch& s)
 {
-    if (s.changed.empty()) {
+    bool any = false;
+    for (int p = 0; p < count; p++) {
+        parts[p].start.push_back((uint32_t)parts[p].spans.size());
+        any |= !parts[p].lines.empty();
+    }
+    if (!any) {
         return;
     }
-    s.changedStart.push_back((uint32_t)s.changedSpans.size());
     const BrickRef& old = mBricks[leaf];
     s.out.clear();
     uint32_t start[BrickLineCount + 1];
+    // the parts are in the order of their lines
+    int part = 0;
     size_t next = 0;
     Span solid;
     for (int line = 0; line < BrickLineCount; line++) {
         start[line] = (uint32_t)s.out.size();
-        if (next < s.changed.size() && s.changed[next] == line) {
-            s.out.insert(
-                s.out.end(),
-                s.changedSpans.begin() + s.changedStart[next],
-                s.changedSpans.begin() + s.changedStart[next + 1]
-            );
+        while (part < count && next >= parts[part].lines.size()) {
+            part++;
+            next = 0;
+        }
+        if (part < count && parts[part].lines[next] == line) {
+            const Changes& c = parts[part];
+            s.out.insert(s.out.end(), c.spans.begin() + c.start[next], c.spans.begin() + c.start[next + 1]);
             next++;
             continue;
         }

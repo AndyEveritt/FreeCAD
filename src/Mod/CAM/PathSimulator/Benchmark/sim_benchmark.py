@@ -386,6 +386,54 @@ class JobBench:
         self.settle()
         return result
 
+    def scenario_flashes(self, limit):
+        """Play the job and look for flashes: parts of the stock that show the background for a
+        frame. The view is grabbed while playing, a flash pixel has the background color and
+        shows the stock in the grabs before and after. The stock colors are saturated, unlike the
+        tool and the background."""
+        if numpy is None:
+            return {"error": "numpy not available"}
+        total = self.slider.maximum()
+        self.move_to(0)
+        speed = max(1, math.ceil(total / (CONFIG["playback_seconds"] * 60)))
+        self.set_speed(speed)
+        limit.restart()
+        self.toggle_play()
+        grabs = []
+        background = None
+        flashes = []
+        count = 0
+        while self.slider.value() < total and not limit.expired():
+            pump(0.005)
+            image = self.glw.grab().toImage()
+            pixels = image_array(image)
+            if background is None:
+                background = pixels[2, 2].copy()
+            grabs = (grabs + [(image, pixels)])[-3:]
+            count += 1
+            if len(grabs) < 3:
+                continue
+            a, b, c = (g[1] for g in grabs)
+            changed = (numpy.abs(b - a).max(axis=2) > 60) & (numpy.abs(b - c).max(axis=2) > 60)
+            stable = numpy.abs(a - c).max(axis=2) < 20
+
+            def saturated(p):
+                return p.max(axis=2) - p.min(axis=2) > 30
+
+            stable &= saturated(a) & saturated(c)
+            empty = numpy.abs(b - background).max(axis=2) < 20
+            pixels_flashing = int((changed & stable & empty).sum())
+            if pixels_flashing > 20:
+                flashes.append({"grab": count, "pixels": pixels_flashing, "step": self.slider.value()})
+                if CONFIG.get("images_dir") and len(flashes) <= 3:
+                    for k, (img, _) in enumerate(grabs):
+                        img.save(os.path.join(CONFIG["images_dir"], f"{self.job}_{self.size}_flash{len(flashes)}_{k}.png"))
+        if self.slider.value() < total:
+            self.toggle_play()
+        self.set_speed(1)
+        self.settle()
+        return {"grabs": count, "flashes": len(flashes), "worst": max((f["pixels"] for f in flashes), default=0), "details": flashes[:10]}
+
     def scrub(self, positions, limit):
         """Drag the slider through the positions, waiting for the view at each."""
         limit.restart()

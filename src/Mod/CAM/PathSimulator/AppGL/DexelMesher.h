@@ -88,6 +88,45 @@ private:
     std::vector<State> mState;
 };
 
+// The mesh of a stock, per mesh unit of its layout, updated when the stock changes. The surface
+// of a changed leaf is replaced together with the meshes of all units that depend on it, so the
+// mesh has no cracks at any time.
+class DexelMeshUnits
+{
+public:
+    // Start with a new stock, all units are built by the following updates
+    void Reset(const DexelStock& stock);
+    // Take the changed leaves of the stock and update the units depending on them, oldest changes
+    // first, for about budgetMs. Returns the updated units.
+    std::vector<int> Update(DexelStock& stock, ThreadPool& pool, double budgetMs);
+    // Changed leaves are waiting
+    bool Pending() const
+    {
+        return mFirst < mQueue.size();
+    }
+    const DexelMesh& Mesh(int unit) const
+    {
+        return mMeshes[unit];
+    }
+    // Updates the oldest leaf done by the last update waited for
+    int LastDelay() const
+    {
+        return mLastDelay;
+    }
+
+private:
+    std::shared_ptr<const DexelLayout> mLayout;
+    DexelMeshCache mCache;
+    std::vector<DexelMesh> mMeshes;
+    std::vector<int> mQueue;  // changed leaves, from mFirst on
+    std::vector<int> mQueuedAt;  // update of each queued leaf
+    size_t mFirst = 0;
+    int mUpdates = 0;
+    int mLastDelay = 0;
+    double mMsPerUnit = 0.05;  // measured time to update a unit
+    std::vector<uint8_t> mQueued;
+};
+
 // Build the mesh of the given leaves of the stock layout, with dual contouring. The cache must
 // hold the leaves and their neighbors, see DexelLayout::UnitDependencies.
 //

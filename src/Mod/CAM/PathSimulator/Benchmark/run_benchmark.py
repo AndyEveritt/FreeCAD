@@ -46,6 +46,8 @@ SCENARIOS = [
     "toggles",
     "correctness",
 ]
+# diagnostics, run only when asked for with --scenarios
+EXTRA_SCENARIOS = ["flashes"]
 SCRUBS = ("scrub_forward", "scrub_backward", "scrub_random")
 
 QUICK = {
@@ -210,6 +212,11 @@ def evaluate(data, base=None, fail_above=1.25, noise_ms=2.0):
         for name, sc in run.get("scenarios", {}).items():
             if sc.get("timed_out"):
                 verdict["failures"].append(f"{key} {name} timed out")
+        flashes = run.get("scenarios", {}).get("flashes")
+        if flashes and flashes.get("flashes"):
+            verdict["failures"].append(
+                f"{key} {flashes['flashes']} flashes, up to {flashes.get('worst')} pixels"
+            )
         corr = run.get("scenarios", {}).get("correctness")
         if corr and corr.get("passed") is False:
             verdict["failures"].append(
@@ -246,6 +253,8 @@ def evaluate(data, base=None, fail_above=1.25, noise_ms=2.0):
 def cell(sc, key="frame_ms"):
     if sc is None:
         return "-"
+    if "flashes" in sc:
+        return f"{sc['flashes']} in {sc.get('grabs', 0)}"
     f = sc.get(key, {})
     if not f.get("count"):
         return "-"
@@ -347,7 +356,9 @@ def main():
     parser.add_argument(
         "--sizes", help=f"comma separated, from: {', '.join(jobs.SIZES)} or a move count"
     )
-    parser.add_argument("--scenarios", help=f"comma separated, from: {', '.join(SCENARIOS)}")
+    parser.add_argument(
+        "--scenarios", help=f"comma separated, from: {', '.join(SCENARIOS + EXTRA_SCENARIOS)}"
+    )
     parser.add_argument("--repeats", type=int, help="runs of each job, in separate processes")
     parser.add_argument("--window", help="main window size WxH")
     parser.add_argument("--quality", type=int, default=10, help="simulator accuracy 1..10")

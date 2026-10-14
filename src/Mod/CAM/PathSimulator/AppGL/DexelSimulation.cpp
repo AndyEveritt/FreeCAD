@@ -38,16 +38,18 @@ using Clock = std::chrono::steady_clock;
 
 // Work (lines) between two snapshots of the background simulation, and the least between checks
 // of the time budget in Update
-constexpr double CheckpointWork = 2e6;
+constexpr double CheckpointWork = 5e5;
 constexpr double UpdateChunkWork = 1e5;
 // Memory of snapshot bricks after which every other snapshot is dropped
 constexpr long CheckpointMemory = 512L * 1024 * 1024;
 // Leaves of the layout at most, the finest level is dropped until it fits
 constexpr int MaxLeaves = 400000;
 
+// the background simulation runs with low priority, rendering and the visible simulation
+// preempt it
 int WorkerThreads()
 {
-    return std::max(1, (int)std::thread::hardware_concurrency() / 2);
+    return std::max(1, (int)std::thread::hardware_concurrency());
 }
 
 }  // namespace
@@ -251,6 +253,12 @@ void DexelSimulation::BuildLayout(const std::vector<float>& xyz, float quality)
     mArcTolerance = mLayout->FineCell() * 0.25f;
 }
 
+long DexelSimulation::SnapshotStep() const
+{
+    std::lock_guard<std::mutex> lock(mMutex);
+    return mCheckpoints.empty() ? 0 : mCheckpoints.back().step;
+}
+
 void DexelSimulation::SetTarget(long step)
 {
     mTarget = std::clamp(step, 0L, TotalSteps());
@@ -347,7 +355,8 @@ void DexelSimulation::Worker()
         }
         step = next;
         stock.Freeze();
-        memory += stock.TakeNewBrickBytes();
+        // the copied bricks and the list of bricks of the snapshot
+        memory += stock.TakeNewBrickBytes() + (long)(stock.Bricks().size() * sizeof(DexelStock::BrickRef));
 
         std::lock_guard<std::mutex> lock(mMutex);
         mCheckpoints.push_back({step, stock.Bricks()});
@@ -409,7 +418,7 @@ bool DexelSimulation::Update(double budgetMs)
     while (mCurrent < mTarget) {
         const auto start = Clock::now();
         const double remaining = std::chrono::duration<double, std::milli>(deadline - start).count();
-        const double chunk = std::max(UpdateChunkWork, mWorkPerMs * remaining / 2);
+        const double chunk = std::clamp(mWorkPerMs * remaining / 2, UpdateChunkWork, 4 * CheckpointWork);
         const long next = std::min(mTarget, AdvanceByWork(mCurrent, (long)chunk));
         moves.clear();
         AppendMoves(mCurrent, next, moves);

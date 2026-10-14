@@ -165,11 +165,25 @@ public:
 
 private:
     struct Prepared;
+    struct InstanceRef;
+    struct Changes;
     struct Scratch;
 
     void Prepare(const CutMove& move, Prepared& prepared) const;
-    void CutBrick(int leaf, const Prepared& prepared, Scratch& scratch);
-    void Commit(int leaf, Scratch& scratch);
+    // Cut the lines along an axis of a brick, from line lineFrom to lineTo across, with all moves
+    // touching the brick
+    void CutBrick(
+        int leaf,
+        const Prepared* const* moves,
+        int count,
+        int axis,
+        int lineFrom,
+        int lineTo,
+        Scratch& scratch,
+        Changes& changes
+    );
+    // Replace the changed lines of a brick
+    void Commit(int leaf, Changes* parts, int count, Scratch& scratch);
 
     std::shared_ptr<const DexelLayout> mLayout;
     Snapshot mBricks;

@@ -27,6 +27,8 @@
 #include "ThreadPool.h"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <map>
 #include <tuple>
@@ -148,6 +150,20 @@ struct LeafGeometry
     {
         const auto it = std::lower_bound(edges.begin(), edges.end(), (uint16_t)edge);
         return it != edges.end() && *it == edge ? &crossings[it - edges.begin()] : nullptr;
+    }
+
+    // crossings of the edges of merged cubes with a change, by CoarseKey
+    std::vector<std::pair<uint32_t, Crossing>> coarse;
+    static uint32_t CoarseKey(int a, int i, int j, int k, int log)
+    {
+        return (((a * BrickLines + j) * BrickLines + i) * BrickCells + k) * 4 + log;
+    }
+    Crossing CoarseCrossingAt(uint32_t key) const
+    {
+        const auto it = std::lower_bound(coarse.begin(), coarse.end(), key, [](const auto& c, uint32_t k) {
+            return c.first < k;
+        });
+        return it != coarse.end() && it->first == key ? it->second : Crossing {0, 0, false};
     }
 };
 
@@ -709,7 +725,46 @@ std::unique_ptr<LeafGeometry> ComputeLeaf(const DexelStock& stock, int leaf, boo
         vertex.clusters = (uint8_t)qef.nClusters;
         g->clusters.insert(g->clusters.end(), qef.clusters, qef.clusters + qef.nClusters);
         g->vertices.push_back(vertex);
+
+        // crossings of the edges of merged cubes, the mesh only uses the cached surface
+        if (log == 0) {
+            continue;
+        }
+        for (int a = 0; a < 3; a++) {
+            const int u = AxisU(a), v = AxisV(a);
+            float range[2];
+            stock.LineRange(leaf, a, range[0], range[1]);
+            for (int ev = 0; ev < 2; ev++) {
+                for (int eu = 0; eu < 2; eu++) {
+                    const int i = c[u] + eu * size, j = c[v] + ev * size;
+                    int p0[3];
+                    p0[a] = c[a];
+                    p0[u] = i;
+                    p0[v] = j;
+                    const int point0 = PointIndex(p0);
+                    const bool in0 = g->Inside(point0);
+                    if (in0 == g->Inside(point0 + size * PointStride[a])) {
+                        continue;
+                    }
+                    const Span* spans;
+                    const int n = stock.Line(leaf, a * BrickAxisLines + j * BrickLines + i, spans, scratch);
+                    const Crossing x = FindCrossing(
+                        spans,
+                        n,
+                        layout.Coord(a, l.origin[a] + c[a] * l.step),
+                        layout.Coord(a, l.origin[a] + (c[a] + size) * l.step),
+                        in0,
+                        range[0],
+                        range[1]
+                    );
+                    g->coarse.emplace_back(LeafGeometry::CoarseKey(a, i, j, c[a], log), x);
+                }
+            }
+        }
     }
+    std::sort(g->coarse.begin(), g->coarse.end(), [](const auto& x, const auto& y) {
+        return x.first < y.first;
+    });
     return g;
 }
 
@@ -717,8 +772,7 @@ class Mesher
 {
 public:
     Mesher(const DexelStock& stock, const DexelMeshCache& cache, DexelMesh& mesh)
-        : mStock(stock)
-        , mCache(cache)
+        : mCache(cache)
         , mLayout(stock.Layout())
         , mMesh(mesh)
     {}
@@ -768,7 +822,6 @@ private:
     bool IsFlat(const Corner& corner, int a, float t);
     void MergeFlat(const PlaneKey& key, std::vector<FlatQuad>& quads);
 
-    const DexelStock& mStock;
     const DexelMeshCache& mCache;
     const DexelLayout& mLayout;
     DexelMesh& mMesh;
@@ -1228,20 +1281,7 @@ void Mesher::Build(const std::vector<int>& leaves)
                             }
                         }
                         else {
-                            Span scratch;
-                            const Span* spans;
-                            const int n = mStock.Line(leaf, a * BrickAxisLines + j * BrickLines + i, spans, scratch);
-                            float range[2];
-                            mStock.LineRange(leaf, a, range[0], range[1]);
-                            x = FindCrossing(
-                                spans,
-                                n,
-                                mLayout.Coord(a, l.origin[a] + c[a] * l.step),
-                                mLayout.Coord(a, l.origin[a] + (c[a] + size) * l.step),
-                                in0,
-                                range[0],
-                                range[1]
-                            );
+                            x = g->CoarseCrossingAt(LeafGeometry::CoarseKey(a, i, j, c[a], log));
                         }
                         // normal towards +a if the material is before the crossing
                         const bool flip = !in0;
@@ -1315,6 +1355,113 @@ void DexelMeshCache::Update(const DexelStock& stock, const std::vector<int>& lea
             mState[leaf] = mLeaves[leaf] ? Surface : solid ? Solid : Empty;
         }
     });
+}
+
+void DexelMeshUnits::Reset(const DexelStock& stock)
+{
+    mLayout = stock.LayoutRef();
+    mCache.Reset(mLayout->LeafCount());
+    mMeshes.assign(mLayout->UnitCount(), DexelMesh());
+    mQueue.clear();
+    mQueuedAt.clear();
+    mFirst = 0;
+    mQueued.assign(mLayout->LeafCount(), 0);
+}
+
+std::vector<int> DexelMeshUnits::Update(DexelStock& stock, ThreadPool& pool, double budgetMs)
+{
+    std::vector<int> updated;
+    if (!mLayout) {
+        return updated;
+    }
+    mUpdates++;
+    mLastDelay = 0;
+    for (int leaf : stock.TakeDirtyLeaves()) {
+        if (!mQueued[leaf]) {
+            mQueued[leaf] = 1;
+            mQueue.push_back(leaf);
+            mQueuedAt.push_back(mUpdates);
+        }
+    }
+    const auto deadline = std::chrono::steady_clock::now()
+        + std::chrono::duration<double, std::milli>(budgetMs);
+    std::vector<uint8_t> inBatch(mMeshes.size(), 0);
+    std::vector<int> units, leaves, group;
+    // batches of changed leaves, each completely: the new surface of the leaves and all units
+    // depending on them. A batch takes what fits in the remaining time at the measured speed,
+    // units depending on several of its leaves are built once. At least one batch is done, so
+    // the mesh progresses with any budget.
+    for (bool first = true; mFirst < mQueue.size() && (first || std::chrono::steady_clock::now() < deadline);
+         first = false) {
+        const auto start = std::chrono::steady_clock::now();
+        const double remaining = std::chrono::duration<double, std::milli>(deadline - start).count();
+        const size_t batchUnits = std::max((size_t)pool.Size(), (size_t)(remaining / mMsPerUnit));
+        units.clear();
+        leaves.clear();
+        // Neighboring leaves share the grid points on their border, which both compute from their
+        // own copy of the dexels there, so changed neighbors are updated together: whole groups
+        // of touching changed leaves.
+        while (mFirst < mQueue.size() && units.size() < batchUnits) {
+            mLastDelay = std::max(mLastDelay, mUpdates - mQueuedAt[mFirst]);
+            const int seed = mQueue[mFirst++];
+            if (!mQueued[seed]) {
+                continue;  // done with an earlier group
+            }
+            mQueued[seed] = 0;
+            group.assign(1, seed);
+            for (size_t g = 0; g < group.size(); g++) {
+                const int leaf = group[g];
+                mCache.Invalidate(leaf);
+                for (int unit : mLayout->AffectedUnits(leaf)) {
+                    if (!inBatch[unit]) {
+                        inBatch[unit] = 1;
+                        units.push_back(unit);
+                    }
+                }
+                for (int neighbor : mLayout->Neighbors(leaf)) {
+                    if (mQueued[neighbor]) {
+                        mQueued[neighbor] = 0;
+                        group.push_back(neighbor);
+                    }
+                }
+            }
+        }
+        for (int unit : units) {
+            const auto& needed = mLayout->UnitDependencies(unit);
+            leaves.insert(leaves.end(), needed.begin(), needed.end());
+        }
+        mCache.Update(stock, leaves, pool);
+        std::atomic<size_t> next {0};
+        pool.Run([&](int) {
+            while (true) {
+                const size_t i = next++;
+                if (i >= units.size()) {
+                    break;
+                }
+                BuildDexelMesh(stock, mCache, mLayout->UnitLeaves(units[i]), mMeshes[units[i]]);
+            }
+        });
+        for (int unit : units) {
+            inBatch[unit] = 0;
+            updated.push_back(unit);
+        }
+        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+        if (units.size() >= 4) {
+            mMsPerUnit = 0.7 * mMsPerUnit + 0.3 * std::max(1e-4, ms / (double)units.size());
+        }
+    }
+    // skip the leaves done with groups
+    while (mFirst < mQueue.size() && !mQueued[mQueue[mFirst]]) {
+        mFirst++;
+    }
+    if (mFirst == mQueue.size()) {
+        mQueue.clear();
+        mQueuedAt.clear();
+        mFirst = 0;
+    }
+    std::sort(updated.begin(), updated.end());
+    updated.erase(std::unique(updated.begin(), updated.end()), updated.end());
+    return updated;
 }
 
 void BuildDexelMesh(

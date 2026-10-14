@@ -52,7 +52,6 @@ void DexelRenderer::FreeResources()
         GLDELETE_BUFFER(chunk.ibo);
     }
     mChunks.clear();
-    mUnits.clear();
     mLayout.reset();
 }
 
@@ -60,8 +59,7 @@ void DexelRenderer::Reset(const DexelStock& stock)
 {
     FreeResources();
     mLayout = stock.LayoutRef();
-    mUnits.assign(mLayout->UnitCount(), Unit());
-    mCache.Reset(mLayout->LeafCount());
+    mUnits.Reset(stock);
     mChunks.assign(mLayout->ChunkCount(), Chunk());
     for (int unit = 0; unit < mLayout->UnitCount(); unit++) {
         mChunks[mLayout->UnitChunk(unit)].units.push_back(unit);
@@ -74,67 +72,17 @@ int DexelRenderer::Update(DexelStock& stock, ThreadPool& pool, double budgetMs, 
         pending = false;
         return 0;
     }
-    // a changed leaf changes the polygons of its unit and of the units of its neighbors
-    for (int leaf : stock.TakeDirtyLeaves()) {
-        mCache.Invalidate(leaf);
-        for (int unit : mLayout->AffectedUnits(leaf)) {
-            mUnits[unit].dirty = true;
-        }
-    }
-    std::vector<int> dirty;
-    for (int i = 0; i < (int)mUnits.size(); i++) {
-        if (mUnits[i].dirty) {
-            dirty.push_back(i);
-        }
-    }
-    if (dirty.empty()) {
-        pending = false;
-        return 0;
-    }
-
-    // batches of units until the time is used up: the surface of the leaves they need, then
-    // their polygons
-    const auto deadline = std::chrono::steady_clock::now()
-        + std::chrono::duration<double, std::milli>(budgetMs);
-    std::vector<uint8_t> built(dirty.size(), 0);
-    const size_t batch = 4 * (size_t)pool.Size();
-    std::vector<int> leaves;
-    for (size_t first = 0; first < dirty.size() && std::chrono::steady_clock::now() < deadline;
-         first += batch) {
-        const size_t last = std::min(dirty.size(), first + batch);
-        leaves.clear();
-        for (size_t i = first; i < last; i++) {
-            const auto& needed = mLayout->UnitDependencies(dirty[i]);
-            leaves.insert(leaves.end(), needed.begin(), needed.end());
-        }
-        mCache.Update(stock, leaves, pool);
-        std::atomic<size_t> next {first};
-        pool.Run([&](int) {
-            while (true) {
-                const size_t i = next++;
-                if (i >= last) {
-                    break;
-                }
-                BuildDexelMesh(stock, mCache, mLayout->UnitLeaves(dirty[i]), mUnits[dirty[i]].mesh);
-                built[i] = 1;
-            }
-        });
-    }
-    int count = 0;
-    for (size_t i = 0; i < dirty.size(); i++) {
-        if (built[i]) {
-            mUnits[dirty[i]].dirty = false;
-            mChunks[mLayout->UnitChunk(dirty[i])].changed = true;
-            count++;
-        }
+    const std::vector<int> updated = mUnits.Update(stock, pool, budgetMs);
+    for (int unit : updated) {
+        mChunks[mLayout->UnitChunk(unit)].changed = true;
     }
     for (Chunk& chunk : mChunks) {
         if (chunk.changed) {
             Upload(chunk);
         }
     }
-    pending = count < (int)dirty.size();
-    return count;
+    pending = mUnits.Pending();
+    return (int)updated.size();
 }
 
 void DexelRenderer::Upload(Chunk& chunk)
@@ -144,8 +92,9 @@ void DexelRenderer::Upload(Chunk& chunk)
     std::vector<uint32_t> indices;
     size_t nv = 0, ni = 0;
     for (int u : chunk.units) {
-        nv += mUnits[u].mesh.vertices.size();
-        ni += mUnits[u].mesh.stockIndices.size() + mUnits[u].mesh.cutIndices.size();
+        const DexelMesh& mesh = mUnits.Mesh(u);
+        nv += mesh.vertices.size();
+        ni += mesh.stockIndices.size() + mesh.cutIndices.size();
     }
     vertices.reserve(nv);
     indices.reserve(ni);
@@ -153,7 +102,7 @@ void DexelRenderer::Upload(Chunk& chunk)
     for (int pass = 0; pass < 2; pass++) {
         size_t base = 0;
         for (int u : chunk.units) {
-            const DexelMesh& mesh = mUnits[u].mesh;
+            const DexelMesh& mesh = mUnits.Mesh(u);
             const auto& list = pass == 0 ? mesh.stockIndices : mesh.cutIndices;
             for (uint32_t index : list) {
                 indices.push_back((uint32_t)(base + index));
@@ -166,7 +115,7 @@ void DexelRenderer::Upload(Chunk& chunk)
     }
     chunk.cutCount = (int)indices.size() - chunk.stockCount;
     for (int u : chunk.units) {
-        const auto& v = mUnits[u].mesh.vertices;
+        const auto& v = mUnits.Mesh(u).vertices;
         vertices.insert(vertices.end(), v.begin(), v.end());
     }
     if (vertices.empty()) {

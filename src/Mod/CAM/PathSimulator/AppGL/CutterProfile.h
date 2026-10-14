@@ -77,11 +77,6 @@ public:
         return mSingleAxial;
     }
 
-    // True if the solid is convex: every line enters and leaves it at most once
-    bool IsConvex() const
-    {
-        return mConvex;
-    }
 
     bool Contains(float rho, float z) const;
 

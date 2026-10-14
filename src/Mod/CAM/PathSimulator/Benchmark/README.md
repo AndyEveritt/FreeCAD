@@ -54,6 +54,12 @@ moves each) in one FreeCAD process. A responsive simulator finishes in about a m
 repeats. Repeats are combined by the median of their medians. Use `--repeats` in quick mode when a
 result looks noisy.
 
+### Flashes
+
+`--scenarios flashes` (not run by default) plays the job while grabbing the view, and fails the run
+on flashes: pixels of the stock that show the background for one grab, like cracks in the mesh
+that appear while it is being updated. With `--images`, the first grabs with flashes are saved.
+
 ### Fixed workload
 
 Every scenario does a fixed amount of work, so all runs measure the same thing:
