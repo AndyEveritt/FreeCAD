@@ -102,6 +102,16 @@ void DlgCAMSimulator::connectTo(GuiDisplay& gui, Dummy3DViewer& dv)
 
     connect(&gui, &GuiDisplay::singleStep, this, [this] { mMillSimulator->SingleStep(); });
 
+    connect(&gui, &GuiDisplay::skipToStart, this, [this] {
+        mMillSimulator->SetSimulationStep(0);
+        updateGui();
+    });
+
+    connect(&gui, &GuiDisplay::skipToEnd, this, [this] {
+        mMillSimulator->SetSimulationStep(mMillSimulator->GetState().mNTotalSteps);
+        updateGui();
+    });
+
     connect(&gui, &GuiDisplay::speedChanged, this, [this](int speed) {
         mMillSimulator->SetSpeed(speed);
     });

@@ -89,6 +89,8 @@ public:
     void SetSpeed(int s);
 
     void SetSimulationStage(float stage);
+    // Go to a step of the simulation, from 0 to the total number of steps
+    void SetSimulationStep(int step);
     bool IsRenderPending() const;
     // True if the next frame changes the display
     bool NeedsFrame() const;

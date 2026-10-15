@@ -825,13 +825,17 @@ void MillSimulation::SetSpeed(int s)
 
 void MillSimulation::SetSimulationStage(float stage)
 {
-    const int newStep = (int)((float)mNTotalSteps * stage);
+    SetSimulationStep((int)((float)mNTotalSteps * stage));
+}
+
+void MillSimulation::SetSimulationStep(int step)
+{
+    const int newStep = std::clamp(step, 0, mNTotalSteps);
     if (newStep == mCurStep) {
         return;
     }
 
     mCurStep = newStep;
-    mSingleStep = true;
     CalcSegmentPositions();
 
     simDisplay.updateDisplay = true;

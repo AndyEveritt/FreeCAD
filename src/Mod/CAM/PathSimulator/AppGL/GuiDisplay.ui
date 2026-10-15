@@ -34,6 +34,20 @@
    <item>
     <layout class="QHBoxLayout" name="horizontalLayout">
      <item>
+      <widget class="QToolButton" name="skipStartButton">
+       <property name="toolTip">
+        <string>Go to the start of the simulation</string>
+       </property>
+       <property name="icon">
+        <iconset resource="../../Gui/Resources/Path.qrc">
+         <normaloff>:/gl_simulator/SkipStart.png</normaloff>:/gl_simulator/SkipStart.png</iconset>
+       </property>
+       <property name="autoRaise">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
       <widget class="QToolButton" name="playButton">
        <property name="toolTip">
         <string>Play simulation</string>
@@ -55,6 +69,20 @@
        <property name="icon">
         <iconset resource="../../Gui/Resources/Path.qrc">
          <normaloff>:/gl_simulator/SingleStep.png</normaloff>:/gl_simulator/SingleStep.png</iconset>
+       </property>
+       <property name="autoRaise">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QToolButton" name="skipEndButton">
+       <property name="toolTip">
+        <string>Go to the end of the simulation</string>
+       </property>
+       <property name="icon">
+        <iconset resource="../../Gui/Resources/Path.qrc">
+         <normaloff>:/gl_simulator/SkipEnd.png</normaloff>:/gl_simulator/SkipEnd.png</iconset>
        </property>
        <property name="autoRaise">
         <bool>true</bool>

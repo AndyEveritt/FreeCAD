@@ -51,6 +51,8 @@ public:
 Q_SIGNALS:
     void play(bool b);
     void singleStep();
+    void skipToStart();
+    void skipToEnd();
     void speedChanged(int s);
     void stageChanged(float f);
     void scrubbing(bool b);
@@ -68,6 +70,8 @@ protected:
 private Q_SLOTS:
     void on_playButton_clicked();
     void on_singleStepButton_clicked();
+    void on_skipStartButton_clicked();
+    void on_skipEndButton_clicked();
 
     void onSlowerFasterButtonClicked();
     void on_stageSlider_sliderMoved(int value);

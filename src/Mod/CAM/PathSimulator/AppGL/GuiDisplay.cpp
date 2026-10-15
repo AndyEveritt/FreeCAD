@@ -91,6 +91,16 @@ void GuiDisplay::on_singleStepButton_clicked()
     Q_EMIT singleStep();
 }
 
+void GuiDisplay::on_skipStartButton_clicked()
+{
+    Q_EMIT skipToStart();
+}
+
+void GuiDisplay::on_skipEndButton_clicked()
+{
+    Q_EMIT skipToEnd();
+}
+
 void GuiDisplay::setSpeed(int s)
 {
     if (s == speed) {
