@@ -77,6 +77,21 @@ public:
     void StartGeometryPass(const vec3& objColor, bool invertNormals);
     void StartCloserGeometryPass(const vec3& objColor);
     void StartDexelGeometryPass(const vec3& objColor, const DexelColoring& coloring);
+
+    // Transparent objects are rendered after the opaque ones, between StartTransparentLayer and
+    // EndTransparentLayer, with the opacity of SetOpacity: the front-most of their surfaces in
+    // front of the opaque objects is lit and blended over them. Returns false if not supported.
+    bool StartTransparentLayer();
+    void EndTransparentLayer();
+    // No transparent objects in the next frames
+    void ClearTransparentLayer()
+    {
+        mTransparentLayer = false;
+    }
+    void SetOpacity(float opacity)
+    {
+        mOpacity = opacity;
+    }
     void StartSimulationPass(bool clear);
     void EndSimulationPass();
     void ClearGeometryOutsideStencil();
@@ -170,6 +185,16 @@ protected:
     SbRotation mCameraOrientation;
 
     // base frame buffer
+    // the transparent layer, see StartTransparentLayer
+    unsigned int mTransFbo = 0;
+    unsigned int mTransColTexture = 0;
+    unsigned int mTransPosTexture = 0;
+    unsigned int mTransNormTexture = 0;
+    unsigned int mTransRboDepthStencil = 0;
+    bool mTransparentLayer = false;
+    float mOpacity = 1;
+    void ComposeTransparentLayer();
+
     unsigned int mFbo = 0;
     unsigned int mFboColTexture = 0;
     unsigned int mFboPosTexture = 0;

@@ -131,6 +131,8 @@ public:
     void setStencilRendering(bool b);
     void setColorByOperation(bool b);
     void setThinWalls(bool enabled, float threshold);
+    // opacity of the stock and the model, from 0 to 1
+    void setOpacity(float stock, float model);
 
     // Frame timing for performance measurements. While enabled, every frame waits for the GPU to
     // finish, so the recorded times include the GPU work.

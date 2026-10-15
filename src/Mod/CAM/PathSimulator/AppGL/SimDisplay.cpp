@@ -218,6 +218,11 @@ void SimDisplay::CreateDisplayFbos()
         return;
     }
 
+    // transparent objects
+    if (!CreateGBufferFbo(mTransFbo, mTransColTexture, mTransPosTexture, mTransNormTexture, mTransRboDepthStencil)) {
+        GLDELETE_FRAMEBUFFER(mTransFbo);
+    }
+
     // setup frame buffer that keeps the simulation result between frames
     if (
         mSimFboSupported
@@ -329,6 +334,7 @@ void SimDisplay::CleanFbos()
 
     // cleanup frame buffers
     GLDELETE_FRAMEBUFFER(mFbo);
+    GLDELETE_FRAMEBUFFER(mTransFbo);
     GLDELETE_FRAMEBUFFER(mSimFbo);
     GLDELETE_FRAMEBUFFER(mSsaoFbo);
     GLDELETE_FRAMEBUFFER(mSsaoBlurFbo);
@@ -341,6 +347,11 @@ void SimDisplay::CleanFbos()
     GLDELETE_TEXTURE(mFboSsaoBlurTexture);
     GLDELETE_TEXTURE(mFboRandTexture);
     GLDELETE_RENDERBUFFER(mRboDepthStencil);
+    GLDELETE_TEXTURE(mTransColTexture);
+    GLDELETE_TEXTURE(mTransPosTexture);
+    GLDELETE_TEXTURE(mTransNormTexture);
+    GLDELETE_RENDERBUFFER(mTransRboDepthStencil);
+    mTransparentLayer = false;
     GLDELETE_TEXTURE(mSimColTexture);
     GLDELETE_TEXTURE(mSimPosTexture);
     GLDELETE_TEXTURE(mSimNormTexture);
@@ -546,6 +557,7 @@ void SimDisplay::StartGeometryPass(const vec3& objColor, bool invertNormals)
     shaderGeom.UpdateNormalState(invertNormals);
     shaderGeom.UpdateViewMat(mMatLookAt);
     shaderGeom.UpdateObjColor(objColor);
+    glUniform1f(glGetUniformLocation(shaderGeom.shaderId, "opacity"), mOpacity);
     glEnable(GL_CULL_FACE);
     glDisable(GL_BLEND);
 }
@@ -563,6 +575,7 @@ void SimDisplay::StartDexelGeometryPass(const vec3& objColor, const DexelColorin
         glUniform3fv(glGetUniformLocation(id, "operationColors"), colors, coloring.operationColors.data());
     }
     glUniform1f(glGetUniformLocation(id, "thinThreshold"), coloring.thinThreshold);
+    glUniform1f(glGetUniformLocation(id, "opacity"), mOpacity);
     glUniform3fv(glGetUniformLocation(id, "thinColor"), 1, coloring.thinColor);
     glEnable(GL_CULL_FACE);
     glDisable(GL_BLEND);
@@ -577,8 +590,65 @@ void SimDisplay::StartCloserGeometryPass(const vec3& objColor)
     shaderGeomCloser.UpdateNormalState(false);
     shaderGeomCloser.UpdateViewMat(mMatLookAt);
     shaderGeomCloser.UpdateObjColor(objColor);
+    glUniform1f(glGetUniformLocation(shaderGeomCloser.shaderId, "opacity"), mOpacity);
     glEnable(GL_CULL_FACE);
     glDisable(GL_BLEND);
+}
+
+bool SimDisplay::StartTransparentLayer()
+{
+    if (mTransFbo == 0 || mFbo == 0) {
+        mTransparentLayer = false;
+        return false;
+    }
+    // the depth of the opaque objects: transparent surfaces behind them are hidden
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, mFbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, mTransFbo);
+    glBlitFramebuffer(0, 0, mWidth, mHeight, 0, 0, mWidth, mHeight, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    glBindFramebuffer(GL_FRAMEBUFFER, mTransFbo);
+    glClearColor(0, 0, 0, 0);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glEnable(GL_CULL_FACE);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LESS);
+    glDepthMask(GL_TRUE);
+    mTargetFbo = mTransFbo;
+    mTransparentLayer = true;
+    return true;
+}
+
+void SimDisplay::EndTransparentLayer()
+{
+    mTargetFbo = mFbo;
+    mOpacity = 1;
+}
+
+void SimDisplay::ComposeTransparentLayer()
+{
+    if (!mTransparentLayer) {
+        return;
+    }
+    // lit like the opaque objects, without ambient occlusion, blended by the opacity in the alpha
+    // of the color
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    shaderSSAOLighting.Activate();
+    shaderSSAOLighting.UpdateColorTexSlot(0);
+    shaderSSAOLighting.UpdatePositionTexSlot(1);
+    shaderSSAOLighting.UpdateNormalTexSlot(2);
+    shaderSSAOLighting.UpdateSsaoActive(false);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, mTransColTexture);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, mTransPosTexture);
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, mTransNormTexture);
+    glEnable(GL_BLEND);
+    // the alpha of the view stays opaque, it is composited with the window
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
+    SetupVertexAttribs();
+    glDrawArrays(GL_TRIANGLES, 0, 6);
 }
 
 void SimDisplay::RenderLightObject()
@@ -606,6 +676,7 @@ void SimDisplay::RenderResult(bool recalculate, bool ssao)
     else {
         RenderResultStandard();
     }
+    ComposeTransparentLayer();
 }
 
 void SimDisplay::RenderResultStandard()

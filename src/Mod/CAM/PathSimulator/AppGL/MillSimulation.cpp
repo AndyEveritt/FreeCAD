@@ -617,15 +617,37 @@ void MillSimulation::Render()
     // render the simulation offscreen in an FBO
 
     if (simDisplay.updateDisplay) {
+        // opaque objects first, then the transparent ones over them
+        const bool transparentStock = !mStencilRendering && mStockOpacity < 1;
+        const bool transparentBase = mBaseOpacity < 1;
         if (mStencilRendering) {
             RenderSimulation();
         }
         else {
-            RenderDexelStock();
+            simDisplay.PrepareFrameBuffer();
+            if (!transparentStock) {
+                RenderDexelStock();
+            }
         }
         RenderTool();
-        RenderBaseShape();
+        if (!transparentBase) {
+            RenderBaseShape();
+        }
         RenderPath();
+        if ((transparentStock || transparentBase) && simDisplay.StartTransparentLayer()) {
+            if (transparentStock && mStockOpacity > 0) {
+                simDisplay.SetOpacity(mStockOpacity);
+                RenderDexelStock();
+            }
+            if (transparentBase && mBaseOpacity > 0) {
+                simDisplay.SetOpacity(mBaseOpacity);
+                RenderBaseShape();
+            }
+            simDisplay.EndTransparentLayer();
+        }
+        else {
+            simDisplay.ClearTransparentLayer();
+        }
         simDisplay.updateDisplay = false;
         simDisplay.RenderResult(true, mViewSSAO);
     }
@@ -862,6 +884,13 @@ void MillSimulation::SetColorByOperation(bool b)
     simDisplay.updateDisplay = true;
 }
 
+void MillSimulation::SetOpacity(float stock, float base)
+{
+    mStockOpacity = std::clamp(stock, 0.0f, 1.0f);
+    mBaseOpacity = std::clamp(base, 0.0f, 1.0f);
+    simDisplay.updateDisplay = true;
+}
+
 void MillSimulation::SetThinWalls(bool enabled, float threshold)
 {
     mThinWalls = enabled;
@@ -1065,7 +1094,6 @@ void MillSimulation::UpdateDexelSimulation()
 
 void MillSimulation::RenderDexelStock()
 {
-    simDisplay.PrepareFrameBuffer();
     if ((mViewItems & VIEWITEM_SIMULATION) == 0) {
         return;
     }

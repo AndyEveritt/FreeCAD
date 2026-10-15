@@ -465,6 +465,12 @@ void DlgCAMSimulator::setColorByOperation(bool b)
     update();
 }
 
+void DlgCAMSimulator::setOpacity(float stock, float model)
+{
+    mMillSimulator->SetOpacity(stock, model);
+    update();
+}
+
 void DlgCAMSimulator::setThinWalls(bool enabled, float threshold)
 {
     mThinWalls = enabled;

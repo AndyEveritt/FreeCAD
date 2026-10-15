@@ -53,6 +53,7 @@ void CAMSettings::applySettings()
     OnChange(*hGrp, "SimulatorStencilRendering");
     OnChange(*hGrp, "SimulatorColorByOperation");
     OnChange(*hGrp, "SimulatorThinWalls");
+    OnChange(*hGrp, "SimulatorStockOpacity");
 }
 
 void CAMSettings::OnChange(ParameterGrp::SubjectType& rCaller, ParameterGrp::MessageType Reason)
@@ -82,6 +83,12 @@ void CAMSettings::OnChange(ParameterGrp::SubjectType& rCaller, ParameterGrp::Mes
     }
     else if (Reason == "SimulatorColorByOperation"sv) {
         mDlg.setColorByOperation(hGrp->GetBool("SimulatorColorByOperation", false));
+    }
+    else if (Reason == "SimulatorStockOpacity"sv || Reason == "SimulatorModelOpacity"sv) {
+        mDlg.setOpacity(
+            (float)hGrp->GetFloat("SimulatorStockOpacity", 1.0),
+            (float)hGrp->GetFloat("SimulatorModelOpacity", 1.0)
+        );
     }
     else if (Reason == "SimulatorThinWalls"sv || Reason == "SimulatorThinWallThreshold"sv) {
         mDlg.setThinWalls(

@@ -513,11 +513,12 @@ const char* FragShaderGeom = R"(
     varying vec3 Normal;
 
     uniform vec3 objectColor;
+    uniform float opacity;
 
     void main()
     {
-        // Store position, normal, and diffuse color in textures
-        gl_FragData[0] = vec4(objectColor, 1.0f);
+        // Store position, normal, and diffuse color with the opacity in textures
+        gl_FragData[0] = vec4(objectColor, opacity);
         gl_FragData[1] = vec4(Position, 0.0f);
         gl_FragData[2] = vec4(normalize(Normal), 0.0f);
     }
@@ -568,11 +569,12 @@ const char* FragShaderDexel = R"(
 
     uniform float thinThreshold;
     uniform vec3 thinColor;
+    uniform float opacity;
 
     void main()
     {
         vec3 color = Thickness < thinThreshold ? thinColor : Color;
-        gl_FragData[0] = vec4(color, 1.0f);
+        gl_FragData[0] = vec4(color, opacity);
         gl_FragData[1] = vec4(Position, 0.0f);
         gl_FragData[2] = vec4(normalize(Normal), 0.0f);
     }

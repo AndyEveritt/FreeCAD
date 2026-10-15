@@ -278,6 +278,10 @@ class CAMSimulation:
         threshold = prefs.GetFloat("SimulatorThinWallThreshold", 0.5)
         form.thinWallThreshold.setProperty("rawValue", threshold)
         form.thinWallThreshold.valueChanged.connect(self.onThinWallThresholdChange)
+        form.stockOpacity.setValue(round(100 * prefs.GetFloat("SimulatorStockOpacity", 1.0)))
+        form.modelOpacity.setValue(round(100 * prefs.GetFloat("SimulatorModelOpacity", 1.0)))
+        form.stockOpacity.valueChanged.connect(self.onOpacityChange)
+        form.modelOpacity.valueChanged.connect(self.onOpacityChange)
 
         self._populateJobSelection(form)
         form.comboJobs.currentIndexChanged.connect(self.onJobChange)
@@ -402,6 +406,13 @@ class CAMSimulation:
         threshold = float(self.taskForm.form.thinWallThreshold.property("rawValue"))
         prefs = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/CAM")
         prefs.SetFloat("SimulatorThinWallThreshold", threshold)
+
+    def onOpacityChange(self, *_args):
+        """Opacity of the stock and the model in the simulator"""
+        form = self.taskForm.form
+        prefs = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/CAM")
+        prefs.SetFloat("SimulatorStockOpacity", form.stockOpacity.value() / 100.0)
+        prefs.SetFloat("SimulatorModelOpacity", form.modelOpacity.value() / 100.0)
 
     def followsVisibilityChange(self):
         """Update job list in accordance with operations visibility"""

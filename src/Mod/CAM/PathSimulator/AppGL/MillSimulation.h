@@ -137,6 +137,9 @@ public:
     void SetColorByOperation(bool b);
     // Faces in front of material thinner than the threshold in red
     void SetThinWalls(bool enabled, float threshold);
+    // Opacity of the stock and of the base shape (the model), from 0 to 1. The stock of the
+    // stencil renderer is always opaque.
+    void SetOpacity(float stock, float base);
 
     void UpdateWindowScale(int width, int height);
     void UpdateCamera(const SoCamera& camera);
@@ -210,6 +213,8 @@ protected:
     std::vector<SimOperation> mOperations;
     DexelColoring mDexelColoring;
     bool mThinWalls = false;
+    float mStockOpacity = 1;
+    float mBaseOpacity = 1;
     float mThinThreshold = 0.5f;
 
     // protected:

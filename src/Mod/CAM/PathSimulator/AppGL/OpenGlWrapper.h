@@ -38,6 +38,7 @@ extern QOpenGLExtraFunctions gOpenGLFunctions;
 
 #define glClearColor gOpenGLFunctions.glClearColor
 #define glBlendFunc gOpenGLFunctions.glBlendFunc
+#define glBlendFuncSeparate gOpenGLFunctions.glBlendFuncSeparate
 #define glClear gOpenGLFunctions.glClear
 #define glGenBuffers gOpenGLFunctions.glGenBuffers
 #define glBindBuffer gOpenGLFunctions.glBindBuffer
