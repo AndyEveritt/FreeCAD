@@ -109,6 +109,11 @@ def image_diff(a, b, threshold=40):
     return {"fraction": float((diff > threshold).mean()), "mean_abs": float(diff.mean())}
 
 
+# Slider positions of the jump scenario, as fractions of the job: far apart, forwards and
+# backwards
+JUMPS = (1.0, 0.5, 0.1, 0.9, 0.3, 0.7, 0.0, 0.6)
+
+
 class Limit:
     """Safety timeout of one scenario."""
 
@@ -453,6 +458,30 @@ class JobBench:
     def scrub_positions(self, fractions):
         total = self.slider.maximum()
         return [round(total * f) for f in fractions]
+
+    def scenario_jump(self, limit):
+        """Release the slider at far positions, right after loading: the time until the view
+        shows each, before and while the background simulation makes its snapshots. What a user
+        waits for after moving the slider somewhere else."""
+        limit.restart()
+        jumps = []
+        for fraction in JUMPS:
+            if limit.expired():
+                break
+            self.slider.setSliderDown(True)
+            self.slider.setSliderPosition(round(self.slider.maximum() * fraction))
+            self.sim.TakeFrameTimes()
+            t0 = time.perf_counter()
+            self.slider.setSliderDown(False)
+            self.wait_frame()
+            jumps.append((time.perf_counter() - t0) * 1000)
+        ordered = sorted(jumps)
+        return {
+            "jumps_ms": jumps,
+            "first_ms": jumps[0] if jumps else None,
+            "median_ms": ordered[len(ordered) // 2] if jumps else None,
+            "max_ms": ordered[-1] if jumps else None,
+        }
 
     def scenario_scrub_forward(self, limit):
         n = self.counts["scrub"]

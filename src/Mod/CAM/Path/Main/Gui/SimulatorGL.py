@@ -180,8 +180,12 @@ class CAMSimulation:
         while edge is not None:
             sideEdgeList.remove(edge)
             if isinstance(edge.Curve, Part.Circle):
-                # if edge is curved, approximate it with lines based on resolution
-                nsegments = int(edge.Length / resolution) + 1
+                # if edge is curved, approximate it with lines based on resolution, and with at
+                # least 16 lines per quarter circle, so the arcs of small tools stay smooth
+                nsegments = max(
+                    int(edge.Length / resolution) + 1,
+                    math.ceil(abs(p2 - p1) / (math.pi / 32)),
+                )
                 step = (p2 - p1) / nsegments
                 location = p1 + step
                 while nsegments > 0:

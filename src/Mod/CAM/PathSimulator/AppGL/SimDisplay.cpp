@@ -36,6 +36,7 @@
 #include <Inventor/nodes/SoPerspectiveCamera.h>
 #include <QOpenGLContext>
 #include <algorithm>
+#include <cmath>
 #include <numbers>
 
 // include this last as the defines can mess up other includes
@@ -842,6 +843,14 @@ void SimDisplay::UpdateProjectionMatrix()
     shaderSSAO.UpdateProjectionMat(projmat);
     shaderLinePath.Activate();
     shaderLinePath.UpdateProjectionMat(projmat);
+    // a few pixels, more than the distance of the mesh from the exact surface
+    constexpr float BiasPixels = 3;
+    if (mCameraPerspective) {
+        shaderLinePath.UpdateDepthBias(BiasPixels * 2 * std::tan(mCameraHeightAngle / 2) / mHeight, 0);
+    }
+    else {
+        shaderLinePath.UpdateDepthBias(0, BiasPixels * mCameraHeight / mHeight);
+    }
 
     projmat[2][2] *= 0.99999F;
     shaderGeomCloser.Activate();

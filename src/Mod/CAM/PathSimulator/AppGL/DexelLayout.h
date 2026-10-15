@@ -31,6 +31,8 @@
 namespace CAMSimulator
 {
 
+class ThreadPool;
+
 // Cells along each side of a brick
 constexpr int BrickCells = 8;
 // Grid lines along each side of a brick, the lines on its border are shared with its neighbors
@@ -81,8 +83,9 @@ public:
     void Init(const float lo[3], const float hi[3], float fineCell, int maxLevel);
     // Refine the bricks intersecting the region to at least 'level'
     void Refine(const LayoutRegion& region, int level);
-    // Balance the levels of neighbors and create the leaves and mesh units
-    void Finish();
+    // Balance the levels of neighbors and create the leaves and mesh units, on the threads of
+    // the pool if given
+    void Finish(ThreadPool* pool = nullptr);
 
     int MaxLevel() const
     {

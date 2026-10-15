@@ -231,6 +231,81 @@ TEST(CutterProfile, dovetailUndercut)
     EXPECT_FLOAT_EQ(iv[0].hi, ToolLength);
 }
 
+TEST(CutterProfile, smoothNormalsOfCoarseProfile)
+{
+    // a ball approximated by 10 edges, like the profiles of FreeCAD tools: the normals follow the
+    // ball, not the edges, so the scallops it leaves are shaded like those of a real ball
+    CutterProfile tool(BallProfile(3, 10));
+    std::vector<Interval> intervals;
+    std::vector<ProfileNormal> normals;
+    for (float d = 0.05f; d < 2.9f; d += 0.05f) {
+        tool.ComputeAxialIntervals(d, intervals, &normals);
+        ASSERT_EQ(intervals.size(), 1u);
+        // the bottom of the ball, normal away from its center at height 3
+        EXPECT_NEAR(normals[0].r, d / 3, 0.02f) << "d " << d;
+        EXPECT_LT(normals[0].z, 0);
+    }
+    for (float z = 0.1f; z < 2.9f; z += 0.1f) {
+        ProfileNormal n;
+        tool.SliceRadius(z, n);
+        EXPECT_NEAR(n.z, (z - 3) / 3, 0.035f) << "z " << z;
+    }
+}
+
+TEST(CutterProfile, sweptLowerEdge)
+{
+    // the cross section swept by a ball end mill is a disk around the ball center, with any axis;
+    // a vertical flat end mill sweeps a flat bottom
+    CutterProfile ball(BallProfile(1, 32));
+    const float len = std::sqrt(0.3f * 0.3f + 0.4f * 0.4f + 1);
+    const float tilted[3] = {0.3f / len, -0.4f / len, 1 / len};
+    for (const float* axis : {Up, tilted}) {
+        const auto edge = ball.SweptLowerEdge(axis, 4, 1025);
+        const float cu = axis[1], cv = axis[2];  // the ball center
+        for (float u = -0.9f; u <= 0.9f; u += 0.1f) {
+            const float exact = cv - std::sqrt(1 - u * u);
+            EXPECT_NEAR(edge.At(cu + u), exact, 0.01f) << "u " << u << " tilted " << (axis != Up);
+        }
+    }
+    CutterProfile flat(FlatProfile(1));
+    const auto edge = flat.SweptLowerEdge(Up, 4, 1025);
+    for (float u = -0.95f; u <= 0.95f; u += 0.1f) {
+        EXPECT_NEAR(edge.At(u), 0, 1e-4f);
+    }
+    EXPECT_FALSE(std::isfinite(edge.At(1.1f)));
+}
+
+TEST(CutterProfile, groovesOfToolShapes)
+{
+    // the angle at the ridge between passes beside each other, for tool shapes and axes
+    auto groove = [](const CutterProfile& tool, const float axis[3], float spacing) {
+        float angle, across, up;
+        tool.SweptLowerEdge(axis, 4 * tool.Radius(), 2049).Groove(spacing, angle, across, up);
+        return angle;
+    };
+    // a ball: twice the angle of the ball surface at half the spacing, for any axis
+    CutterProfile ball(BallProfile(1, 16));
+    const float tilted[3] = {0.3f, -0.4f, std::sqrt(1 - 0.25f)};
+    EXPECT_NEAR(groove(ball, Up, 0.2f), 2 * std::asin(0.1f), 0.01f);
+    EXPECT_NEAR(groove(ball, tilted, 0.2f), 2 * std::asin(0.1f), 0.01f);
+    // a flat end mill leaves a flat floor, tilted it leaves grooves
+    CutterProfile flat(FlatProfile(1));
+    EXPECT_NEAR(groove(flat, Up, 0.5f), 0, 1e-3f);
+    const float lead[3] = {std::sin(0.2f), 0, std::cos(0.2f)};
+    const float side[3] = {0, std::sin(0.2f), std::cos(0.2f)};
+    EXPECT_GT(groove(flat, lead, 1.0f), 0.15f);
+    EXPECT_GT(groove(flat, side, 0.3f), 0.1f);
+    // a V bit of 90 degrees: grooves of 90 degrees
+    CutterProfile vbit({3, ToolLength, 3, 3, 0, 0});
+    EXPECT_NEAR(groove(vbit, Up, 1), (float)M_PI / 2, 0.02f);
+    // a bull nose: flat within the flat bottom, grooves beyond
+    CutterProfile bull({2, ToolLength, 2, 0.5f, 1.5f + 0.5f * std::cos(0.4f), 0.5f - 0.5f * std::sin(0.4f),
+                        1.5f + 0.5f * std::cos(0.8f), 0.5f - 0.5f * std::sin(0.8f), 1.5f + 0.5f * std::cos(1.2f),
+                        0.5f - 0.5f * std::sin(1.2f), 1.5f, 0, 0, 0});
+    EXPECT_NEAR(groove(bull, Up, 2), 0, 1e-3f);
+    EXPECT_GT(groove(bull, Up, 3.6f), 0.2f);
+}
+
 TEST(CutterProfile, lineIntervalsMatchSampling)
 {
     // lines in random directions through every tool shape, compared with point sampling
@@ -753,7 +828,8 @@ TEST(DexelSimulation, timelineMatchesDirectCut)
     for (long target :
          {sim.TotalSteps() / 2, sim.TotalSteps(), sim.TotalSteps() / 3, 7L, sim.TotalSteps()}) {
         sim.SetTarget(target);
-        while (sim.Update(1000)) {
+        while (sim.Pending()) {
+            sim.Update(1000);
         }
         ASSERT_FALSE(sim.Pending());
 
@@ -947,5 +1023,247 @@ TEST(DexelMesher, partialUpdatesAreClosed)
     }
     EXPECT_GT(partial, 0);
 }
+
+TEST(DexelMesher, ballScallopsAreKept)
+{
+    // parallel passes of a ball end mill leave scallops 0.042 high, less than the tolerance of
+    // merged cubes, but their normals differ by up to 19 degrees: the mesh keeps both
+    Fixture f(20, 10, 0.25f);
+    const float radius = 3, stepover = 1;
+    CutterProfile ball(BallProfile(radius));
+    std::vector<CutMove> moves;
+    for (float y = 2; y < 18; y += stepover) {
+        const float p0[3] = {1, y, -1}, p1[3] = {19, y, -1};
+        moves.push_back(Move(ball, p0, p1, Up));
+    }
+    f.stock.Cut(moves, f.pool);
+    const DexelMesh mesh = MeshUnits(f.stock);
+    float zlo = 1e9f, zhi = -1e9f;
+    int maxNy = 0;
+    for (uint32_t i : mesh.cutIndices) {
+        const DexelVertex& v = mesh.vertices[i];
+        if (v.x < 6 || v.x > 14 || v.y < 6 || v.y > 14 || v.nz < 60) {
+            continue;
+        }
+        zlo = std::min(zlo, v.z);
+        zhi = std::max(zhi, v.z);
+        maxNy = std::max(maxNy, std::abs((int)v.ny));
+    }
+    EXPECT_GT(zhi - zlo, 0.03f);
+    EXPECT_GT(maxNy, 0.05f * 127);
+}
+
+TEST(DexelMesher, ridgesBetweenPassesAreSharp)
+{
+    // the ridges between passes of a ball end mill: vertices next to a ridge take the normals of
+    // their side, the shading is not averaged across the ridge
+    Fixture f(20, 10, 0.25f);
+    const float radius = 3, stepover = 1;
+    CutterProfile ball(BallProfile(radius, 10));
+    std::vector<CutMove> moves;
+    std::vector<float> centers;
+    for (float y = 2; y < 18; y += stepover) {
+        const float p0[3] = {1, y, -1}, p1[3] = {19, y, -1};
+        moves.push_back(Move(ball, p0, p1, Up));
+        centers.push_back(y);
+    }
+    f.stock.Cut(moves, f.pool);
+    const DexelMesh mesh = MeshUnits(f.stock);
+    double meshSum = 0, exactSum = 0;
+    for (uint32_t i : mesh.cutIndices) {
+        const DexelVertex& v = mesh.vertices[i];
+        if (v.x < 6 || v.x > 14 || v.y < 6 || v.y > 14 || v.nz < 60) {
+            continue;
+        }
+        float center = 0;
+        for (float c : centers) {
+            if (std::abs(v.y - c) < std::abs(v.y - center)) {
+                center = c;
+            }
+        }
+        meshSum += std::abs(v.ny / 127.0);
+        exactSum += std::abs(center - v.y) / radius;
+    }
+    // averaged across the ridges, about half
+    EXPECT_GT(meshSum, 0.8 * exactSum);
+}
+
+TEST(DexelMesher, smoothConvexWallHasNoRidges)
+{
+    // the wall of a round boss bends convex about the same everywhere: no ridges, the normals
+    // follow the wall
+    Fixture f(20, 10, 0.25f);
+    CutterProfile flat(FlatProfile(2));
+    const float boss = 1.5f;
+    std::vector<CutMove> moves;
+    const int sides = 360;
+    for (int s = 0; s < sides; s++) {
+        const float a0 = s * 2 * (float)M_PI / sides, a1 = (s + 1) * 2 * (float)M_PI / sides;
+        const float r = boss + 2;
+        const float p0[3] = {10 + r * std::cos(a0), 10 + r * std::sin(a0), -3};
+        const float p1[3] = {10 + r * std::cos(a1), 10 + r * std::sin(a1), -3};
+        moves.push_back(Move(flat, p0, p1, Up));
+    }
+    f.stock.Cut(moves, f.pool);
+    const DexelMesh mesh = MeshUnits(f.stock);
+    int count = 0;
+    for (uint32_t i : mesh.cutIndices) {
+        const DexelVertex& v = mesh.vertices[i];
+        const float dx = v.x - 10, dy = v.y - 10, len = std::hypot(dx, dy);
+        if (v.z > -0.5f || v.z < -2.5f || std::abs(len - boss) > 0.3f) {
+            continue;
+        }
+        const float n = std::sqrt((float)(v.nx * v.nx + v.ny * v.ny + v.nz * v.nz));
+        EXPECT_GT((v.nx * dx + v.ny * dy) / (n * len), std::cos(3 * (float)M_PI / 180));
+        count++;
+    }
+    EXPECT_GT(count, 100);
+}
+
+namespace
+{
+
+CutSegment Line(int tool, const float p0[3], const float p1[3])
+{
+    CutSegment s;
+    s.tool = tool;
+    std::copy(p0, p0 + 3, s.start);
+    std::copy(p1, p1 + 3, s.end);
+    return s;
+}
+
+// Zigzag passes along x at height z, from y0 to y1, with a tool axis
+void Raster(
+    int tool,
+    float x0,
+    float x1,
+    float y0,
+    float y1,
+    float stepover,
+    float z,
+    std::vector<CutSegment>& out,
+    const float axis[3] = Up
+)
+{
+    int row = 0;
+    for (float y = y0; y <= y1 + 1e-4f; y += stepover, row++) {
+        const float a[3] = {row % 2 ? x1 : x0, y, z}, b[3] = {row % 2 ? x0 : x1, y, z};
+        if (!out.empty()) {
+            out.push_back(Line(tool, out.back().end, a));
+        }
+        out.push_back(Line(tool, a, b));
+    }
+    for (CutSegment& s : out) {
+        std::copy(axis, axis + 3, s.axis0);
+        std::copy(axis, axis + 3, s.axis1);
+    }
+}
+
+void SimulateAll(DexelSimulation& sim)
+{
+    sim.SetTarget(sim.TotalSteps());
+    while (sim.Pending()) {
+        sim.Update(1000);
+    }
+}
+
+}  // namespace
+
+TEST(DexelSimulation, groovesBetweenPassesGetFinerCells)
+{
+    // parallel passes of a ball end mill at a stepover of a tenth of its diameter, with a
+    // vertical and a tilted tool axis (5 axis): the cells resolve the grooves between them. Flat
+    // end mills leave no grooves on a floor.
+    std::vector<float> xyz;
+    std::vector<uint32_t> triangles;
+    MakeBox(20, 10, xyz, triangles);
+    const float len = std::sqrt(0.3f * 0.3f + 0.4f * 0.4f + 1);
+    const float tilted[3] = {0.3f / len, -0.4f / len, 1 / len};
+
+    struct Case
+    {
+        bool ball;
+        const float* axis;
+    };
+    for (const Case c : {Case {true, Up}, Case {true, tilted}, Case {false, Up}}) {
+        // the ball touches the floor at -1: its center 1 above, the tip a radius along the axis
+        // below the center
+        std::vector<CutSegment> segments;
+        const float tipZ = c.ball ? -1 + 1 - c.axis[2] : -1;
+        Raster(0, 6, 14, 7, 13, 0.2f, tipZ, segments, c.axis);
+        if (c.ball) {
+            for (CutSegment& s : segments) {
+                for (float* p : {s.start, s.end}) {
+                    p[0] -= c.axis[0];
+                    p[1] -= c.axis[1];
+                }
+            }
+        }
+        std::vector<std::unique_ptr<CutterProfile>> tools;
+        tools.push_back(std::make_unique<CutterProfile>(c.ball ? BallProfile(1, 10) : FlatProfile(1)));
+        DexelSimulation sim;
+        sim.Start(std::move(tools), segments, xyz, triangles, 10);
+        const float fine = sim.Stock().Layout().FineCell();
+        if (!c.ball) {
+            // a tenth of the tool radius
+            EXPECT_NEAR(fine, 0.1f, 0.01f);
+            continue;
+        }
+        // about a quarter of the stepover, finer than for the tool alone (0.087)
+        EXPECT_LT(fine, 0.06f) << "tilted " << (c.axis != Up);
+        EXPECT_GT(fine, 0.03f);
+        SimulateAll(sim);
+        const DexelMesh mesh = MeshUnits(sim.Stock());
+        double meshSum = 0, exactSum = 0;
+        for (uint32_t i : mesh.cutIndices) {
+            const DexelVertex& v = mesh.vertices[i];
+            if (v.x < 8 || v.x > 12 || v.y < 8.5f || v.y > 11.5f || v.nz < 60) {
+                continue;
+            }
+            const float center = 7 + 0.2f * std::round((v.y - 7) / 0.2f);
+            meshSum += std::abs(v.ny / 127.0);
+            exactSum += std::abs(center - v.y);
+        }
+        EXPECT_GT(meshSum, 0.7 * exactSum) << "tilted " << (c.axis != Up);
+    }
+}
+
+TEST(DexelSimulation, finishingUnderRemovedMaterialRefinesLess)
+{
+    // a small tool finishing the floor of a pocket roughed by a large tool: its cells are only
+    // refined down from the material left by the roughing, not from the top of the stock
+    std::vector<float> xyz;
+    std::vector<uint32_t> triangles;
+    MakeBox(20, 10, xyz, triangles);
+    std::vector<CutSegment> roughing, finishing;
+    for (float z = -1; z >= -8; z -= 1) {
+        Raster(0, 4, 16, 4, 16, 2.5f, z, roughing);
+    }
+    Raster(1, 4, 16, 4, 16, 1.0f, -8, finishing);
+    auto makeTools = [] {
+        std::vector<std::unique_ptr<CutterProfile>> tools;
+        tools.push_back(std::make_unique<CutterProfile>(FlatProfile(3)));
+        tools.push_back(std::make_unique<CutterProfile>(BallProfile(1, 10)));
+        return tools;
+    };
+    std::vector<CutSegment> both = roughing;
+    both.insert(both.end(), finishing.begin(), finishing.end());
+    DexelSimulation roughed, solid;
+    roughed.Start(makeTools(), both, xyz, triangles, 10);
+    solid.Start(makeTools(), finishing, xyz, triangles, 10);
+    // volume of the finest leaves, for the small tool
+    auto finest = [](const DexelLayout& layout) {
+        double volume = 0;
+        for (int leaf = 0; leaf < layout.LeafCount(); leaf++) {
+            if (layout.Leaf(leaf).level == layout.MaxLevel()) {
+                volume += std::pow(BrickCells * layout.CellSize(layout.MaxLevel()), 3.0);
+            }
+        }
+        return volume;
+    };
+    EXPECT_LT(finest(roughed.Stock().Layout()), finest(solid.Stock().Layout()) / 2);
+}
+
+
 
 // NOLINTEND(cppcoreguidelines-*,readability-*)

@@ -132,6 +132,7 @@ paths are the ones a user triggers.
 | scenario | what it measures |
 | --- | --- |
 | `load` | time from `BeginSimulation` until the first frame is shown |
+| `jump` | right after loading, releasing the slider at far positions (end, middle, start, ...): the time until the view shows each, before and while the background simulation makes its snapshots. What a user waits for after moving the slider; the scrub scenarios move it in small steps and run later |
 | `idle` | frames without any change |
 | `playback` | playing the whole job from start to end |
 | `scrub_forward`, `scrub_backward`, `scrub_random` | dragging the stage slider forward, backward and to random positions, then releasing it |
@@ -151,8 +152,9 @@ paths are the ones a user triggers.
 - `release`: for scrub scenarios, the frame and convergence after releasing the slider.
 - `memory`: resident and peak resident memory of the FreeCAD process after every scenario (Linux).
 
-Compared between runs are the median frame time of every scenario, and for the scrub scenarios the
-median convergence time and the release time.
+Compared between runs are the median frame time of every scenario, for the scrub scenarios the
+median convergence time and the release time, and for `jump` the first, median and longest time
+until the view shows a jump.
 
 ### Correctness
 

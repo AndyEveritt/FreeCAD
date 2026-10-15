@@ -89,6 +89,7 @@ extern QOpenGLExtraFunctions gOpenGLFunctions;
 
 #define glBindFramebuffer gOpenGLFunctions.glBindFramebuffer
 #define glUniform1f gOpenGLFunctions.glUniform1f
+#define glUniform2f gOpenGLFunctions.glUniform2f
 #define glGenFramebuffers gOpenGLFunctions.glGenFramebuffers
 #define glFramebufferTexture2D gOpenGLFunctions.glFramebufferTexture2D
 #define glDrawBuffers gOpenGLFunctions.glDrawBuffers

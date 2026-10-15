@@ -174,6 +174,13 @@ void Shader::UpdateKernelVals(int nVals, float* vals)
     glUniform3fv(mSamplesPos, nVals, vals);
 }
 
+void Shader::UpdateDepthBias(float relative, float absolute)
+{
+    if (mDepthBiasPos >= 0) {
+        glUniform2f(mDepthBiasPos, relative, absolute);
+    }
+}
+
 void Shader::UpdateCurSegment(int curSeg)
 {
     if (mCurSegmentPos >= 0) {
@@ -301,6 +308,7 @@ unsigned int Shader::CompileShader(const char* name, const char* _vertShader, co
     mRandTexPos = glGetUniformLocation(shaderId, "RandTex");
     mSamplesPos = glGetUniformLocation(shaderId, "SampleKernel");
     mCurSegmentPos = glGetUniformLocation(shaderId, "curSegment");
+    mDepthBiasPos = glGetUniformLocation(shaderId, "depthBias");
     mScreenWidthPos = glGetUniformLocation(shaderId, "screenWidth");
     mScreenHeightPos = glGetUniformLocation(shaderId, "screenHeight");
 
@@ -653,10 +661,16 @@ const char* VertShader3DLine = R"(
 
     uniform mat4 view;
     uniform mat4 projection;
+    // moves the line towards the camera, so a path on the surface of the stock is not hidden by
+    // it: a fraction of the distance (perspective) and a distance (orthographic)
+    uniform vec2 depthBias;
 
     void main(void)
     {
-        gl_Position = projection * view * vec4(aPosition, 1.0);
+        vec4 p = view * vec4(aPosition, 1.0);
+        p.xyz *= 1.0 - depthBias.x;
+        p.z += depthBias.y;
+        gl_Position = projection * p;
         Index = aIndex;
     }
 )";

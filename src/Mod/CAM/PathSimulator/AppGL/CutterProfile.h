@@ -101,8 +101,17 @@ public:
     // solid, and the normal of the surface there. Returns a negative radius if the solid doesn't
     // reach that height.
     float SliceRadius(float z, ProfileNormal& normal) const;
+    // The radius only
+    float SliceRadius(float z) const;
     // Largest SliceRadius over the heights [z0, z1]
     float MaxSliceRadius(float z0, float z1, ProfileNormal& normal) const;
+    // Radius of the part of the tool up to a height above its tip, at most Radius(): the
+    // part that can cut when the material is lower than its shank
+    float RadiusBelow(float height) const;
+    // Smallest radius of curvature of the surface of the tool up to a height above its tip, 0 if
+    // it has a sharp edge there. Moving the tool by d leaves ridges of at most d^2 / (8 * radius)
+    // between two positions of it.
+    float SmoothRadius(float height) const;
 
     // Heights of the vertices of the profile, sorted. SliceRadius is linear between them.
     const std::vector<float>& VertexHeights() const
@@ -113,6 +122,25 @@ public:
     // Size of the features the tool cuts: the radius of its cross section halfway up its lower
     // part, at most the tool radius
     float FeatureSize() const;
+
+    // Lower edge of the cross section swept by the tool moving straight: the solid projected on
+    // the plane perpendicular to the motion, its lowest points along 'up' by the position
+    // 'across'. 'axis' is the tool axis in (along, across, up) coordinates, the tip is at the
+    // origin. Sampled in 'bins' bins from -extent to extent, the edge of passes beside each
+    // other is the same, so it gives the grooves between them for any tool shape and axis.
+    struct SweptEdge
+    {
+        float start = 0;           // across of the first bin
+        float step = 1;            // bin width
+        std::vector<float> up;     // lowest point per bin, infinity where the tool isn't
+        // lowest point at a position across, infinity outside
+        float At(float across) const;
+        // The grooves between passes beside each other at a spacing: the angle between the
+        // surfaces the two passes leave at the ridge between them, and where the tool touches
+        // the surface (across, up)
+        void Groove(float spacing, float& angle, float& touchAcross, float& touchUp) const;
+    };
+    SweptEdge SweptLowerEdge(const float axis[3], float extent, int bins) const;
 
     // Parameter ranges where the line origin + s * dir is inside the solid. Origin and direction
     // are given in tool coordinates, dir must be normalized. Writes the ranges in increasing
@@ -132,11 +160,23 @@ private:
     {
         float r1, z1, r2, z2;
         ProfileNormal normal;
-        bool sharp1, sharp2;  // the ends are sharp corners of the profile
+        ProfileNormal n1, n2;  // normals at the ends, between the edges at smooth corners
+        bool sharp1, sharp2;   // the ends are sharp corners of the profile
     };
+
+    // Normal of the tool surface at a point of an edge, interpolated between its ends
+    static ProfileNormal NormalAt(const Edge& e, float rho, float z);
 
     std::vector<Edge> mEdges;
     std::vector<float> mVertexHeights;
+    // edges reaching each range between vertex heights, from mSliceStart[i] to mSliceStart[i + 1]
+    std::vector<int> mSliceStart;
+    std::vector<int> mSliceEdges;
+    // edges at the height z, the edges of its range
+    template<class F>
+    void ForEdgesAt(float z, F f) const;
+    // smallest radius of curvature of every edge, 0 at sharp corners, from its lowest point on
+    std::vector<std::pair<float, float>> mCurvature;
     float mRadius = 0;
     float mMinZ = 0;
     float mMaxZ = 0;

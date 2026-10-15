@@ -24,8 +24,10 @@
 
 
 #include "DexelLayout.h"
+#include "ThreadPool.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 
 namespace CAMSimulator
@@ -235,7 +237,34 @@ int DexelLayout::FindLeaf(int fx, int fy, int fz) const
     return node < 0 ? -1 : mNodes[node].leaf;
 }
 
-void DexelLayout::Finish()
+namespace
+{
+// Run f(i) for every i in [0, n), on the threads of the pool if given
+template<class F>
+void ForEach(ThreadPool* pool, int n, F f)
+{
+    if (!pool) {
+        for (int i = 0; i < n; i++) {
+            f(i);
+        }
+        return;
+    }
+    std::atomic<int> next {0};
+    pool->Run([&](int) {
+        while (true) {
+            const int first = next.fetch_add(256);
+            if (first >= n) {
+                break;
+            }
+            for (int i = first; i < std::min(n, first + 256); i++) {
+                f(i);
+            }
+        }
+    });
+}
+}  // namespace
+
+void DexelLayout::Finish(ThreadPool* pool)
 {
     // balance: neighbors differ by at most one level
     std::vector<int> work;
@@ -297,7 +326,7 @@ void DexelLayout::Finish()
     // neighbors can be
     std::vector<std::vector<int>>& neighbors = mNeighbors;
     neighbors.assign(mLeaves.size(), {});
-    for (int i = 0; i < (int)mLeaves.size(); i++) {
+    ForEach(pool, (int)mLeaves.size(), [&](int i) {
         const LayoutLeaf& leaf = mLeaves[i];
         const int size = Size(leaf.level);
         std::vector<int>& list = neighbors[i];
@@ -334,13 +363,13 @@ void DexelLayout::Finish()
         }
         std::sort(list.begin(), list.end());
         list.erase(std::unique(list.begin(), list.end()), list.end());
-    }
+    });
 
     // units depending on each leaf: its own and those of the leaves touching it. The vertex of a
     // coarser neighbor without a surface of its own comes from the crossings on its faces, it
     // depends on all leaves touching that neighbor, so their units depend on the leaf too.
     mAffectedUnits.assign(mLeaves.size(), {});
-    for (int i = 0; i < (int)mLeaves.size(); i++) {
+    ForEach(pool, (int)mLeaves.size(), [&](int i) {
         std::vector<int>& units = mAffectedUnits[i];
         units.push_back(mLeaves[i].unit);
         for (int n : neighbors[i]) {
@@ -353,7 +382,7 @@ void DexelLayout::Finish()
         }
         std::sort(units.begin(), units.end());
         units.erase(std::unique(units.begin(), units.end()), units.end());
-    }
+    });
     mUnitDependencies.assign(mUnits.size(), {});
     for (int i = 0; i < (int)mLeaves.size(); i++) {
         for (int unit : mAffectedUnits[i]) {

@@ -180,12 +180,22 @@ bool HullChord(
 }
 
 // True if there is material of the sorted, disjoint spans in [lo, hi]
-bool MaterialIn(const std::vector<Span>& spans, float lo, float hi)
+bool MaterialIn(const Span* spans, int n, float lo, float hi)
 {
-    const auto it = std::upper_bound(spans.begin(), spans.end(), lo, [](float x, const Span& s) {
+    const Span* it = std::upper_bound(spans, spans + n, lo, [](float x, const Span& s) {
         return x < s.hi;
     });
-    return it != spans.end() && it->lo < hi;
+    return it != spans + n && it->lo < hi;
+}
+
+// True if x is inside the material of the sorted, disjoint spans, not at one of its ends: an end of
+// a removal there becomes an end of the material
+bool InsideMaterial(const Span* spans, int n, float x)
+{
+    const Span* it = std::upper_bound(spans, spans + n, x, [](float v, const Span& s) {
+        return v < s.hi;
+    });
+    return it != spans + n && it->lo < x;
 }
 
 const DexelStock::BrickRef& SolidBrick()
@@ -320,6 +330,7 @@ struct DexelStock::Prepared
     LayoutRegion region {};
     float cell = 1;
     float length = 0;  // cutting length of the tool
+    float radius = 0;  // of the cutting part of the tool
     // vertical tool with disk cross sections: pieces of the move, each changing the height by
     // at most a quarter cell
     bool fast = false;
@@ -726,9 +737,11 @@ float DexelStock::CuttingLength(const CutMove& move) const
 void DexelStock::Prepare(const CutMove& move, Prepared& p) const
 {
     const CutterProfile& tool = *move.tool;
-    const float r = tool.Radius();
     p.move = &move;
     p.length = CuttingLength(move);
+    // the part of the tool that can reach the material, often narrower than the shank
+    const float r = tool.RadiusBelow(p.length);
+    p.radius = r;
     p.instances.clear();
     p.leaves.clear();
     const bool vertical = IsVertical(move.a0) && IsVertical(move.a1);
@@ -794,7 +807,15 @@ void DexelStock::Prepare(const CutMove& move, Prepared& p) const
             const float top = tip + (move.a1[k] - move.a0[k]) * p.length;
             dist = std::max({dist, std::abs(tip), std::abs(top)});
         }
-        const int steps = std::max(1, (int)std::ceil(dist / (p.cell * 0.5f)));
+        // A smooth tool leaves ridges of d^2 / (8 * radius) between instances d apart: at most
+        // this fraction of a cell. Sharp edges leave steps, the instances are half a cell apart.
+        constexpr float InstanceRidge = 0.01f;
+        float spacing = p.cell * 0.5f;
+        const float smooth = tool.SmoothRadius(p.length);
+        if (smooth > 0) {
+            spacing = std::max(spacing, std::sqrt(8 * smooth * InstanceRidge * p.cell));
+        }
+        const int steps = std::max(1, (int)std::ceil(dist / spacing));
         p.instances.resize(steps + 1);
         for (int i = 0; i <= steps; i++) {
             Prepared::Instance& inst = p.instances[i];
@@ -1018,15 +1039,23 @@ void DexelStock::CutBrick(
         return x.tool < y.tool;
     });
 
+    // The current line: its spans in the brick until a move changes it, then a copy in
+    // s.line, so lines no move changes are not copied
+    const Span* lineData = nullptr;
+    int lineSize = 0;
+    bool copied = false;
     // subtract a removal from the current line
     auto apply = [&](const Span* removal, int nr) {
-        if (nr == 0 || s.line.empty() || removal[nr - 1].hi <= s.line.front().lo
-            || removal[0].lo >= s.line.back().hi) {
+        if (nr == 0 || lineSize == 0 || removal[nr - 1].hi <= lineData[0].lo
+            || removal[0].lo >= lineData[lineSize - 1].hi) {
             return;
         }
-        s.tmp.resize(s.line.size() + nr);
-        s.tmp.resize(Subtract(s.line.data(), (int)s.line.size(), removal, nr, s.tmp.data()));
+        s.tmp.resize(lineSize + nr);
+        s.tmp.resize(Subtract(lineData, lineSize, removal, nr, s.tmp.data()));
         s.line.swap(s.tmp);
+        lineData = s.line.data();
+        lineSize = (int)s.line.size();
+        copied = true;
     };
 
     Span solid;
@@ -1094,7 +1123,9 @@ void DexelStock::CutBrick(
                     continue;
                 }
                 s.work++;
-                s.line.assign(spans, spans + n);
+                lineData = spans;
+                lineSize = n;
+                copied = false;
                 // world position of the line: coordinate 'pu' along u, 'pv' along v
                 float base[3];
                 base[a] = 0;
@@ -1106,17 +1137,51 @@ void DexelStock::CutBrick(
                     const Prepared& p = *s.fastMoves[m];
                     const LayoutRegion& region = p.region;
                     if (pu < region.lo[u] || pu > region.hi[u] || pv < region.lo[v] || pv > region.hi[v]
-                        || s.line.empty() || s.line.back().hi < region.lo[a] || s.line.front().lo > region.hi[a]) {
+                        || lineSize == 0 || lineData[lineSize - 1].hi < region.lo[a] || lineData[0].lo > region.hi[a]) {
                         continue;
                     }
                     const CutMove& move = *p.move;
                     const CutterProfile& tool = *move.tool;
-                    const float r = tool.Radius();
-                    (void)r;
+                    const float r = p.radius;
                     if (a == 2) {
         // vertical line through (x, y)
         const float cx = base[0], cy = base[1];
-        for (int piece = 0; piece < p.pieces; piece++) {
+        // The tool is nowhere lower on the line than its lowest point at the closest approach of
+        // the move, at the lowest height of the move: nothing to do if that is above the
+        // material, like for the passes beside the one finishing the surface there.
+        if (tool.HasSingleAxialIntervals()) {
+            const float mx = move.p1[0] - move.p0[0], my = move.p1[1] - move.p0[1];
+            const float len2 = mx * mx + my * my;
+            const float tc = len2 > 0
+                ? std::clamp(((cx - move.p0[0]) * mx + (cy - move.p0[1]) * my) / len2, 0.0f, 1.0f)
+                : 0.0f;
+            const float ex = cx - move.p0[0] - tc * mx, ey = cy - move.p0[1] - tc * my;
+            const float dc = std::sqrt(ex * ex + ey * ey);
+            const Interval* iv;
+            if (dc > r || tool.AxialIntervals(dc, iv) == 0
+                || lineSize == 0 || std::min(move.p0[2], move.p1[2]) + iv[0].lo >= lineData[lineSize - 1].hi) {
+                continue;
+            }
+        }
+        // only the pieces of the part of the move within the radius of the line
+        int firstPiece = 0, lastPiece = p.pieces - 1;
+        if (p.pieces > 1) {
+            const float mx = move.p1[0] - move.p0[0], my = move.p1[1] - move.p0[1];
+            const float ox = move.p0[0] - cx, oy = move.p0[1] - cy;
+            const float qa = mx * mx + my * my, qb = 2 * (ox * mx + oy * my), qc = ox * ox + oy * oy - r * r;
+            const float disc = qb * qb - 4 * qa * qc;
+            if (qa <= 0 || disc < 0) {
+                continue;  // never within the radius
+            }
+            const float sq = std::sqrt(disc);
+            const float ta = (-qb - sq) / (2 * qa), tb = (-qb + sq) / (2 * qa);
+            if (tb < 0 || ta > 1) {
+                continue;
+            }
+            firstPiece = std::clamp((int)std::floor(ta * p.pieces) - 1, 0, p.pieces - 1);
+            lastPiece = std::clamp((int)std::ceil(tb * p.pieces), 0, p.pieces - 1);
+        }
+        for (int piece = firstPiece; piece <= lastPiece; piece++) {
             float pa[3], pb[3];
             for (int k = 0; k < 3; k++) {
                 pa[k] = move.p0[k] + (move.p1[k] - move.p0[k]) * piece / p.pieces;
@@ -1128,7 +1193,8 @@ void DexelStock::CutBrick(
             if (len2 > 0) {
                 t = std::clamp(((cx - pa[0]) * dx + (cy - pa[1]) * dy) / len2, 0.0f, 1.0f);
             }
-            const float d = std::hypot(cx - pa[0] - t * dx, cy - pa[1] - t * dy);
+            const float ex = cx - pa[0] - t * dx, ey = cy - pa[1] - t * dy;
+            const float d = std::sqrt(ex * ex + ey * ey);
             if (d > r) {
                 continue;
             }
@@ -1144,24 +1210,33 @@ void DexelStock::CutBrick(
             const ProfileNormal* pn;
             if (tool.HasSingleAxialIntervals() && zmin != zmax) {
                 float lo = 1e30f, hi = -1e30f;
-                uint32_t nlo = 0, nhi = 0;
+                // the normals of the lowest and highest point, packed once
+                ProfileNormal pnLo {}, pnHi {};
+                float hLo[2] = {0, 0}, hHi[2] = {0, 0};
                 for (const float tc : {0.0f, t, 1.0f}) {
                     const float hx = cx - pa[0] - tc * dx, hy = cy - pa[1] - tc * dy;
-                    const float dc = std::hypot(hx, hy);
+                    const float dc = std::sqrt(hx * hx + hy * hy);
                     if (tool.AxialIntervals(dc, iv, pn) == 1) {
                         const float z = pa[2] + tc * (pb[2] - pa[2]);
                         const float ux = dc > 1e-9f ? hx / dc : 0, uy = dc > 1e-9f ? hy / dc : 0;
                         if (iv[0].lo + z < lo) {
                             lo = iv[0].lo + z;
-                            nlo = ToolNormal(pn[0], ux, uy);
+                            pnLo = pn[0];
+                            hLo[0] = ux;
+                            hLo[1] = uy;
                         }
                         if (iv[0].hi + z > hi) {
                             hi = iv[0].hi + z;
-                            nhi = ToolNormal(pn[1], ux, uy);
+                            pnHi = pn[1];
+                            hHi[0] = ux;
+                            hHi[1] = uy;
                         }
                     }
                 }
-                if (lo < hi) {
+                // the normals of the ends that become ends of the material only
+                if (lo < hi && lineSize > 0 && lo < lineData[lineSize - 1].hi && hi > lineData[0].lo) {
+                    const uint32_t nlo = InsideMaterial(lineData, lineSize, lo) ? ToolNormal(pnLo, hLo[0], hLo[1]) : 0;
+                    const uint32_t nhi = InsideMaterial(lineData, lineSize, hi) ? ToolNormal(pnHi, hHi[0], hHi[1]) : 0;
                     removal[nr++] = {lo, hi, nlo, nhi};
                 }
             }
@@ -1199,6 +1274,21 @@ void DexelStock::CutBrick(
         const int across = a == 0 ? 1 : 0;
         const float w = base[across];
         const float z0 = move.p0[2], dz = move.p1[2] - move.p0[2];
+        // The tool is nowhere lower at the line than its lowest point at the horizontal
+        // distance of the line from the move, at the lowest height of the move: lines below
+        // that, inside the material under the cut surface, keep their material.
+        if (tool.HasSingleAxialIntervals()) {
+            const float w0 = move.p0[across] - w, w1 = move.p1[across] - w;
+            const float dc = (w0 < 0) != (w1 < 0) ? 0.0f : std::min(std::abs(w0), std::abs(w1));
+            const Interval* iv;
+            if (dc > r || tool.AxialIntervals(dc, iv) == 0 || std::min(z0, z0 + dz) + iv[0].lo > zl) {
+                continue;
+            }
+        }
+        // nothing to do without material where the tool passes along the line
+        if (!MaterialIn(lineData, lineSize, std::min(move.p0[a], move.p1[a]) - r, std::max(move.p0[a], move.p1[a]) + r)) {
+            continue;
+        }
         // range of the move where the line is at the height of the cutting part
         float t0 = 0, t1 = 1;
         if (std::abs(dz) < 1e-9f) {
@@ -1238,9 +1328,8 @@ void DexelStock::CutBrick(
                 if (tb < ta || (b > 0 && tb == ta)) {
                     continue;
                 }
-                ProfileNormal unused;
-                const float ra = std::max(0.0f, tool.SliceRadius(zl - z0 - ta * dz, unused));
-                const float rb = std::max(0.0f, tool.SliceRadius(zl - z0 - tb * dz, unused));
+                const float ra = std::max(0.0f, tool.SliceRadius(zl - z0 - ta * dz));
+                const float rb = std::max(0.0f, tool.SliceRadius(zl - z0 - tb * dz));
                 const float ca[2] = {
                     move.p0[a] + ta * (move.p1[a] - move.p0[a]),
                     move.p0[across] + ta * (move.p1[across] - move.p0[across]),
@@ -1262,11 +1351,14 @@ void DexelStock::CutBrick(
                     tHi = ta + l1 * (tb - ta);
                 }
             }
-            if (lo < hi) {
-                // normals from the tool at the ends
-                uint32_t normal[2];
+            if (lo < hi && MaterialIn(lineData, lineSize, lo, hi)) {
+                // normals from the tool at the ends that become ends of the material
+                uint32_t normal[2] = {0, 0};
                 const float ends[2] = {lo, hi}, times[2] = {tLo, tHi};
                 for (int e = 0; e < 2; e++) {
+                    if (!InsideMaterial(lineData, lineSize, ends[e])) {
+                        continue;
+                    }
                     const float t = times[e];
                     ProfileNormal pn {};
                     tool.SliceRadius(zl - z0 - t * dz, pn);
@@ -1303,10 +1395,10 @@ void DexelStock::CutBrick(
                     while (end < lineRefs.size() && s.refs[lineRefs[end]].tool == &tool) {
                         end++;
                     }
-                    const float r = tool.Radius();
                     for (size_t k = g; k < end; k++) {
                         const InstanceRef& ref = s.refs[lineRefs[k]];
                         const Prepared& p = *ref.prepared;
+                        const float r = p.radius;
                         const auto& inst = p.instances[ref.index];
                         if (base[u] < inst.lo[u] || base[u] > inst.hi[u] || base[v] < inst.lo[v]
                             || base[v] > inst.hi[v]) {
@@ -1329,7 +1421,7 @@ void DexelStock::CutBrick(
                         }
                         {
                             float b0, b1;
-                            if (!inst.CylinderChord(base, a, r, b0, b1) || !MaterialIn(s.line, b0, b1)) {
+                            if (!inst.CylinderChord(base, a, r, b0, b1) || !MaterialIn(lineData, lineSize, b0, b1)) {
                                 continue;
                             }
                         }
@@ -1387,8 +1479,8 @@ void DexelStock::CutBrick(
                 }
 
                 // keep the line if it changed
-                bool same = (int)s.line.size() == n;
-                for (int k = 0; same && k < n; k++) {
+                bool same = !copied || (int)s.line.size() == n;
+                for (int k = 0; copied && same && k < n; k++) {
                     same = s.line[k].lo == spans[k].lo && s.line[k].hi == spans[k].hi;
                 }
                 if (!same) {

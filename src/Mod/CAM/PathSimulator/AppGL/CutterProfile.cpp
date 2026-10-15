@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace CAMSimulator
 {
@@ -88,13 +89,32 @@ CutterProfile::CutterProfile(const std::vector<float>& profile)
     for (size_t i = 0; i < n; i++) {
         const size_t before = (i + n - 1) % n;
         if (onAxis(before) || onAxis(i)) {
-            // on the axis: the tip of a cone is sharp, the middle of a flat face is not
+            // on the axis: the edge meets its mirror image, the tip of a cone is sharp, the
+            // middle of a flat face or the tip of a ball is not
             const ProfileNormal& m = onAxis(before) ? edgeNormals[i] : edgeNormals[before];
-            sharp[i] = std::abs(m.r) > 0.01f;
+            sharp[i] = 1 - 2 * m.r * m.r < 0.94f;
         }
         else {
             sharp[i] = edgeNormals[before].r * edgeNormals[i].r + edgeNormals[before].z * edgeNormals[i].z < 0.94f;
         }
+    }
+
+    // normals at the vertices: between the normals of the edges where the profile is smooth, so
+    // the normals of a curved profile approximated by edges change continuously like on the tool
+    std::vector<ProfileNormal> vertexNormals(n);
+    for (size_t i = 0; i < n; i++) {
+        const size_t before = (i + n - 1) % n;
+        ProfileNormal m {0, 0};
+        if (onAxis(before) || onAxis(i)) {
+            const ProfileNormal& e = onAxis(before) ? edgeNormals[i] : edgeNormals[before];
+            m = {0, e.z < 0 ? -1.0f : 1.0f};
+        }
+        else {
+            m = {edgeNormals[before].r + edgeNormals[i].r, edgeNormals[before].z + edgeNormals[i].z};
+            const float len = std::hypot(m.r, m.z);
+            m = len > 0 ? ProfileNormal {m.r / len, m.z / len} : edgeNormals[i];
+        }
+        vertexNormals[i] = m;
     }
 
     mMinZ = mMaxZ = points.front().second;
@@ -107,7 +127,18 @@ CutterProfile::CutterProfile(const std::vector<float>& profile)
         if (onAxis(i) || (a.first == b.first && a.second == b.second)) {
             continue;
         }
-        mEdges.push_back({a.first, a.second, b.first, b.second, edgeNormals[i], sharp[i], sharp[(i + 1) % n]});
+        const size_t next = (i + 1) % n;
+        mEdges.push_back({
+            a.first,
+            a.second,
+            b.first,
+            b.second,
+            edgeNormals[i],
+            sharp[i] ? edgeNormals[i] : vertexNormals[i],
+            sharp[next] ? edgeNormals[i] : vertexNormals[next],
+            sharp[i],
+            sharp[next],
+        });
     }
 
     for (const auto& p : points) {
@@ -115,6 +146,46 @@ CutterProfile::CutterProfile(const std::vector<float>& profile)
     }
     std::sort(mVertexHeights.begin(), mVertexHeights.end());
     mVertexHeights.erase(std::unique(mVertexHeights.begin(), mVertexHeights.end()), mVertexHeights.end());
+    // curvature of the edges: along the profile from the turn of the normals between the ends,
+    // around the axis from the distance to the axis along the normal. Sharp corners at their
+    // height.
+    for (const Edge& e : mEdges) {
+        if (e.sharp1) {
+            mCurvature.emplace_back(e.z1, 0.0f);
+        }
+        if (e.sharp2) {
+            mCurvature.emplace_back(e.z2, 0.0f);
+        }
+        float radius = std::numeric_limits<float>::infinity();
+        const float length = std::hypot(e.r2 - e.r1, e.z2 - e.z1);
+        if (length <= 1e-6f * mRadius) {
+            continue;  // a point
+        }
+        const float turn = std::acos(std::clamp(e.n1.r * e.n2.r + e.n1.z * e.n2.z, -1.0f, 1.0f));
+        if (turn > 1e-6f) {
+            radius = length / turn;
+        }
+        for (const auto& [r, n] : {std::make_pair(e.r1, e.n1.r), std::make_pair(e.r2, e.n2.r)}) {
+            if (r > 1e-6f && std::abs(n) > 1e-6f) {
+                radius = std::min(radius, r / std::abs(n));
+            }
+        }
+        mCurvature.emplace_back(std::min(e.z1, e.z2), radius);
+    }
+    // the edges reaching the range between neighboring vertex heights, including its ends
+    for (size_t i = 0; i + 1 < std::max<size_t>(mVertexHeights.size(), 2); i++) {
+        mSliceStart.push_back((int)mSliceEdges.size());
+        if (mVertexHeights.size() < 2) {
+            break;
+        }
+        const float lo = mVertexHeights[i], hi = mVertexHeights[i + 1];
+        for (int e = 0; e < (int)mEdges.size(); e++) {
+            if (std::min(mEdges[e].z1, mEdges[e].z2) <= hi && std::max(mEdges[e].z1, mEdges[e].z2) >= lo) {
+                mSliceEdges.push_back(e);
+            }
+        }
+    }
+    mSliceStart.push_back((int)mSliceEdges.size());
 
     // table of axial intervals
     mTableStep = mRadius > 0 ? mRadius / (TableSize - 1) : 1;
@@ -133,18 +204,30 @@ CutterProfile::CutterProfile(const std::vector<float>& profile)
         mSingleAxial &= mTableStart[i + 1] - mTableStart[i] <= 1;
     }
 
-    // every entry must be contained in the previous one
+    // every entry must be contained in the previous one, up to a hundredth of the radius: tools
+    // often have tiny steps where the flutes meet the shank, which don't change the cut
+    const float slack = std::max(1e-5f, 0.01f * mRadius);
     for (int i = 1; i < TableSize && mMonotonic; i++) {
         for (int k = mTableStart[i]; k < mTableStart[i + 1]; k++) {
             const Interval& inner = mTableIntervals[k];
             bool contained = false;
             for (int j = mTableStart[i - 1]; j < mTableStart[i]; j++) {
                 const Interval& outer = mTableIntervals[j];
-                contained |= outer.lo <= inner.lo + 1e-5f && inner.hi <= outer.hi + 1e-5f;
+                contained |= outer.lo <= inner.lo + slack && inner.hi <= outer.hi + slack;
             }
             mMonotonic &= contained;
         }
     }
+}
+
+ProfileNormal CutterProfile::NormalAt(const Edge& e, float rho, float z)
+{
+    const float dr = e.r2 - e.r1, dz = e.z2 - e.z1;
+    const float len2 = dr * dr + dz * dz;
+    const float t = len2 > 0 ? std::clamp(((rho - e.r1) * dr + (z - e.z1) * dz) / len2, 0.0f, 1.0f) : 0.0f;
+    const ProfileNormal n {e.n1.r + t * (e.n2.r - e.n1.r), e.n1.z + t * (e.n2.z - e.n1.z)};
+    const float len = std::hypot(n.r, n.z);
+    return len > 0 ? ProfileNormal {n.r / len, n.z / len} : e.normal;
 }
 
 bool CutterProfile::Contains(float rho, float z) const
@@ -185,8 +268,8 @@ void CutterProfile::ComputeAxialIntervals(
         if (crossings[i + 1].first > crossings[i].first) {
             out.push_back({crossings[i].first, crossings[i + 1].first});
             if (normals) {
-                normals->push_back(mEdges[crossings[i].second].normal);
-                normals->push_back(mEdges[crossings[i + 1].second].normal);
+                normals->push_back(NormalAt(mEdges[crossings[i].second], d, crossings[i].first));
+                normals->push_back(NormalAt(mEdges[crossings[i + 1].second], d, crossings[i + 1].first));
             }
         }
     }
@@ -205,21 +288,56 @@ int CutterProfile::AxialIntervals(float d, const Interval*& out, const ProfileNo
     return mTableStart[index + 1] - mTableStart[index];
 }
 
+template<class F>
+void CutterProfile::ForEdgesAt(float z, F f) const
+{
+    if (mVertexHeights.size() < 2 || z < mVertexHeights.front() || z > mVertexHeights.back()) {
+        return;
+    }
+    const int range = std::clamp(
+        (int)(std::upper_bound(mVertexHeights.begin(), mVertexHeights.end(), z) - mVertexHeights.begin()) - 1,
+        0,
+        (int)mVertexHeights.size() - 2
+    );
+    for (int i = mSliceStart[range]; i < mSliceStart[range + 1]; i++) {
+        f(mEdges[mSliceEdges[i]]);
+    }
+}
+
+float CutterProfile::SliceRadius(float z) const
+{
+    float best = -1;
+    ForEdgesAt(z, [&](const Edge& e) {
+        const float zlo = std::min(e.z1, e.z2), zhi = std::max(e.z1, e.z2);
+        if (z < zlo || z > zhi) {
+            return;
+        }
+        const float r = e.z1 == e.z2 ? std::max(e.r1, e.r2)
+                                     : e.r1 + (z - e.z1) * (e.r2 - e.r1) / (e.z2 - e.z1);
+        best = std::max(best, r);
+    });
+    return best;
+}
+
 float CutterProfile::SliceRadius(float z, ProfileNormal& normal) const
 {
     float best = -1;
-    for (const Edge& e : mEdges) {
+    const Edge* bestEdge = nullptr;
+    ForEdgesAt(z, [&](const Edge& e) {
         const float zlo = std::min(e.z1, e.z2), zhi = std::max(e.z1, e.z2);
         if (z < zlo || z > zhi) {
-            continue;
+            return;
         }
         const float r = e.z1 == e.z2 ? std::max(e.r1, e.r2)
                                      : e.r1 + (z - e.z1) * (e.r2 - e.r1) / (e.z2 - e.z1);
         // at a vertex shared by two edges, prefer the edge facing outwards
-        if (r > best || (r == best && e.normal.r > normal.r)) {
+        if (r > best || (r == best && bestEdge && e.normal.r > bestEdge->normal.r)) {
             best = r;
-            normal = e.normal;
+            bestEdge = &e;
         }
+    });
+    if (bestEdge) {
+        normal = NormalAt(*bestEdge, best, z);
     }
     return best;
 }
@@ -248,11 +366,191 @@ float CutterProfile::MaxSliceRadius(float z0, float z1, ProfileNormal& normal) c
     return best;
 }
 
+float CutterProfile::RadiusBelow(float height) const
+{
+    if (height >= mMaxZ) {
+        return mRadius;
+    }
+    ProfileNormal unused;
+    return std::clamp(MaxSliceRadius(mMinZ, std::max(mMinZ, height), unused), 0.0f, mRadius);
+}
+
+float CutterProfile::SmoothRadius(float height) const
+{
+    float radius = std::numeric_limits<float>::infinity();
+    for (const auto& [z, r] : mCurvature) {
+        if (z < height) {
+            radius = std::min(radius, r);
+        }
+    }
+    return std::isfinite(radius) ? radius : 0.0f;
+}
+
 float CutterProfile::FeatureSize() const
 {
     ProfileNormal normal;
     const float r = SliceRadius(std::min(mRadius, mMaxZ - mMinZ) / 2 + mMinZ, normal);
     return std::clamp(r, mRadius / 4, mRadius);
+}
+
+float CutterProfile::SweptEdge::At(float across) const
+{
+    const float x = (across - start) / step;
+    const int i = (int)std::floor(x);
+    if (i < 0 || i + 1 >= (int)up.size()) {
+        return std::numeric_limits<float>::infinity();
+    }
+    const float f = x - i;
+    if (!std::isfinite(up[i]) || !std::isfinite(up[i + 1])) {
+        return f < 0.5f ? up[i] : up[i + 1];
+    }
+    return up[i] + f * (up[i + 1] - up[i]);
+}
+
+void CutterProfile::SweptEdge::Groove(float spacing, float& angle, float& touchAcross, float& touchUp) const
+{
+    const int bins = (int)up.size();
+    float lowest = std::numeric_limits<float>::infinity();
+    for (const float v : up) {
+        lowest = std::min(lowest, v);
+    }
+    // the middle of the lowest points, a flat bottom touches with all of them
+    const float flat = lowest + 1e-3f * step;
+    int first = -1, last = -1;
+    for (int b = 0; b < bins; b++) {
+        if (up[b] <= flat) {
+            last = b;
+            if (first < 0) {
+                first = b;
+            }
+        }
+    }
+    touchAcross = start + (first + last) / 2.0f * step;
+    touchUp = lowest;
+    // the ridge: the passes at 0 and spacing leave the same height between their lowest points,
+    // in the middle where they overlap with flat bottoms
+    const float same = 1e-3f * step;
+    float from = touchAcross + spacing, to = touchAcross;
+    for (float u = touchAcross; u <= touchAcross + spacing; u += step / 2) {
+        const float difference = At(u) - At(u - spacing);
+        if (difference >= -same) {
+            from = std::min(from, u);
+        }
+        if (difference <= same) {
+            to = std::max(to, u);
+        }
+    }
+    const float ridge = from <= to ? (from + to) / 2 : from;
+    // slopes of the two surfaces at the ridge, over a tenth of the spacing
+    angle = 0;
+    const float d = std::max(4 * step, 0.05f * spacing);
+    const float a1 = At(ridge + d), a0 = At(ridge - d);
+    const float b1 = At(ridge - spacing + d), b0 = At(ridge - spacing - d);
+    if (std::isfinite(a0 + a1 + b0 + b1)) {
+        angle = std::atan((a1 - a0) / (2 * d)) - std::atan((b1 - b0) / (2 * d));
+    }
+}
+
+CutterProfile::SweptEdge CutterProfile::SweptLowerEdge(const float axis[3], float extent, int bins) const
+{
+    SweptEdge edge;
+    edge.start = -extent;
+    edge.step = 2 * extent / (bins - 1);
+    edge.up.assign(bins, std::numeric_limits<float>::infinity());
+    // directions in the plane of a slice of the tool, perpendicular to the axis
+    const double a[3] = {axis[0], axis[1], axis[2]};
+    double p[3] = {0, 1, 0};  // across, made perpendicular to the axis
+    if (std::abs(a[1]) > 0.9) {
+        p[0] = 1;
+        p[1] = 0;
+    }
+    const double pa = p[0] * a[0] + p[1] * a[1] + p[2] * a[2];
+    double len = 0;
+    for (int k = 0; k < 3; k++) {
+        p[k] -= pa * a[k];
+        len += p[k] * p[k];
+    }
+    len = std::sqrt(len);
+    for (double& c : p) {
+        c /= len;
+    }
+    const double q[3] = {a[1] * p[2] - a[2] * p[1], a[2] * p[0] - a[0] * p[2], a[0] * p[1] - a[1] * p[0]};
+
+    // circles along the edges of the profile, apart by less than half a bin. Where the profile is
+    // smooth, the edges are bent to the normals at their ends, like the arcs they approximate, so
+    // the edge follows the shape of the tool and not its polygon.
+    struct Slice
+    {
+        float z, radius, lowest;
+    };
+    std::vector<Slice> slices;
+    const float top = std::min(mMaxZ, mMinZ + std::max(2.0f * extent, mRadius));
+    // the lowest point of the projected outline of a slice
+    const double spread = std::sqrt(p[2] * p[2] + q[2] * q[2]);
+    float lowestAll = std::numeric_limits<float>::infinity();
+    for (const Edge& e : mEdges) {
+        if (std::min(e.z1, e.z2) > top) {
+            continue;
+        }
+        const float dr = e.r2 - e.r1, dz = e.z2 - e.z1;
+        const float length = std::hypot(dr, dz);
+        // control point of a quadratic curve: where the tangents at the ends meet
+        float cr = (e.r1 + e.r2) / 2, cz = (e.z1 + e.z2) / 2;
+        const float t1r = -e.n1.z, t1z = e.n1.r, t2r = -e.n2.z, t2z = e.n2.r;
+        const float det = t1r * t2z - t1z * t2r;
+        if (std::abs(det) > 1e-6f) {
+            const float k = (dr * t2z - dz * t2r) / det;
+            const float pr = e.r1 + k * t1r, pz = e.z1 + k * t1z;
+            if (std::hypot(pr - cr, pz - cz) < 0.5f * length) {
+                cr = pr;
+                cz = pz;
+            }
+        }
+        const int n = std::max(1, (int)std::ceil(2 * length / edge.step));
+        for (int i = 0; i <= n; i++) {
+            const float t = (float)i / n, w0 = (1 - t) * (1 - t), w1 = 2 * t * (1 - t), w2 = t * t;
+            const float z = w0 * e.z1 + w1 * cz + w2 * e.z2;
+            if (z <= top) {
+                const float radius = std::max(0.0f, w0 * e.r1 + w1 * cr + w2 * e.r2);
+                const float lowest = (float)(z * a[2] - radius * spread);
+                slices.push_back({z, radius, lowest});
+                lowestAll = std::min(lowestAll, lowest);
+            }
+        }
+    }
+
+    // the outline of every slice is a circle, projected an ellipse: its lowest point in every bin
+    // it covers, exactly. Slices far above the lowest point don't make the edge near it.
+    // across = cu + radius * acrossScale * cos(t - acrossPhase), up = cv + radius * (p2 cos t + q2 sin t)
+    const double acrossScale = std::hypot(p[1], q[1]), acrossPhase = std::atan2(q[1], p[1]);
+    const float reach = lowestAll + extent / 2;
+    for (const Slice& slice : slices) {
+        if (slice.lowest > reach) {
+            continue;
+        }
+        const double cu = slice.z * a[1], cv = slice.z * a[2], radius = slice.radius;
+        const double half = radius * acrossScale;
+        if (half < edge.step / 2) {
+            // seen edge on: a line up and down
+            const int b = (int)std::lround((cu - edge.start) / edge.step);
+            if (b >= 0 && b < bins) {
+                edge.up[b] = std::min(edge.up[b], slice.lowest);
+            }
+            continue;
+        }
+        const int b0 = std::max(0, (int)std::ceil((cu - half - edge.start) / edge.step));
+        const int b1 = std::min(bins - 1, (int)std::floor((cu + half - edge.start) / edge.step));
+        for (int b = b0; b <= b1; b++) {
+            const double w = std::clamp((edge.start + b * edge.step - cu) / half, -1.0, 1.0);
+            const double d = std::acos(w);
+            float lowest = std::numeric_limits<float>::infinity();
+            for (const double t : {acrossPhase + d, acrossPhase - d}) {
+                lowest = std::min(lowest, (float)(cv + radius * (p[2] * std::cos(t) + q[2] * std::sin(t))));
+            }
+            edge.up[b] = std::min(edge.up[b], lowest);
+        }
+    }
+    return edge;
 }
 
 void CutterProfile::LineIntervals(
@@ -386,11 +684,11 @@ void CutterProfile::LineIntervals(
     nHits = unique;
     auto normalAt = [&](const Hit& hit, float* n) {
         const Edge& e = mEdges[hit.edge];
-        const ProfileNormal& pn = e.normal;
         const double x = ox + hit.s * ux, y = oy + hit.s * uy;
         const double rho = std::sqrt(x * x + y * y);
+        const double z = oz + hit.s * uz;
+        const ProfileNormal pn = NormalAt(e, (float)rho, (float)z);
         if (sharpTolerance > 0 && (e.sharp1 || e.sharp2)) {
-            const double z = oz + hit.s * uz;
             const double d1 = (rho - e.r1) * (rho - e.r1) + (z - e.z1) * (z - e.z1);
             const double d2 = (rho - e.r2) * (rho - e.r2) + (z - e.z2) * (z - e.z2);
             const double tolerance = (double)sharpTolerance * sharpTolerance;

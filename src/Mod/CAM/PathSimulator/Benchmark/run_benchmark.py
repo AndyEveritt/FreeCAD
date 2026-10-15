@@ -35,6 +35,7 @@ sys.path.insert(0, HERE)
 import jobs  # noqa: E402
 
 SCENARIOS = [
+    "jump",
     "idle",
     "playback",
     "scrub_forward",
@@ -183,6 +184,11 @@ def merge_repeats(runs):
                 sc["release"]["converge_ms"] = statistics.median(releases)
             if name == "correctness":
                 sc["passed"] = all(o.get("passed") is not False for o in others)
+            if name == "jump":
+                for key in ("first_ms", "median_ms", "max_ms"):
+                    values = [o[key] for o in others if o.get(key) is not None]
+                    if values:
+                        sc[key] = statistics.median(values)
         merged.append(base)
     return merged
 
@@ -193,6 +199,10 @@ def metrics(run):
     for name, sc in run.get("scenarios", {}).items():
         if sc.get("frame_ms", {}).get("count"):
             out[f"{name}.frame"] = sc["frame_ms"]["median"]
+        if name == "jump" and sc.get("max_ms") is not None:
+            out["jump.first"] = sc["first_ms"]
+            out["jump.median"] = sc["median_ms"]
+            out["jump.max"] = sc["max_ms"]
         if name in SCRUBS:
             if sc.get("converge_ms", {}).get("count"):
                 out[f"{name}.converge"] = sc["converge_ms"]["median"]
@@ -255,6 +265,11 @@ def cell(sc, key="frame_ms"):
         return "-"
     if "flashes" in sc:
         return f"{sc['flashes']} in {sc.get('grabs', 0)}"
+    if "jumps_ms" in sc:
+        if sc.get("max_ms") is None:
+            return "-"
+        text = f"{sc['first_ms']:.0f}/{sc['max_ms']:.0f}"
+        return text + ("*" if sc.get("timed_out") else "")
     f = sc.get(key, {})
     if not f.get("count"):
         return "-"
@@ -309,6 +324,7 @@ def print_summary(data, file=sys.stdout):
 
     print(
         "\nframe times in ms as median/max, * = timed out."
+        "\njump: time until the view shows a far slider position right after loading, first/max."
         "\nconverge: median time until the view shows a scrub position (slowest scrub)."
         "\nrelease: time until the view is final after releasing the slider (slowest scrub)."
         "\nimage: largest fraction of differing pixels in the correctness checks, o=ok f=FAIL",

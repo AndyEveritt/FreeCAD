@@ -56,6 +56,17 @@ constexpr double QefTolerance = 0.08;
 // crossings within this fraction of a cell, so flat and gently curved surfaces get fewer and
 // larger polygons
 constexpr double MergeTolerance = 0.1;
+// ... and where the crossing normals of each cluster deviate from their mean by less than this
+// (1 - cosine, about 8 degrees), so the shading of shallow features like the scallops of a ball
+// end mill is kept
+constexpr double MergeNormalTolerance = 0.01;
+// A ridge of a cut surface, like between the passes of a ball end mill, where the surface bends
+// convex between neighboring lines by more than this (about 6 degrees) and more than this many
+// times as much as on either side. A smooth convex surface bends about the same everywhere.
+constexpr double RidgeBend = 0.1;
+constexpr double RidgeRatio = 2;
+// Ridges through a cell at most
+constexpr int MaxRidges = 2;
 
 inline int AxisU(int a)
 {
@@ -103,6 +114,7 @@ struct LeafGeometry
         float n[3];
         int cut;
         int stock;
+        uint8_t side;  // the side of the ridges through the cube
     };
     struct Vertex
     {
@@ -185,18 +197,22 @@ struct Qef
     int nClusters;
     Cluster clusters[MaxClusters];
     bool incomplete;  // edges with a change but no crossing, or crossings without normal
+    bool ridge;       // a ridge goes through the cube, its sides have separate normals
 
     void Clear()
     {
         *this = Qef {};
     }
 
-    void AddCluster(const float n[3], int cut, int stock)
+    void AddCluster(const float n[3], int cut, int stock, uint8_t side)
     {
         int best = -1;
         float bestDot = ClusterCos;
         const float nlen = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
         for (int i = 0; i < nClusters; i++) {
+            if (clusters[i].side != side) {
+                continue;
+            }
             const float* s = clusters[i].n;
             const float len = std::sqrt(s[0] * s[0] + s[1] * s[1] + s[2] * s[2]);
             const float dot = (s[0] * n[0] + s[1] * n[1] + s[2] * n[2]) / (len * nlen);
@@ -207,7 +223,7 @@ struct Qef
         }
         if (best < 0 && nClusters < MaxClusters) {
             best = nClusters++;
-            clusters[best] = {{0, 0, 0}, 0, 0};
+            clusters[best] = {{0, 0, 0}, 0, 0, side};
         }
         if (best < 0) {
             best = 0;
@@ -219,7 +235,7 @@ struct Qef
         clusters[best].stock += stock;
     }
 
-    void Add(const double p[3], const float n[3], bool cut)
+    void Add(const double p[3], const float n[3], bool cut, uint8_t side)
     {
         const double d = n[0] * p[0] + n[1] * p[1] + n[2] * p[2];
         for (int r = 0; r < 3; r++) {
@@ -232,7 +248,7 @@ struct Qef
         btb += d * d;
         count++;
         points++;
-        AddCluster(n, cut ? 1 : 0, cut ? 0 : 1);
+        AddCluster(n, cut ? 1 : 0, cut ? 0 : 1, side);
     }
 
     // A crossing without normal: its position only
@@ -245,7 +261,7 @@ struct Qef
         incomplete = true;
     }
 
-    void Add(const double p[3], const Crossing& x)
+    void Add(const double p[3], const Crossing& x, uint8_t side = 0)
     {
         if (!HasNormal(x.normal)) {
             AddPoint(p);
@@ -253,7 +269,7 @@ struct Qef
         }
         float n[3];
         UnpackNormal(x.normal, n);
-        Add(p, n, IsCutFace(x.normal));
+        Add(p, n, IsCutFace(x.normal), side);
     }
 
     void Merge(const Qef& o)
@@ -269,9 +285,25 @@ struct Qef
         count += o.count;
         points += o.points;
         incomplete |= o.incomplete;
+        ridge |= o.ridge;
         for (int i = 0; i < o.nClusters; i++) {
-            AddCluster(o.clusters[i].n, o.clusters[i].cut, o.clusters[i].stock);
+            AddCluster(o.clusters[i].n, o.clusters[i].cut, o.clusters[i].stock, o.clusters[i].side);
         }
+    }
+
+    // Largest mean deviation of the normals of a cluster from their mean, 1 - cosine
+    double NormalSpread() const
+    {
+        double spread = 0;
+        for (int i = 0; i < nClusters; i++) {
+            const float* n = clusters[i].n;
+            const int k = clusters[i].cut + clusters[i].stock;
+            if (k > 1) {
+                const double len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+                spread = std::max(spread, 1 - len / k);
+            }
+        }
+        return spread;
     }
 
     bool Mixed() const
@@ -565,13 +597,24 @@ std::unique_ptr<LeafGeometry> ComputeLeaf(const DexelStock& stock, int leaf, boo
         }
         return qefs[qIndex[cell]];
     };
+    // crossings of the edges with a change, positions relative to the center
+    struct EdgeCrossing
+    {
+        int a, i, j, k;
+        bool in0;
+        double p[3];
+        Crossing x;
+    };
+    thread_local std::vector<EdgeCrossing> found;
+    found.clear();
+    float ranges[3][2];
     for (int a = 0; a < 3; a++) {
         const int u = AxisU(a), v = AxisV(a);
         float t[BrickLines];
         for (int k = 0; k < BrickLines; k++) {
             t[k] = layout.Coord(a, l.origin[a] + k * l.step);
         }
-        float range[2];
+        float* range = ranges[a];
         stock.LineRange(leaf, a, range[0], range[1]);
         for (int j = 0; j < BrickLines; j++) {
             for (int i = 0; i < BrickLines; i++) {
@@ -595,32 +638,177 @@ std::unique_ptr<LeafGeometry> ComputeLeaf(const DexelStock& stock, int leaf, boo
                     }
                     g->edges.push_back((uint16_t)EdgeIndex(a, i, j, k));
                     g->crossings.push_back(x);
-                    double p[3];
+                    EdgeCrossing e {a, i, j, k, in0 != 0, {0, 0, 0}, x};
                     if (x.valid) {
-                        p[a] = x.t - center[a];
-                        p[u] = pu;
-                        p[v] = pv;
+                        e.p[a] = x.t - center[a];
+                        e.p[u] = pu;
+                        e.p[v] = pv;
                     }
-                    // the cells around the edge
-                    for (int dv = -1; dv <= 0; dv++) {
-                        for (int du = -1; du <= 0; du++) {
-                            int c[3];
-                            c[a] = k;
-                            c[u] = i + du;
-                            c[v] = j + dv;
-                            if (c[u] < 0 || c[u] >= BrickCells || c[v] < 0 || c[v] >= BrickCells) {
-                                continue;
-                            }
-                            Qef& q = qefOf(CellIndex(c));
-                            if (x.valid) {
-                                q.Add(p, x);
-                            }
-                            else {
-                                q.incomplete = true;
-                            }
+                    found.push_back(e);
+                }
+            }
+        }
+    }
+
+    // Ridges between the lines along an axis: the cells around them get a plane through the
+    // ridge, their crossings on different sides of it get separate vertex normals, so the ridge
+    // is sharp in the shading like on the machined part
+    struct RidgePlane
+    {
+        double m[3];  // on the ridge
+        double d[3];  // across the ridge
+    };
+    thread_local RidgePlane ridges[Cells][MaxRidges];
+    uint8_t nRidges[Cells] = {};
+    // the end of material of a line nearest to t of the kind of a crossing, within two cells, if
+    // it is on a cut face: its position relative to the center and its normal
+    auto cutEnd = [&](int a, int i, int j, bool in0, double t, double p[3], float n[3]) {
+        if (i < 0 || i >= BrickLines || j < 0 || j >= BrickLines) {
+            return false;
+        }
+        const Span* spans;
+        Span lineScratch;
+        const int count = stock.Line(leaf, a * BrickAxisLines + j * BrickLines + i, spans, lineScratch);
+        double best = 2 * h;
+        float end = 0;
+        uint32_t normal = 0;
+        bool any = false;
+        for (int s = 0; s < count; s++) {
+            const float e = in0 ? spans[s].hi : spans[s].lo;
+            if (e <= ranges[a][0] || e >= ranges[a][1] || std::abs(e - t) >= best) {
+                continue;
+            }
+            best = std::abs(e - t);
+            end = e;
+            normal = in0 ? spans[s].nhi : spans[s].nlo;
+            any = true;
+        }
+        if (!any || !HasNormal(normal) || !IsCutFace(normal)) {
+            return false;
+        }
+        const int u = AxisU(a), v = AxisV(a);
+        p[a] = end - center[a];
+        p[u] = layout.Coord(u, l.origin[u] + i * l.step) - center[u];
+        p[v] = layout.Coord(v, l.origin[v] + j * l.step) - center[v];
+        UnpackNormal(normal, n);
+        return true;
+    };
+    // how much the surface bends convex from a to b, in radians
+    auto bend = [](const double* pa, const float* na, const double* pb, const float* nb) {
+        double len = 0, dot = 0;
+        for (int k = 0; k < 3; k++) {
+            const double d = pb[k] - pa[k];
+            len += d * d;
+            dot += (nb[k] - na[k]) * d;
+        }
+        return len > 0 ? dot / std::sqrt(len) : 0.0;
+    };
+    for (const EdgeCrossing& e : found) {
+        if (!e.x.valid || !HasNormal(e.x.normal) || !IsCutFace(e.x.normal)) {
+            continue;
+        }
+        float n[3];
+        UnpackNormal(e.x.normal, n);
+        const int u = AxisU(e.a), v = AxisV(e.a);
+        const double t = e.p[e.a] + center[e.a];
+        // towards the next line along u and along v
+        for (int dir = 0; dir < 2; dir++) {
+            const int di = dir == 0 ? 1 : 0, dj = 1 - di;
+            double q[3], before[3], after[3];
+            float nq[3], nb[3], na[3];
+            if (!cutEnd(e.a, e.i + di, e.j + dj, e.in0, t, q, nq)) {
+                continue;
+            }
+            const double across = bend(e.p, n, q, nq);
+            if (across < RidgeBend) {
+                continue;
+            }
+            // compared with the bend on either side, unknown without one
+            double side = 0;
+            bool known = false;
+            if (cutEnd(e.a, e.i - di, e.j - dj, e.in0, t, before, nb)) {
+                side = std::max(side, bend(before, nb, e.p, n));
+                known = true;
+            }
+            if (cutEnd(e.a, e.i + 2 * di, e.j + 2 * dj, e.in0, q[e.a] + center[e.a], after, na)) {
+                side = std::max(side, bend(q, nq, after, na));
+                known = true;
+            }
+            if (!known || across <= RidgeRatio * side) {
+                continue;
+            }
+            RidgePlane plane;
+            double len = 0;
+            for (int k = 0; k < 3; k++) {
+                plane.m[k] = (e.p[k] + q[k]) / 2;
+                plane.d[k] = q[k] - e.p[k];
+                len += plane.d[k] * plane.d[k];
+            }
+            len = std::sqrt(len);
+            for (double& d : plane.d) {
+                d /= len;
+            }
+            // the cells between the two lines, at the heights of both crossings
+            const int along = dir == 0 ? u : v, other = dir == 0 ? v : u;
+            const int kq = (int)std::floor((q[e.a] + center[e.a] - layout.Coord(e.a, l.origin[e.a])) / h);
+            for (const int k : {e.k, kq}) {
+                for (int o = -1; o <= 0; o++) {
+                    int c[3];
+                    c[e.a] = k;
+                    c[along] = dir == 0 ? e.i : e.j;
+                    c[other] = (dir == 0 ? e.j : e.i) + o;
+                    if (c[0] < 0 || c[0] >= BrickCells || c[1] < 0 || c[1] >= BrickCells || c[2] < 0
+                        || c[2] >= BrickCells) {
+                        continue;
+                    }
+                    const int cell = CellIndex(c);
+                    bool known = false;
+                    for (int r = 0; r < nRidges[cell] && !known; r++) {
+                        const RidgePlane& o2 = ridges[cell][r];
+                        double dd = 0, dm = 0;
+                        for (int m = 0; m < 3; m++) {
+                            dd += o2.d[m] * plane.d[m];
+                            dm += (plane.m[m] - o2.m[m]) * o2.d[m];
                         }
+                        known = dd > 0.9 && std::abs(dm) < 0.3 * h;
+                    }
+                    if (!known && nRidges[cell] < MaxRidges) {
+                        ridges[cell][nRidges[cell]++] = plane;
                     }
                 }
+            }
+        }
+    }
+
+    // planes of the cells, the crossings of the edges around them
+    for (const EdgeCrossing& e : found) {
+        const int u = AxisU(e.a), v = AxisV(e.a);
+        for (int dv = -1; dv <= 0; dv++) {
+            for (int du = -1; du <= 0; du++) {
+                int c[3];
+                c[e.a] = e.k;
+                c[u] = e.i + du;
+                c[v] = e.j + dv;
+                if (c[u] < 0 || c[u] >= BrickCells || c[v] < 0 || c[v] >= BrickCells) {
+                    continue;
+                }
+                const int cell = CellIndex(c);
+                Qef& q = qefOf(cell);
+                if (!e.x.valid) {
+                    q.incomplete = true;
+                    continue;
+                }
+                uint8_t side = 0;
+                for (int r = 0; r < nRidges[cell]; r++) {
+                    const RidgePlane& plane = ridges[cell][r];
+                    double d = 0;
+                    for (int m = 0; m < 3; m++) {
+                        d += (e.p[m] - plane.m[m]) * plane.d[m];
+                    }
+                    side |= (uint8_t)((d > 0 ? 1 : 0) << r);
+                }
+                q.ridge |= nRidges[cell] > 0;
+                q.Add(e.p, e.x, side);
             }
         }
     }
@@ -660,7 +848,8 @@ std::unique_ptr<LeafGeometry> ComputeLeaf(const DexelStock& stock, int leaf, boo
                         sum.Merge(qefs[cubeQef[log - 1][child[ch]]]);
                     }
                 }
-                if (sum.incomplete || sum.count == 0 || sum.Mixed()) {
+                if (sum.incomplete || sum.ridge || sum.count == 0 || sum.Mixed()
+                    || sum.NormalSpread() > MergeNormalTolerance) {
                     continue;
                 }
                 double x[3];
@@ -1346,9 +1535,14 @@ void DexelMeshCache::Update(const DexelStock& stock, const std::vector<int>& lea
     if (missing.empty()) {
         return;
     }
-    const int workers = pool.Size();
-    pool.Run([&](int worker) {
-        for (size_t i = worker; i < missing.size(); i += workers) {
+    // leaves take very different times, the threads take the next one when they are done
+    std::atomic<size_t> next {0};
+    pool.Run([&](int) {
+        while (true) {
+            const size_t i = next.fetch_add(1, std::memory_order_relaxed);
+            if (i >= missing.size()) {
+                break;
+            }
             const int leaf = missing[i];
             bool solid = false;
             mLeaves[leaf] = ComputeLeaf(stock, leaf, solid);
