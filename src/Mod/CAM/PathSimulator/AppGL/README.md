@@ -7,7 +7,8 @@ along the toolpath and shows the result in its own 3D view.
 
 The stock is stored as tri-dexels: lines along X, Y and Z through the points of a grid, each
 holding the ranges where there is material. Every end of a range is a point of the surface,
-exact along its line, with the normal of the surface there and whether it was cut. This
+exact along its line, with the normal of the surface there, whether it was cut and by which
+operation (packed into 32 bits: the normal in 24, the operation in 6, see `PackNormal`). This
 represents any stock and any material removal, including undercuts (dovetail, slitting saw,
 thread mill) and cuts with tilted tools.
 
@@ -88,10 +89,17 @@ thread mill) and cuts with tilted tools.
   updated oldest first within a time budget per frame, every group of touching changed bricks
   together with all units depending on them, so the mesh never has cracks between new and old
   parts.
-- `DexelRenderer`: draws the mesh units per root brick.
+- `DexelRenderer`: draws the mesh units per root brick. The vertices carry the operation that cut
+  their faces and, while thin walls are shown, the thickness of the material behind them: the
+  length of the material along a dexel, followed through the bricks ahead, times the component of
+  the normals along it, where the material ends at a face facing the other way (exact for walls
+  with flat faces, up to 10 mm). The shader colors the faces by operation and thin material red.
 - `SimDisplay`: deferred shading with optional ambient occlusion (SSAO, at half resolution). The
   toolpath is drawn a few pixels closer to the camera than it is, so a path on the surface of the
-  stock, like the bottom of a ball end mill groove, is not hidden by it.
+  stock, like the bottom of a ball end mill groove, is not hidden by it. Transparent objects (the
+  stock or the model with an opacity below 1) are drawn after the opaque ones into a second
+  G-buffer starting with their depth: the front-most transparent surface is lit and blended over
+  the opaque ones.
 
 Rotating or zooming the view only draws the meshes, independent of the toolpath length. Every
 frame has a time budget for simulating and meshing: the simulation takes what it needs, the mesh
@@ -99,6 +107,16 @@ the rest; while catching up with a far position, intermediate states are only sh
 quarter second. The budget shrinks while frames take longer than 30 ms, so heavy scenes keep
 their frame rate. During playback the tool waits for the stock: the timeline doesn't advance
 while the shown stock is behind the tool. The view is only rendered when something changed.
+
+## Simulator window
+
+The task panel (`Path/Main/Gui/SimulatorGL.py`) passes the operations to the simulator
+(`CAMSim.AddOperation`) with their colors. The view shows the operation in progress, with buttons
+to go to the start and the end, and to the start of the next or the current or previous operation.
+Toggles color the stock by operation (the path color of an operation where it has been set,
+otherwise a color of a palette, shown in the task panel) and show thin walls; the task panel sets
+the thin wall threshold and the opacities. These display options are the parameters below, the
+simulator follows their changes (`CAMSettings`).
 
 ## 5 axis toolpaths
 
@@ -115,6 +133,11 @@ around Z. This is the place to add machine specific kinematics. Arcs are in the 
   tool sweeps from the stock in screen space with the stencil buffer, instead of the dexel
   simulation. It supports 3 axis toolpaths only, and every change of the view renders all cuts, so
   it gets slow on long toolpaths.
+- `SimulatorColorByOperation` (bool, default false): cut faces in the color of their operation.
+- `SimulatorThinWalls` (bool, default false): faces in front of material thinner than
+  `SimulatorThinWallThreshold` (float, mm, default 0.5) in red.
+- `SimulatorStockOpacity`, `SimulatorModelOpacity` (float, 0 to 1, default 1): opacity of the
+  stock (not with the stencil renderer) and of the model.
 
 ## Tests and benchmark
 
