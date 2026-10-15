@@ -51,6 +51,8 @@ void CAMSettings::applySettings()
     OnChange(*hGrp, "DefaultNormalPathColor");
     OnChange(*hGrp, "DefaultRapidPathColor");
     OnChange(*hGrp, "SimulatorStencilRendering");
+    OnChange(*hGrp, "SimulatorColorByOperation");
+    OnChange(*hGrp, "SimulatorThinWalls");
 }
 
 void CAMSettings::OnChange(ParameterGrp::SubjectType& rCaller, ParameterGrp::MessageType Reason)
@@ -77,6 +79,15 @@ void CAMSettings::OnChange(ParameterGrp::SubjectType& rCaller, ParameterGrp::Mes
     }
     else if (Reason == "SimulatorStencilRendering"sv) {
         mDlg.setStencilRendering(hGrp->GetBool("SimulatorStencilRendering", false));
+    }
+    else if (Reason == "SimulatorColorByOperation"sv) {
+        mDlg.setColorByOperation(hGrp->GetBool("SimulatorColorByOperation", false));
+    }
+    else if (Reason == "SimulatorThinWalls"sv || Reason == "SimulatorThinWallThreshold"sv) {
+        mDlg.setThinWalls(
+            hGrp->GetBool("SimulatorThinWalls", false),
+            (float)hGrp->GetFloat("SimulatorThinWallThreshold", 0.5)
+        );
     }
 }
 

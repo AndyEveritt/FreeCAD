@@ -237,9 +237,10 @@ uint32_t PackNormal(const float n[3], bool cut)
         x = (1 - std::abs(oy)) * (ox >= 0 ? 1.0f : -1.0f);
         y = (1 - std::abs(ox)) * (oy >= 0 ? 1.0f : -1.0f);
     }
-    const auto u = (uint32_t)((x * 0.5f + 0.5f) * 32767 + 0.5f);
-    const auto v = (uint32_t)((y * 0.5f + 0.5f) * 32767 + 0.5f);
-    return packed | (v << 15) | u;
+    // an even scale: 0, -1 and 1 are exact, so faces along the axes stay exact
+    const auto u = (uint32_t)((x * 0.5f + 0.5f) * 4094 + 0.5f);
+    const auto v = (uint32_t)((y * 0.5f + 0.5f) * 4094 + 0.5f);
+    return packed | (v << 12) | u;
 }
 
 void UnpackNormal(uint32_t packed, float n[3])
@@ -249,8 +250,8 @@ void UnpackNormal(uint32_t packed, float n[3])
         n[2] = 1;
         return;
     }
-    float x = (float)(packed & 32767) / 32767 * 2 - 1;
-    float y = (float)((packed >> 15) & 32767) / 32767 * 2 - 1;
+    float x = (float)(packed & 4095) / 4094 * 2 - 1;
+    float y = (float)((packed >> 12) & 4095) / 4094 * 2 - 1;
     const float z = 1 - std::abs(x) - std::abs(y);
     if (z < 0) {
         const float ox = x, oy = y;
@@ -1044,11 +1045,15 @@ void DexelStock::CutBrick(
     const Span* lineData = nullptr;
     int lineSize = 0;
     bool copied = false;
-    // subtract a removal from the current line
-    auto apply = [&](const Span* removal, int nr) {
+    // subtract a removal of a move from the current line, its faces get the operation of the move
+    auto apply = [&](Span* removal, int nr, const CutMove& move) {
         if (nr == 0 || lineSize == 0 || removal[nr - 1].hi <= lineData[0].lo
             || removal[0].lo >= lineData[lineSize - 1].hi) {
             return;
+        }
+        for (int k = 0; k < nr; k++) {
+            removal[k].nlo = WithOperationTag(removal[k].nlo, move.operationTag);
+            removal[k].nhi = WithOperationTag(removal[k].nhi, move.operationTag);
         }
         s.tmp.resize(lineSize + nr);
         s.tmp.resize(Subtract(lineData, lineSize, removal, nr, s.tmp.data()));
@@ -1262,7 +1267,7 @@ void DexelStock::CutBrick(
                     }
                 }
             }
-            apply(removal, nr);
+            apply(removal, nr, move);
         }
                     }
                     else {
@@ -1380,8 +1385,8 @@ void DexelStock::CutBrick(
                     hxy[across] = h[1];
                     normal[e] = ToolNormal(pn, hxy[0], hxy[1]);
                 }
-                const Span removal {lo, hi, normal[0], normal[1]};
-                apply(&removal, 1);
+                Span removal {lo, hi, normal[0], normal[1]};
+                apply(&removal, 1, move);
             }
         }
                     }
@@ -1473,7 +1478,7 @@ void DexelStock::CutBrick(
                                 });
                             }
                         }
-                        apply(s.removal.data(), (int)s.removal.size());
+                        apply(s.removal.data(), (int)s.removal.size(), *p.move);
                     }
                     g = end;
                 }

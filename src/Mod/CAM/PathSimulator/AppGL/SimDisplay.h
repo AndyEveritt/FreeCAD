@@ -39,6 +39,17 @@ class SoPerspectiveCamera;
 namespace CAMSimulator
 {
 
+// Colors of the faces of the dexel stock, see SimDisplay::StartDexelGeometryPass
+struct DexelColoring
+{
+    // cut faces in the color of the operation that cut them, by operation tag (see OperationTag)
+    bool byOperation = false;
+    std::vector<float> operationColors;  // rgb of the tags 1, 2, ...
+    // faces in front of material thinner than this in the thin color, 0 for none
+    float thinThreshold = 0;
+    vec3 thinColor = {0.9f, 0.08f, 0.08f};
+};
+
 struct Point3D
 {
     float x, y, z;
@@ -65,6 +76,7 @@ public:
     void StartDepthPass();
     void StartGeometryPass(const vec3& objColor, bool invertNormals);
     void StartCloserGeometryPass(const vec3& objColor);
+    void StartDexelGeometryPass(const vec3& objColor, const DexelColoring& coloring);
     void StartSimulationPass(bool clear);
     void EndSimulationPass();
     void ClearGeometryOutsideStencil();
@@ -128,6 +140,7 @@ protected:
     Shader shader3D, shaderInv3D, shaderFlat, shaderSimFbo;
     Shader shaderGeom, shaderSSAO, shaderSSAOLighting, shaderSSAOBlur;
     Shader shaderGeomCloser;
+    Shader shaderDexel;
     Shader shaderLinePath;
     Shader shaderClearGeom;
 

@@ -72,6 +72,7 @@ void SimDisplay::InitShaders()
     // geometric shader - generate texture with all geometric info for further processing
     shaderGeom.CompileShader("Geometric", VertShaderGeom, FragShaderGeom);
     shaderGeomCloser.CompileShader("GeomCloser", VertShaderGeom, FragShaderGeom);
+    shaderDexel.CompileShader("DexelGeometric", VertShaderDexel, FragShaderDexel);
 
     // SSAO shader - generate SSAO info and embed in texture buffer
     shaderSSAO.CompileShader("SSAO", VertShader2DFbo, FragShaderSSAO);
@@ -364,6 +365,7 @@ void SimDisplay::CleanGL()
     shaderFlat.Destroy();
     shaderSimFbo.Destroy();
     shaderGeom.Destroy();
+    shaderDexel.Destroy();
     shaderSSAO.Destroy();
     shaderSSAOLighting.Destroy();
     shaderSSAOBlur.Destroy();
@@ -544,6 +546,24 @@ void SimDisplay::StartGeometryPass(const vec3& objColor, bool invertNormals)
     shaderGeom.UpdateNormalState(invertNormals);
     shaderGeom.UpdateViewMat(mMatLookAt);
     shaderGeom.UpdateObjColor(objColor);
+    glEnable(GL_CULL_FACE);
+    glDisable(GL_BLEND);
+}
+
+void SimDisplay::StartDexelGeometryPass(const vec3& objColor, const DexelColoring& coloring)
+{
+    glBindFramebuffer(GL_FRAMEBUFFER, mTargetFbo);
+    shaderDexel.Activate();
+    shaderDexel.UpdateViewMat(mMatLookAt);
+    shaderDexel.UpdateObjColor(objColor);
+    const unsigned int id = shaderDexel.shaderId;
+    const int colors = std::min((int)coloring.operationColors.size() / 3, 63);
+    glUniform1i(glGetUniformLocation(id, "colorByOperation"), coloring.byOperation && colors > 0 ? 1 : 0);
+    if (colors > 0) {
+        glUniform3fv(glGetUniformLocation(id, "operationColors"), colors, coloring.operationColors.data());
+    }
+    glUniform1f(glGetUniformLocation(id, "thinThreshold"), coloring.thinThreshold);
+    glUniform3fv(glGetUniformLocation(id, "thinColor"), 1, coloring.thinColor);
     glEnable(GL_CULL_FACE);
     glDisable(GL_BLEND);
 }
@@ -839,6 +859,8 @@ void SimDisplay::UpdateProjectionMatrix()
     shaderFlat.UpdateProjectionMat(projmat);
     shaderGeom.Activate();
     shaderGeom.UpdateProjectionMat(projmat);
+    shaderDexel.Activate();
+    shaderDexel.UpdateProjectionMat(projmat);
     shaderSSAO.Activate();
     shaderSSAO.UpdateProjectionMat(projmat);
     shaderLinePath.Activate();

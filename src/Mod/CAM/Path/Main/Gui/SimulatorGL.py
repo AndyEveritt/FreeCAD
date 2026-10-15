@@ -48,6 +48,55 @@ if FreeCAD.GuiUp:
 _filePath = os.path.dirname(os.path.abspath(__file__))
 
 
+# Colors of the operations in the simulator when the stock is colored by operation, for operations
+# without a path color of their own. Red shows thin walls.
+OPERATION_COLORS = [
+    (0.95, 0.60, 0.20),  # orange
+    (0.45, 0.80, 0.35),  # green
+    (0.95, 0.85, 0.30),  # yellow
+    (0.70, 0.50, 0.90),  # purple
+    (0.95, 0.50, 0.75),  # pink
+    (0.40, 0.65, 0.95),  # blue
+    (0.75, 0.60, 0.40),  # brown
+    (0.70, 0.90, 0.35),  # lime
+    (0.55, 0.85, 0.90),  # light blue
+    (0.80, 0.80, 0.80),  # grey
+]
+
+
+def PathColor(op):
+    """The color of the path of an operation, None if it has none"""
+    view = getattr(op, "ViewObject", None)
+    color = getattr(view, "NormalColor", None) if view else None
+    return tuple(round(float(c), 3) for c in color[:3]) if color is not None else None
+
+
+def OperationColors(ops):
+    """Colors of operations in the simulator: their path colors where they have been set, otherwise
+    colors of the palette. Path colors are default when they are those of the preferences or
+    those of most operations, like after changing the preferences."""
+    prefs = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/CAM")
+    default = prefs.GetUnsigned("DefaultNormalPathColor", 11141375)
+    defaults = [tuple(round(((default >> shift) & 0xFF) / 255.0, 3) for shift in (24, 16, 8))]
+    colors = [PathColor(op) for op in ops]
+    counts = {}
+    for color in colors:
+        counts[color] = counts.get(color, 0) + 1
+    common = max(counts, key=counts.get) if counts else None
+    if common is not None and counts[common] > 1:
+        defaults.append(common)
+
+    def isDefault(color):
+        return color is None or any(
+            all(abs(c - d) <= 1.5 / 255 for c, d in zip(color, other)) for other in defaults
+        )
+
+    return [
+        OPERATION_COLORS[i % len(OPERATION_COLORS)] if isDefault(color) else color
+        for i, color in enumerate(colors)
+    ]
+
+
 def IsSame(x, y):
     """Check if two floats are the same within an epsilon"""
     return abs(x - y) < 0.0001
@@ -225,6 +274,11 @@ class CAMSimulation:
             form.followsVisibility.setCheckState(QtCore.Qt.CheckState.Checked)
         form.followsVisibility.clicked.connect(self.followsVisibilityChange)
 
+        # display options of the simulator view, preferences it follows
+        threshold = prefs.GetFloat("SimulatorThinWallThreshold", 0.5)
+        form.thinWallThreshold.setProperty("rawValue", threshold)
+        form.thinWallThreshold.valueChanged.connect(self.onThinWallThresholdChange)
+
         self._populateJobSelection(form)
         form.comboJobs.currentIndexChanged.connect(self.onJobChange)
         self.onJobChange()
@@ -290,13 +344,23 @@ class CAMSimulation:
         j = self.jobs[form.comboJobs.currentIndex()]
         self.job = j
         form.listOperations.clear()
+        form.listOperations.setIconSize(QtCore.QSize(40, 16))
         self.operations = []
+        activeOps = [op for op in j.Operations.OutList if PathUtil.opProperty(op, "Active")]
+        self.operationColors = OperationColors(activeOps)
         allhidden = all(
             not op.Visibility for op in j.Operations.OutList if PathUtil.opProperty(op, "Active")
         )
         for op in j.Operations.OutList:
             if PathUtil.opProperty(op, "Active"):
-                listItem = QtGui.QListWidgetItem(op.ViewObject.Icon, op.Label)
+                color = self.operationColors[len(self.operations)]
+                listItem = QtGui.QListWidgetItem(self._legendIcon(op.ViewObject.Icon, color), op.Label)
+                listItem.setToolTip(
+                    QtCore.QT_TRANSLATE_NOOP(
+                        "CAM_Simulator",
+                        "The color of the operation when the stock is colored by operation",
+                    )
+                )
                 listItem.setFlags(listItem.flags() | QtCore.Qt.ItemIsUserCheckable)
                 if followsVisibility and not op.Visibility and not allhidden:
                     listItem.setCheckState(QtCore.Qt.CheckState.Unchecked)
@@ -309,6 +373,19 @@ class CAMSimulation:
         else:
             self.baseShape = None
 
+    @staticmethod
+    def _legendIcon(icon, color):
+        """The icon of an operation with its color in the simulator beside it"""
+        pixmap = QtGui.QPixmap(40, 16)
+        pixmap.fill(QtCore.Qt.transparent)
+        painter = QtGui.QPainter(pixmap)
+        painter.drawPixmap(0, 0, icon.pixmap(16, 16))
+        painter.setPen(QtGui.QColor(40, 40, 40))
+        painter.setBrush(QtGui.QColor.fromRgbF(*color))
+        painter.drawRect(22, 3, 14, 10)
+        painter.end()
+        return QtGui.QIcon(pixmap)
+
     def onAccuracyBarChange(self):
         """Update simulation quality"""
         form = self.taskForm.form
@@ -319,6 +396,12 @@ class CAMSimulation:
         elif self.quality < 9:
             qualText = QtCore.QT_TRANSLATE_NOOP("CAM_Simulator", "Medium")
         form.labelAccuracy.setText(qualText)
+
+    def onThinWallThresholdChange(self, *_args):
+        """Material thinner than the threshold is shown in red"""
+        threshold = float(self.taskForm.form.thinWallThreshold.property("rawValue"))
+        prefs = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/CAM")
+        prefs.SetFloat("SimulatorThinWallThreshold", threshold)
 
     def followsVisibilityChange(self):
         """Update job list in accordance with operations visibility"""
@@ -343,7 +426,7 @@ class CAMSimulation:
         self.SetupSimulation()
         self.millSim.ResetSimulation(FreeCADGui.getDocument(self.job.Document))
         for op in self.activeOps:
-            self.millSim.AddOperation(op.Label)
+            self.millSim.AddOperation(op.Label, self.operationColors[self.operations.index(op)])
             tool = PathDressup.toolController(op).Tool
             toolNumber = PathDressup.toolController(op).ToolNumber
             toolProfile = self.GetToolProfile(tool, 0.5)

@@ -29,6 +29,7 @@
 #include "GuiDisplay.h"
 #include "MillSimulation.h"
 #include "ViewCAMSimulator.h"
+#include <App/Application.h>
 #include <Gui/View3DInventorViewer.h>
 #include <Inventor/nodes/SoCamera.h>
 #include <QSurfaceFormat>
@@ -44,6 +45,11 @@ using namespace std::literals;
 
 namespace CAMSimulator
 {
+
+ParameterGrp::handle CAMPreferences()
+{
+    return App::GetApplication().GetParameterGroupByPath("User parameter:BaseApp/Preferences/Mod/CAM");
+}
 
 float SimShape::maxDimension() const
 {
@@ -142,6 +148,14 @@ void DlgCAMSimulator::connectTo(GuiDisplay& gui, Dummy3DViewer& dv)
         mMillSimulator->EnableSsao(b);
     });
 
+    // display options are preferences, applied by CAMSettings when they change
+    connect(&gui, &GuiDisplay::colorByOperationChanged, this, [](bool b) {
+        CAMPreferences()->SetBool("SimulatorColorByOperation", b);
+    });
+    connect(&gui, &GuiDisplay::thinWallsChanged, this, [](bool b) {
+        CAMPreferences()->SetBool("SimulatorThinWalls", b);
+    });
+
     connect(&gui, &GuiDisplay::stockVisibleChanged, this, &DlgCAMSimulator::setStockVisible);
     connect(&gui, &GuiDisplay::baseVisibleChanged, this, &DlgCAMSimulator::setBaseVisible);
 
@@ -189,6 +203,8 @@ void DlgCAMSimulator::updateGui()
 
     mGui->setPathVisible(state.mViewPath);
     mGui->setSsaoEnabled(state.mViewSSAO);
+    mGui->setColorByOperation(mColorByOperation);
+    mGui->setThinWalls(mThinWalls);
 
     if (mDummyViewer && !mDummyViewer->isAnimating()) {
         mGui->setRotateEnabled(false);
@@ -265,9 +281,13 @@ void DlgCAMSimulator::addGcodeCommand(const char* cmd)
     mGCode.push_back(cmd);
 }
 
-void DlgCAMSimulator::addOperation(const char* name)
+void DlgCAMSimulator::addOperation(const char* name, const float* color)
 {
-    mOperations.emplace_back(mGCode.size(), name);
+    Operation op {mGCode.size(), name, color != nullptr, {0, 0, 0}};
+    if (color) {
+        std::copy(color, color + 3, op.color);
+    }
+    mOperations.push_back(op);
 }
 
 void DlgCAMSimulator::addTool(
@@ -437,6 +457,22 @@ void DlgCAMSimulator::setStencilRendering(bool b)
     update();
 }
 
+void DlgCAMSimulator::setColorByOperation(bool b)
+{
+    mColorByOperation = b;
+    mMillSimulator->SetColorByOperation(b);
+    updateGui();
+    update();
+}
+
+void DlgCAMSimulator::setThinWalls(bool enabled, float threshold)
+{
+    mThinWalls = enabled;
+    mMillSimulator->SetThinWalls(enabled, threshold);
+    updateGui();
+    update();
+}
+
 void DlgCAMSimulator::timerEvent(QTimerEvent* event)
 {
     (void)event;
@@ -473,8 +509,9 @@ void DlgCAMSimulator::updateResources()
     // update gcode
 
     auto beginOperations = [this](std::size_t line) {
-        while (mLastOperation < mOperations.size() && mOperations[mLastOperation].first <= line) {
-            mMillSimulator->BeginOperation(mOperations[mLastOperation].second);
+        while (mLastOperation < mOperations.size() && mOperations[mLastOperation].firstCommand <= line) {
+            const Operation& op = mOperations[mLastOperation];
+            mMillSimulator->BeginOperation(op.name, op.hasColor ? op.color : nullptr);
             mLastOperation++;
         }
     };

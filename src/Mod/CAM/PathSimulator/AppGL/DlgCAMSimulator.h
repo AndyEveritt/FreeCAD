@@ -44,6 +44,7 @@
 #include <QMouseEvent>
 #include <QOpenGLContext>
 
+#include <Base/Parameter.h>
 #include <Mod/Part/App/TopoShape.h>
 
 class SoCamera;
@@ -64,6 +65,9 @@ struct Vertex;
 class ViewCAMSimulator;
 class GuiDisplay;
 class Dummy3DViewer;
+
+// Preferences of the CAM workbench, where the simulator keeps its display options
+ParameterGrp::handle CAMPreferences();
 
 struct SimShape
 {
@@ -105,8 +109,9 @@ public:
     void resetSimulation();
 
     void addGcodeCommand(const char* cmd);
-    // the commands added from now on belong to a new operation of this name
-    void addOperation(const char* name);
+    // the commands added from now on belong to a new operation of this name, and of this color
+    // if given (rgb from 0 to 1)
+    void addOperation(const char* name, const float* color = nullptr);
     void addTool(
         const std::vector<float>& toolProfilePoints,
         int toolNumber,
@@ -124,6 +129,8 @@ public:
     void setBackgroundColor(const QColor& c);
     void setPathColor(const QColor& normal, const QColor& rapid);
     void setStencilRendering(bool b);
+    void setColorByOperation(bool b);
+    void setThinWalls(bool enabled, float threshold);
 
     // Frame timing for performance measurements. While enabled, every frame waits for the GPU to
     // finish, so the recorded times include the GPU work.
@@ -163,8 +170,17 @@ private:
 
     std::vector<std::string> mGCode;
     std::size_t mLastGCode = 0;
-    // operations: their name and the index of their first command in mGCode
-    std::vector<std::pair<std::size_t, std::string>> mOperations;
+    // operations: the index of their first command in mGCode, their name and color
+    struct Operation
+    {
+        std::size_t firstCommand;
+        std::string name;
+        bool hasColor;
+        float color[3];
+    };
+    std::vector<Operation> mOperations;
+    bool mColorByOperation = false;
+    bool mThinWalls = false;
     std::size_t mLastOperation = 0;
 
     std::vector<SimTool> mTools;

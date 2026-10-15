@@ -175,10 +175,27 @@ PyObject* CAMSimPy::AddCommand(PyObject* args)
 PyObject* CAMSimPy::AddOperation(PyObject* args)
 {
     const char* name;
-    if (!PyArg_ParseTuple(args, "s", &name)) {
+    PyObject* pyColor = Py_None;
+    if (!PyArg_ParseTuple(args, "s|O", &name, &pyColor)) {
         return nullptr;
     }
-    getCAMSimPtr()->AddOperation(name);
+    float color[3];
+    const bool hasColor = pyColor != Py_None;
+    if (hasColor) {
+        if (!PySequence_Check(pyColor) || PySequence_Size(pyColor) < 3) {
+            PyErr_SetString(PyExc_TypeError, "color must be a sequence (r, g, b) or None");
+            return nullptr;
+        }
+        for (int k = 0; k < 3; k++) {
+            PyObject* item = PySequence_GetItem(pyColor, k);
+            color[k] = (float)PyFloat_AsDouble(item);
+            Py_XDECREF(item);
+        }
+        if (PyErr_Occurred()) {
+            return nullptr;
+        }
+    }
+    getCAMSimPtr()->AddOperation(name, hasColor ? color : nullptr);
 
     Py_INCREF(Py_None);
     return Py_None;

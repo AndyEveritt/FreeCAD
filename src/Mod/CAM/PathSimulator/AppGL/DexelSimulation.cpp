@@ -952,6 +952,7 @@ void DexelSimulation::AppendMoves(long from, long to, std::vector<CutMove>& move
             const float tb = t1 + (t2 - t1) * (i + 1) / pieces;
             CutMove move;
             move.tool = mTools[seg.tool].get();
+            move.operationTag = OperationTag(seg.operation);
             seg.PositionAt(ta, move.p0);
             seg.PositionAt(tb, move.p1);
             seg.AxisAt(ta, move.a0);

@@ -523,6 +523,61 @@ const char* FragShaderGeom = R"(
     }
 )";
 
+// Geometry of the dexel stock: the color of the faces by the operation that cut them, and faces
+// in front of thin material in the thin color
+const char* VertShaderDexel = R"(
+    #version 120
+
+    layout(location = 0) attribute vec3 aPosition;
+    layout(location = 1) attribute vec3 aNormal;
+    layout(location = 2) attribute float aOperation;
+    layout(location = 3) attribute float aThickness;
+
+    varying vec3 Position;
+    varying vec3 Normal;
+    varying vec3 Color;
+    varying float Thickness;
+
+    uniform mat4 model;
+    uniform mat4 view;
+    uniform mat4 projection;
+
+    uniform vec3 objectColor;
+    uniform bool colorByOperation;
+    uniform vec3 operationColors[63];
+
+    void main()
+    {
+        vec4 viewPos = view * model * vec4(aPosition, 1.0);
+        Position = viewPos.xyz;
+        Normal = mat3(view * model) * aNormal;
+        int tag = int(aOperation + 0.5);
+        Color = colorByOperation && tag > 0 ? operationColors[tag - 1] : objectColor;
+        Thickness = aThickness;
+        gl_Position = projection * viewPos;
+    }
+)";
+
+const char* FragShaderDexel = R"(
+    #version 120
+
+    varying vec3 Position;
+    varying vec3 Normal;
+    varying vec3 Color;
+    varying float Thickness;
+
+    uniform float thinThreshold;
+    uniform vec3 thinColor;
+
+    void main()
+    {
+        vec3 color = Thickness < thinThreshold ? thinColor : Color;
+        gl_FragData[0] = vec4(color, 1.0f);
+        gl_FragData[1] = vec4(Position, 0.0f);
+        gl_FragData[2] = vec4(normalize(Normal), 0.0f);
+    }
+)";
+
 const char* FragShaderClearGeom = R"(
     #version 120
 

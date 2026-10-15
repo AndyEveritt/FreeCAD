@@ -51,6 +51,8 @@ struct SimOperation
     std::string name;
     int firstStep = 0;
     int endStep = 0;
+    bool hasColor = false;  // a color of its own, otherwise one of a palette
+    vec3 color = {0, 0, 0};
 };
 
 struct MillSimulationState
@@ -92,8 +94,9 @@ public:
 
     bool LoadGCodeFile(const char* fileName);
     bool AddGcodeLine(const char* line);
-    // The G-code lines added from now on belong to a new operation of this name
-    void BeginOperation(const std::string& name);
+    // The G-code lines added from now on belong to a new operation of this name, and of this
+    // color if given
+    void BeginOperation(const std::string& name, const float* color = nullptr);
     const std::vector<SimOperation>& GetOperations() const
     {
         return mOperations;
@@ -129,6 +132,11 @@ public:
 
     void SetPathVisible(bool b);
     void EnableSsao(bool b);
+
+    // Cut faces in the color of their operation
+    void SetColorByOperation(bool b);
+    // Faces in front of material thinner than the threshold in red
+    void SetThinWalls(bool enabled, float threshold);
 
     void UpdateWindowScale(int width, int height);
     void UpdateCamera(const SoCamera& camera);
@@ -200,6 +208,9 @@ protected:
     std::vector<uint32_t> mStockTriangles;
     std::vector<CutSegment> mCutSegments;  // one per MillPathSegment
     std::vector<SimOperation> mOperations;
+    DexelColoring mDexelColoring;
+    bool mThinWalls = false;
+    float mThinThreshold = 0.5f;
 
     // protected:
 public:

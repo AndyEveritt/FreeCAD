@@ -107,6 +107,7 @@ struct LeafGeometry
         float t;
         uint32_t normal;
         bool valid;
+        float thickness = ThicknessUnknown;  // of the material behind it, if measured
     };
     // Crossing normals of a cube close to each other, with the number of cut and stock faces
     struct Cluster
@@ -114,7 +115,9 @@ struct LeafGeometry
         float n[3];
         int cut;
         int stock;
-        uint8_t side;  // the side of the ridges through the cube
+        uint8_t side;       // the side of the ridges through the cube
+        uint8_t operation;  // tag of the operation that cut the faces
+        float thickness;    // smallest thickness of the material behind the crossings
     };
     struct Vertex
     {
@@ -204,13 +207,13 @@ struct Qef
         *this = Qef {};
     }
 
-    void AddCluster(const float n[3], int cut, int stock, uint8_t side)
+    void AddCluster(const float n[3], int cut, int stock, uint8_t side, uint8_t operation, float thickness)
     {
         int best = -1;
         float bestDot = ClusterCos;
         const float nlen = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
         for (int i = 0; i < nClusters; i++) {
-            if (clusters[i].side != side) {
+            if (clusters[i].side != side || clusters[i].operation != operation) {
                 continue;
             }
             const float* s = clusters[i].n;
@@ -223,7 +226,7 @@ struct Qef
         }
         if (best < 0 && nClusters < MaxClusters) {
             best = nClusters++;
-            clusters[best] = {{0, 0, 0}, 0, 0, side};
+            clusters[best] = {{0, 0, 0}, 0, 0, side, operation, ThicknessUnknown};
         }
         if (best < 0) {
             best = 0;
@@ -233,9 +236,10 @@ struct Qef
         }
         clusters[best].cut += cut;
         clusters[best].stock += stock;
+        clusters[best].thickness = std::min(clusters[best].thickness, thickness);
     }
 
-    void Add(const double p[3], const float n[3], bool cut, uint8_t side)
+    void Add(const double p[3], const float n[3], bool cut, uint8_t side, uint8_t operation, float thickness)
     {
         const double d = n[0] * p[0] + n[1] * p[1] + n[2] * p[2];
         for (int r = 0; r < 3; r++) {
@@ -248,7 +252,7 @@ struct Qef
         btb += d * d;
         count++;
         points++;
-        AddCluster(n, cut ? 1 : 0, cut ? 0 : 1, side);
+        AddCluster(n, cut ? 1 : 0, cut ? 0 : 1, side, operation, thickness);
     }
 
     // A crossing without normal: its position only
@@ -269,7 +273,7 @@ struct Qef
         }
         float n[3];
         UnpackNormal(x.normal, n);
-        Add(p, n, IsCutFace(x.normal), side);
+        Add(p, n, IsCutFace(x.normal), side, (uint8_t)OperationTagOf(x.normal), x.thickness);
     }
 
     void Merge(const Qef& o)
@@ -287,7 +291,8 @@ struct Qef
         incomplete |= o.incomplete;
         ridge |= o.ridge;
         for (int i = 0; i < o.nClusters; i++) {
-            AddCluster(o.clusters[i].n, o.clusters[i].cut, o.clusters[i].stock, o.clusters[i].side);
+            const Cluster& c = o.clusters[i];
+            AddCluster(c.n, c.cut, c.stock, c.side, c.operation, c.thickness);
         }
     }
 
@@ -529,12 +534,99 @@ void EstimateNormal(const DexelStock& stock, int leaf, int a, int i, int j, bool
     n[AxisU(a)] = -slope[0] * sign;
     n[AxisV(a)] = -slope[1] * sign;
     n[a] = sign;
-    x.normal = PackNormal(n, IsCutFace(x.normal));
+    x.normal = WithOperationTag(PackNormal(n, IsCutFace(x.normal)), OperationTagOf(x.normal));
 }
 
 // Inside state, crossings, merged cubes and vertices of a leaf. Returns nullptr if the leaf has
 // no surface, 'solid' tells if it is inside then.
-std::unique_ptr<LeafGeometry> ComputeLeaf(const DexelStock& stock, int leaf, bool& solid)
+// Length of the material along the line through (pu, pv) along axis a from t, in direction dir
+// (1 or -1), followed through the leaves ahead, at most 'cap', and the normal where it ends
+// (NoNormal if it doesn't end within the cap)
+float MaterialRun(const DexelStock& stock, int a, float pu, float pv, float t, int dir, float cap, uint32_t& endNormal)
+{
+    const DexelLayout& layout = stock.Layout();
+    const int u = AxisU(a), v = AxisV(a);
+    const float fine = layout.FineCell();
+    endNormal = NoNormal;
+    int f[3];
+    f[u] = layout.FineIndex(u, pu + 0.25f * fine);
+    f[v] = layout.FineIndex(v, pv + 0.25f * fine);
+    float pos = t;
+    Span scratch;
+    // a leaf at most every iteration, the cap stops it long before in practice
+    for (int guard = 0; guard < 4096; guard++) {
+        const float run = std::abs(pos - t);
+        if (run >= cap) {
+            return cap;
+        }
+        f[a] = layout.FineIndex(a, pos + dir * 0.25f * fine);
+        const int leaf = layout.FindLeaf(f[0], f[1], f[2]);
+        if (leaf < 0 || stock.IsEmpty(leaf)) {
+            return run;
+        }
+        const LayoutLeaf& l = layout.Leaf(leaf);
+        const float leafEnd = layout.Coord(a, l.origin[a] + (dir > 0 ? BrickCells * l.step : 0));
+        if (stock.IsSolid(leaf)) {
+            pos = leafEnd;
+            continue;
+        }
+        // the line of the leaf closest to the line
+        const int i = std::clamp((int)std::lround((f[u] - l.origin[u]) / (double)l.step), 0, BrickLines - 1);
+        const int j = std::clamp((int)std::lround((f[v] - l.origin[v]) / (double)l.step), 0, BrickLines - 1);
+        const Span* spans;
+        const int n = stock.Line(leaf, a * BrickAxisLines + j * BrickLines + i, spans, scratch);
+        float lo, hi;
+        stock.LineRange(leaf, a, lo, hi);
+        const float eps = 1e-3f * l.step * fine;
+        const Span* span = nullptr;
+        for (int s = 0; s < n && !span; s++) {
+            if (spans[s].lo - eps <= pos && pos <= spans[s].hi + eps) {
+                span = &spans[s];
+            }
+        }
+        if (!span) {
+            return run;
+        }
+        const float end = dir > 0 ? span->hi : span->lo;
+        const bool clipped = dir > 0 ? end >= hi - eps : end <= lo + eps;
+        if (!clipped) {
+            endNormal = dir > 0 ? span->nhi : span->nlo;
+            return std::min(cap, std::abs(end - t));
+        }
+        pos = leafEnd;
+    }
+    return cap;
+}
+
+// Thickness of the material behind a crossing of the line through (pu, pv) along axis a: the
+// length of the material along the line times the component of the normals along it, exact for
+// walls with flat faces. Lines grazing a convex surface, ending where the surface doesn't face the
+// other way, measure nothing.
+float CrossingThickness(const DexelStock& stock, int a, float pu, float pv, const Crossing& x, bool in0)
+{
+    if (!x.valid || !HasNormal(x.normal)) {
+        return ThicknessUnknown;
+    }
+    uint32_t endNormal;
+    const float run = MaterialRun(stock, a, pu, pv, x.t, in0 ? -1 : 1, MaxMeasuredThickness, endNormal);
+    if (run >= MaxMeasuredThickness) {
+        return ThicknessUnknown;
+    }
+    float n1[3];
+    UnpackNormal(x.normal, n1);
+    float along = std::abs(n1[a]);
+    if (HasNormal(endNormal)) {
+        float n2[3];
+        UnpackNormal(endNormal, n2);
+        if (n1[0] * n2[0] + n1[1] * n2[1] + n1[2] * n2[2] > -0.5f) {
+            return ThicknessUnknown;
+        }
+        along = (along + std::abs(n2[a])) / 2;
+    }
+    return run * along;
+}
+
+std::unique_ptr<LeafGeometry> ComputeLeaf(const DexelStock& stock, int leaf, bool& solid, bool measure)
 {
     const DexelLayout& layout = stock.Layout();
     const LayoutLeaf& l = layout.Leaf(leaf);
@@ -635,6 +727,9 @@ std::unique_ptr<LeafGeometry> ComputeLeaf(const DexelStock& stock, int leaf, boo
                     Crossing x = FindCrossing(spans, n, t[k], t[k + 1], in0 != 0, range[0], range[1]);
                     if (x.valid && !HasNormal(x.normal)) {
                         EstimateNormal(stock, leaf, a, i, j, in0 != 0, (float)h, x);
+                    }
+                    if (measure) {
+                        x.thickness = CrossingThickness(stock, a, (float)(pu + center[u]), (float)(pv + center[v]), x, in0 != 0);
                     }
                     g->edges.push_back((uint16_t)EdgeIndex(a, i, j, k));
                     g->crossings.push_back(x);
@@ -937,7 +1032,7 @@ std::unique_ptr<LeafGeometry> ComputeLeaf(const DexelStock& stock, int leaf, boo
                     }
                     const Span* spans;
                     const int n = stock.Line(leaf, a * BrickAxisLines + j * BrickLines + i, spans, scratch);
-                    const Crossing x = FindCrossing(
+                    Crossing x = FindCrossing(
                         spans,
                         n,
                         layout.Coord(a, l.origin[a] + c[a] * l.step),
@@ -946,6 +1041,16 @@ std::unique_ptr<LeafGeometry> ComputeLeaf(const DexelStock& stock, int leaf, boo
                         range[0],
                         range[1]
                     );
+                    if (measure) {
+                        x.thickness = CrossingThickness(
+                            stock,
+                            a,
+                            layout.Coord(u, l.origin[u] + i * l.step),
+                            layout.Coord(v, l.origin[v] + j * l.step),
+                            x,
+                            in0
+                        );
+                    }
                     g->coarse.emplace_back(LeafGeometry::CoarseKey(a, i, j, c[a], log), x);
                 }
             }
@@ -1000,13 +1105,15 @@ private:
         int u, v;
         Corner corners[4];
     };
-    // Planes: axis, direction of the normal, position, cube size and cut flag
-    using PlaneKey = std::tuple<int, bool, float, int, bool>;
+    // Planes: axis, direction of the normal, position, cube size, cut flag and operation tag
+    using PlaneKey = std::tuple<int, bool, float, int, bool, int>;
 
     Corner CubeAt(int leaf, const int c[3]) const;
     CubeVertex Vertex(const Corner& corner);
     void AddFaceCrossings(const Corner& corner, Qef& qef, const double origin[3]);
-    uint32_t MeshVertex(const CubeVertex& v, const float normal[3]);
+    // A vertex of the mesh at a cube vertex, with the cluster of the normal. The operation tag and
+    // the thickness are those of the cluster, or the given ones without a cluster.
+    uint32_t MeshVertex(const CubeVertex& v, const float normal[3], int operation, float thickness);
     void Polygon(const Corner* corners, int count, bool flip, const Crossing& crossing);
     bool IsFlat(const Corner& corner, int a, float t);
     void MergeFlat(const PlaneKey& key, std::vector<FlatQuad>& quads);
@@ -1137,7 +1244,7 @@ Mesher::CubeVertex Mesher::Vertex(const Corner& corner)
     return {it->second.p, it->second.clusters.data(), (int)it->second.clusters.size(), key};
 }
 
-uint32_t Mesher::MeshVertex(const CubeVertex& v, const float normal[3])
+uint32_t Mesher::MeshVertex(const CubeVertex& v, const float normal[3], int operation, float thickness)
 {
     // the cluster of the crossing normal, so sharp edges keep separate normals
     int best = -1;
@@ -1151,7 +1258,7 @@ uint32_t Mesher::MeshVertex(const CubeVertex& v, const float normal[3])
             best = i;
         }
     }
-    auto add = [&](const float* n) {
+    auto add = [&](const float* n, int tag, float t) {
         const float len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
         const float s = len > 0 ? 127 / len : 0;
         mMesh.vertices.push_back({
@@ -1161,16 +1268,18 @@ uint32_t Mesher::MeshVertex(const CubeVertex& v, const float normal[3])
             (int8_t)std::lround(n[0] * s),
             (int8_t)std::lround(n[1] * s),
             (int8_t)std::lround(n[2] * s),
-            0,
+            (uint8_t)tag,
+            t,
         });
         return (uint32_t)mMesh.vertices.size() - 1;
     };
     if (best < 0) {
-        return add(normal);
+        return add(normal, operation, thickness);
     }
     const auto [it, inserted] = mIndex.emplace(v.key | (uint64_t)best, 0);
     if (inserted) {
-        it->second = add(v.clusters[best].n);
+        const Cluster& c = v.clusters[best];
+        it->second = add(c.n, c.operation, c.thickness);
     }
     return it->second;
 }
@@ -1219,9 +1328,10 @@ void Mesher::Polygon(const Corner* corners, int count, bool flip, const Crossing
             cut = cuts >= stocks;
         }
     }
+    const int operation = crossing.valid ? OperationTagOf(crossing.normal) : 0;
     uint32_t index[4];
     for (int i = 0; i < count; i++) {
-        index[i] = MeshVertex(v[i], normal);
+        index[i] = MeshVertex(v[i], normal, operation, crossing.thickness);
     }
     auto& indices = cut ? mMesh.cutIndices : mMesh.stockIndices;
     if (count == 3) {
@@ -1257,7 +1367,7 @@ void Mesher::Polygon(const Corner* corners, int count, bool flip, const Crossing
         return;
     }
     // around the middle of the quad
-    DexelVertex middle {0, 0, 0, 0, 0, 0, 0};
+    DexelVertex middle {0, 0, 0, 0, 0, 0, (uint8_t)operation, crossing.thickness};
     for (int i = 0; i < 4; i++) {
         middle.x += v[i].p[0] / 4;
         middle.y += v[i].p[1] / 4;
@@ -1348,7 +1458,7 @@ void Mesher::MergeFlat(const PlaneKey& key, std::vector<FlatQuad>& quads)
         // border cubes counter clockwise in (u, v), around +a
         border.clear();
         auto add = [&](int u, int v) {
-            border.push_back(MeshVertex(Vertex(cubes[{u, v}]), normal));
+            border.push_back(MeshVertex(Vertex(cubes[{u, v}]), normal, std::get<5>(key), ThicknessUnknown));
         };
         for (int u = u0 - 1; u < u1; u++) {
             add(u, v0 - 1);
@@ -1475,7 +1585,7 @@ void Mesher::Build(const std::vector<int>& leaves)
                         // normal towards +a if the material is before the crossing
                         const bool flip = !in0;
                         // quads in planes perpendicular to the axis are merged later
-                        if (count == 4 && x.valid && HasNormal(x.normal)) {
+                        if (count == 4 && x.valid && HasNormal(x.normal) && !mCache.MeasuresThickness()) {
                             float n[3];
                             UnpackNormal(x.normal, n);
                             if (std::abs(n[a]) > 0.99999f && (n[a] > 0) != flip) {
@@ -1484,7 +1594,14 @@ void Mesher::Build(const std::vector<int>& leaves)
                                     flat = corners[q].size == self.size && IsFlat(corners[q], a, x.t);
                                 }
                                 if (flat) {
-                                    const PlaneKey key {a, n[a] > 0, x.t, self.size, IsCutFace(x.normal)};
+                                    const PlaneKey key {
+                                        a,
+                                        n[a] > 0,
+                                        x.t,
+                                        self.size,
+                                        IsCutFace(x.normal),
+                                        OperationTagOf(x.normal),
+                                    };
                                     FlatQuad quad;
                                     quad.u = (l.origin[u] + i * l.step) / self.size;
                                     quad.v = (l.origin[v] + j * l.step) / self.size;
@@ -1545,7 +1662,7 @@ void DexelMeshCache::Update(const DexelStock& stock, const std::vector<int>& lea
             }
             const int leaf = missing[i];
             bool solid = false;
-            mLeaves[leaf] = ComputeLeaf(stock, leaf, solid);
+            mLeaves[leaf] = ComputeLeaf(stock, leaf, solid, mMeasureThickness);
             mState[leaf] = mLeaves[leaf] ? Surface : solid ? Solid : Empty;
         }
     });
@@ -1560,6 +1677,24 @@ void DexelMeshUnits::Reset(const DexelStock& stock)
     mQueuedAt.clear();
     mFirst = 0;
     mQueued.assign(mLayout->LeafCount(), 0);
+}
+
+void DexelMeshUnits::SetMeasureThickness(bool b)
+{
+    if (b == mCache.MeasuresThickness()) {
+        return;
+    }
+    mCache.SetMeasureThickness(b);
+    if (!mLayout) {
+        return;
+    }
+    for (int leaf = 0; leaf < mLayout->LeafCount(); leaf++) {
+        if (!mQueued[leaf]) {
+            mQueued[leaf] = 1;
+            mQueue.push_back(leaf);
+            mQueuedAt.push_back(mUpdates);
+        }
+    }
 }
 
 std::vector<int> DexelMeshUnits::Update(DexelStock& stock, ThreadPool& pool, double budgetMs)

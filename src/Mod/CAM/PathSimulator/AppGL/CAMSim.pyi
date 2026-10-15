@@ -60,10 +60,12 @@ class CAMSim(BaseClass):
         """
         ...
 
-    def AddOperation(self, name: str, /) -> None:
+    def AddOperation(self, name: str, color: tuple | None = None, /) -> None:
         """
         The commands and tools added from now on belong to a new operation of this name. The
         simulator shows the operation in progress and can go from one operation to the next.
+        When the stock is colored by operation, the faces it cuts get the color (r, g, b) from 0
+        to 1, or one of a palette without a color.
         """
         ...
 

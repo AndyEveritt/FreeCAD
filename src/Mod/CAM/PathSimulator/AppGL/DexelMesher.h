@@ -40,8 +40,15 @@ class ThreadPool;
 struct DexelVertex
 {
     float x, y, z;
-    int8_t nx, ny, nz, pad;
+    int8_t nx, ny, nz;
+    uint8_t operation;  // tag of the operation that cut the face, 0 for none, see OperationTag
+    float thickness;    // of the material behind the surface, ThicknessUnknown if not measured
 };
+
+// Thickness of vertices that were not measured or are thicker than the measured range
+constexpr float ThicknessUnknown = 1e30f;
+// Material is measured up to this thickness
+constexpr float MaxMeasuredThickness = 10;
 
 // Triangles of a part of the stock: faces of the original stock and cut faces
 struct DexelMesh
@@ -66,6 +73,16 @@ public:
     void Invalidate(int leaf);
     // Compute the leaves that are missing, in parallel
     void Update(const DexelStock& stock, const std::vector<int>& leaves, ThreadPool& pool);
+    // Measure the thickness of the material behind the surface, for the leaves computed from now
+    // on. The faces of flat planes are not merged then, so the thickness follows the surface.
+    void SetMeasureThickness(bool b)
+    {
+        mMeasureThickness = b;
+    }
+    bool MeasuresThickness() const
+    {
+        return mMeasureThickness;
+    }
     // nullptr: no surface in the leaf, completely inside or outside
     const LeafGeometry* Get(int leaf) const
     {
@@ -86,6 +103,7 @@ private:
     };
     std::vector<std::unique_ptr<LeafGeometry>> mLeaves;
     std::vector<State> mState;
+    bool mMeasureThickness = false;
 };
 
 // The mesh of a stock, per mesh unit of its layout, updated when the stock changes. The surface
@@ -104,6 +122,9 @@ public:
     {
         return mFirst < mQueue.size();
     }
+    // Measure the thickness of the material behind the surface, see DexelMeshCache. A change
+    // rebuilds all units over the following updates.
+    void SetMeasureThickness(bool b);
     const DexelMesh& Mesh(int unit) const
     {
         return mMeshes[unit];

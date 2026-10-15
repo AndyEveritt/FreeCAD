@@ -140,8 +140,53 @@
      </property>
     </widget>
    </item>
+   <item>
+    <widget class="QGroupBox" name="groupDisplay">
+     <property name="title">
+      <string>Display</string>
+     </property>
+     <layout class="QGridLayout" name="gridDisplay">
+      <item row="0" column="0">
+       <widget class="QLabel" name="labelThinWallThreshold">
+        <property name="text">
+         <string>Thin wall threshold</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="Gui::QuantitySpinBox" name="thinWallThreshold">
+        <property name="toolTip">
+         <string>Material thinner than this is shown in red when thin walls are shown in the simulator view</string>
+        </property>
+        <property name="unit" stdset="0">
+         <string notr="true">mm</string>
+        </property>
+        <property name="minimum">
+         <double>0.010000000000000</double>
+        </property>
+        <property name="maximum">
+         <double>10.000000000000000</double>
+        </property>
+        <property name="singleStep">
+         <double>0.100000000000000</double>
+        </property>
+        <property name="value">
+         <double>0.500000000000000</double>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
   </layout>
  </widget>
+ <customwidgets>
+  <customwidget>
+   <class>Gui::QuantitySpinBox</class>
+   <extends>QWidget</extends>
+   <header>Gui/QuantitySpinBox.h</header>
+  </customwidget>
+ </customwidgets>
  <resources>
   <include location="../Path.qrc"/>
  </resources>

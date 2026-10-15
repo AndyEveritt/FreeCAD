@@ -162,6 +162,32 @@ void MillSimulation::InitSimulation(float quality, float maxStockDimension)
         lastEnd = op.endStep;
     }
 
+    // colors of the operation tags: of the first operation with the tag, operations without a
+    // color of their own get hues far apart
+    mDexelColoring.operationColors.assign(3 * std::min((int)mOperations.size(), MaxOperationTag), 0.0f);
+    for (int i = 0; i < (int)mOperations.size() && i < MaxOperationTag; i++) {
+        float* rgb = &mDexelColoring.operationColors[3 * i];
+        if (mOperations[i].hasColor) {
+            std::copy(mOperations[i].color, mOperations[i].color + 3, rgb);
+            continue;
+        }
+        const float hue = std::fmod(i * 0.381966f + 0.05f, 1.0f) * 6;  // golden angle
+        const float saturation = 0.55f, value = 0.9f;
+        const int sector = (int)hue % 6;
+        const float f = hue - std::floor(hue);
+        const float p = value * (1 - saturation), q = value * (1 - saturation * f),
+                    t = value * (1 - saturation * (1 - f));
+        const float table[6][3] = {
+            {value, t, p},
+            {q, value, p},
+            {p, value, t},
+            {p, q, value},
+            {t, p, value},
+            {value, p, q},
+        };
+        std::copy(table[sector], table[sector] + 3, rgb);
+    }
+
     mNPathSteps = (int)MillPathSegments.size();
     millPathLine.GenerateModel();
 
@@ -819,10 +845,31 @@ bool MillSimulation::AddGcodeLine(const char* line)
     return mCodeParser.AddLine(line);
 }
 
-void MillSimulation::BeginOperation(const std::string& name)
+void MillSimulation::BeginOperation(const std::string& name, const float* color)
 {
     mCodeParser.currentOperation = (int)mOperations.size();
-    mOperations.push_back({name, 0, 0});
+    SimOperation op {name, 0, 0};
+    if (color) {
+        op.hasColor = true;
+        std::copy(color, color + 3, op.color);
+    }
+    mOperations.push_back(op);
+}
+
+void MillSimulation::SetColorByOperation(bool b)
+{
+    mDexelColoring.byOperation = b;
+    simDisplay.updateDisplay = true;
+}
+
+void MillSimulation::SetThinWalls(bool enabled, float threshold)
+{
+    mThinWalls = enabled;
+    mThinThreshold = threshold;
+    // the thickness is only measured while it is shown, it costs time
+    mDexelRenderer.SetMeasureThickness(enabled);
+    mDexelColoring.thinThreshold = enabled ? threshold : 0;
+    simDisplay.updateDisplay = true;
 }
 
 int MillSimulation::OperationAt(int step) const
@@ -1022,7 +1069,7 @@ void MillSimulation::RenderDexelStock()
     if ((mViewItems & VIEWITEM_SIMULATION) == 0) {
         return;
     }
-    mDexelRenderer.Render(simDisplay, stockColor, cutColor);
+    mDexelRenderer.Render(simDisplay, stockColor, cutColor, mDexelColoring);
 }
 
 void MillSimulation::SetScrubbing(bool b)

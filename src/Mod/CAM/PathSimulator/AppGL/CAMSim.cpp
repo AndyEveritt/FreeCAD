@@ -71,9 +71,9 @@ void CAMSim::AddCommand(Command* cmd)
     DlgCAMSimulator::instance()->addGcodeCommand(gline.c_str());
 }
 
-void CAMSim::AddOperation(const std::string& name)
+void CAMSim::AddOperation(const std::string& name, const float* color)
 {
-    DlgCAMSimulator::instance()->addOperation(name.c_str());
+    DlgCAMSimulator::instance()->addOperation(name.c_str(), color);
 }
 
 void CAMSim::SetFrameTiming(bool enabled)

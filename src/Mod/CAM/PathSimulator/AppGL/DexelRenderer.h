@@ -32,6 +32,7 @@ namespace CAMSimulator
 {
 
 class SimDisplay;
+struct DexelColoring;
 class ThreadPool;
 
 // Renders a DexelStock as a mesh. The mesh is built per mesh unit of the layout, small groups of
@@ -47,7 +48,12 @@ public:
     // Rebuild the units of the dirty leaves of the stock, for about budgetMs. Returns the number
     // of rebuilt units, 'pending' tells if units are left to rebuild.
     int Update(DexelStock& stock, ThreadPool& pool, double budgetMs, bool& pending);
-    void Render(SimDisplay& display, const float stockColor[3], const float cutColor[3]);
+    void Render(SimDisplay& display, const float stockColor[3], const float cutColor[3], const DexelColoring& coloring);
+    // Measure the thickness of the material behind the surface, for thin walls
+    void SetMeasureThickness(bool b)
+    {
+        mUnits.SetMeasureThickness(b);
+    }
     void FreeResources();
 
     long TriangleCount() const;

@@ -237,6 +237,40 @@
       </widget>
      </item>
      <item>
+      <widget class="QToolButton" name="colorByOperationButton">
+       <property name="toolTip">
+        <string>Color the stock by the operation that cut it</string>
+       </property>
+       <property name="icon">
+        <iconset resource="../../Gui/Resources/Path.qrc">
+         <normaloff>:/gl_simulator/ColorByOperation.png</normaloff>:/gl_simulator/ColorByOperation.png</iconset>
+       </property>
+       <property name="checkable">
+        <bool>true</bool>
+       </property>
+       <property name="autoRaise">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QToolButton" name="thinWallsButton">
+       <property name="toolTip">
+        <string>Show material thinner than the threshold of the task panel in red</string>
+       </property>
+       <property name="icon">
+        <iconset resource="../../Gui/Resources/Path.qrc">
+         <normaloff>:/gl_simulator/ThinWalls.png</normaloff>:/gl_simulator/ThinWalls.png</iconset>
+       </property>
+       <property name="checkable">
+        <bool>true</bool>
+       </property>
+       <property name="autoRaise">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
       <widget class="QToolButton" name="ssaoButton">
        <property name="toolTip">
         <string>Toggle ambient occlusion</string>

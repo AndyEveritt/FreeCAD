@@ -982,6 +982,75 @@ TEST(DexelMesher, tiltedCutIsClosed)
     ExpectClosed(mesh, AllIndices(mesh));
 }
 
+TEST(DexelMesher, thinWallsAreMeasured)
+{
+    // two pockets leave a wall 0.4 thick between them: the vertices on its faces get its
+    // thickness, the faces of thick material more
+    const float size = 20, depth = 10;
+    Fixture f(size, depth, 0.25f);
+    CutterProfile mill(FlatProfile(1));
+    std::vector<CutMove> moves;
+    for (const float x : {8.8f, 11.2f}) {
+        const float p0[3] = {x, 3, -4}, p1[3] = {x, 17, -4};
+        moves.push_back(Move(mill, p0, p1, Up));
+    }
+    f.stock.Cut(moves, f.pool);
+    DexelMeshUnits units;
+    units.SetMeasureThickness(true);
+    units.Reset(f.stock);
+    units.Update(f.stock, f.pool, 1e9);
+    ASSERT_FALSE(units.Pending());
+    int wall = 0, thick = 0;
+    for (int unit = 0; unit < f.Layout().UnitCount(); unit++) {
+        for (const DexelVertex& v : units.Mesh(unit).vertices) {
+            if (v.y < 6 || v.y > 14 || v.z < -3.5f || v.z > -0.5f) {
+                continue;
+            }
+            if (std::abs(v.x - 9.8f) < 0.05f || std::abs(v.x - 10.2f) < 0.05f) {
+                EXPECT_NEAR(v.thickness, 0.4f, 0.05f);
+                wall++;
+            }
+            else if (std::abs(v.x - 7.8f) < 0.05f || std::abs(v.x - 12.2f) < 0.05f) {
+                // the walls towards the sides of the stock, 7.8 thick
+                EXPECT_GT(v.thickness, 7);
+                thick++;
+            }
+        }
+    }
+    EXPECT_GT(wall, 20);
+    EXPECT_GT(thick, 20);
+
+    // not measured
+    units.SetMeasureThickness(false);
+    while (units.Pending()) {
+        units.Update(f.stock, f.pool, 1e9);
+    }
+    for (int unit = 0; unit < f.Layout().UnitCount(); unit++) {
+        for (const DexelVertex& v : units.Mesh(unit).vertices) {
+            EXPECT_EQ(v.thickness, ThicknessUnknown);
+        }
+    }
+}
+
+TEST(DexelMesher, cutFacesKeepTheirOperation)
+{
+    // the faces cut by a move get the tag of its operation, the faces of the stock none
+    Fixture f(20, 10, 0.5f);
+    CutterProfile ball(BallProfile(2));
+    const float p0[3] = {4, 10, -1.5f}, p1[3] = {16, 10, -1.5f};
+    CutMove move = Move(ball, p0, p1, Up);
+    move.operationTag = OperationTag(4);
+    f.stock.Cut({move}, f.pool);
+    const DexelMesh mesh = MeshUnits(f.stock);
+    ASSERT_FALSE(mesh.cutIndices.empty());
+    for (const uint32_t i : mesh.cutIndices) {
+        EXPECT_EQ(mesh.vertices[i].operation, 5);
+    }
+    for (const uint32_t i : mesh.stockIndices) {
+        EXPECT_EQ(mesh.vertices[i].operation, 0);
+    }
+}
+
 TEST(DexelMesher, partialUpdatesAreClosed)
 {
     // the mesh is closed after every update, also when only part of the changes is done: cuts in

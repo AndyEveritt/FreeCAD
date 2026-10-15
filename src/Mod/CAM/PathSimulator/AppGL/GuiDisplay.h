@@ -49,6 +49,8 @@ public:
     void setRotateEnabled(bool b);
     void setPathVisible(bool b);
     void setSsaoEnabled(bool b);
+    void setColorByOperation(bool b);
+    void setThinWalls(bool b);
 
 Q_SIGNALS:
     void play(bool b);
@@ -67,6 +69,8 @@ Q_SIGNALS:
     void rotateEnableChanged(bool b);
     void pathVisibleChanged(bool b);
     void ssaoEnableChanged(bool b);
+    void colorByOperationChanged(bool b);
+    void thinWallsChanged(bool b);
 
 protected:
     void resizeEvent(QResizeEvent* event) override;

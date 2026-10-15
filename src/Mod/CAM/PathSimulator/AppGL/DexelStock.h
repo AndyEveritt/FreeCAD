@@ -38,10 +38,19 @@ namespace CAMSimulator
 
 class ThreadPool;
 
-// Unit normal of a material surface, packed into 30 bits, and a flag for faces created by cutting.
-// A zero normal is packed as NoNormal: the surface was made by a sharp edge of a tool, its normal
-// isn't known.
+// Unit normal of a material surface, packed into 24 bits, the operation that made it (6 bits) and
+// a flag for faces created by cutting. A zero normal is packed as NoNormal: the surface was made
+// by a sharp edge of a tool, its normal isn't known.
 constexpr uint32_t NoNormal = 1u << 30;
+constexpr int OperationShift = 24;
+constexpr uint32_t OperationMask = 63u << OperationShift;
+// Operation tags of the packed normals, 0 for none: operations 0, 1, ... get tags 1 to 63, then
+// again from 1
+constexpr int MaxOperationTag = 63;
+inline int OperationTag(int operation)
+{
+    return operation < 0 ? 0 : operation % MaxOperationTag + 1;
+}
 uint32_t PackNormal(const float n[3], bool cut);
 void UnpackNormal(uint32_t packed, float n[3]);
 inline bool IsCutFace(uint32_t packed)
@@ -51,6 +60,14 @@ inline bool IsCutFace(uint32_t packed)
 inline bool HasNormal(uint32_t packed)
 {
     return (packed & NoNormal) == 0;
+}
+inline int OperationTagOf(uint32_t packed)
+{
+    return (int)((packed & OperationMask) >> OperationShift);
+}
+inline uint32_t WithOperationTag(uint32_t packed, int tag)
+{
+    return (packed & ~OperationMask) | ((uint32_t)tag << OperationShift);
 }
 
 // Material along a dexel line from lo to hi, in world coordinates along the line, with the
@@ -86,6 +103,7 @@ struct CutMove
     float p1[3];
     float a0[3];
     float a1[3];
+    int operationTag = 0;  // of the faces it cuts, see OperationTag
 };
 
 // Stock material as tri-dexels in the bricks of an adaptive layout. Bricks are shared between
