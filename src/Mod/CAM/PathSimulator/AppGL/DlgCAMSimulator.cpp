@@ -112,6 +112,16 @@ void DlgCAMSimulator::connectTo(GuiDisplay& gui, Dummy3DViewer& dv)
         updateGui();
     });
 
+    connect(&gui, &GuiDisplay::previousOperation, this, [this] {
+        mMillSimulator->GoToOperation(-1);
+        updateGui();
+    });
+
+    connect(&gui, &GuiDisplay::nextOperation, this, [this] {
+        mMillSimulator->GoToOperation(1);
+        updateGui();
+    });
+
     connect(&gui, &GuiDisplay::speedChanged, this, [this](int speed) {
         mMillSimulator->SetSpeed(speed);
     });
@@ -165,6 +175,14 @@ void DlgCAMSimulator::updateGui()
 
     const float stage = (float)state.mCurStep / state.mNTotalSteps;
     mGui->setStage(stage, state.mNTotalSteps);
+
+    const auto& operations = mMillSimulator->GetOperations();
+    const int operation = mMillSimulator->OperationAt(state.mCurStep);
+    mGui->setOperation(
+        operation >= 0 ? QString::fromStdString(operations[operation].name) : QString(),
+        operation,
+        (int)operations.size()
+    );
 
     mGui->setStockVisible(state.mViewItems & VIEWITEM_SIMULATION);
     mGui->setBaseVisible(state.mViewItems & VIEWITEM_BASE_SHAPE);
@@ -236,6 +254,7 @@ void DlgCAMSimulator::resetSimulation()
     mNeedsClear = true;
 
     mGCode.clear();
+    mOperations.clear();
     mTools.clear();
     mStock = {};
     mBase = {};
@@ -244,6 +263,11 @@ void DlgCAMSimulator::resetSimulation()
 void DlgCAMSimulator::addGcodeCommand(const char* cmd)
 {
     mGCode.push_back(cmd);
+}
+
+void DlgCAMSimulator::addOperation(const char* name)
+{
+    mOperations.emplace_back(mGCode.size(), name);
 }
 
 void DlgCAMSimulator::addTool(
@@ -442,15 +466,23 @@ void DlgCAMSimulator::updateResources()
     if (mNeedsClear) {
         mMillSimulator->Clear();
         mLastGCode = 0;
+        mLastOperation = 0;
         mNeedsClear = false;
     }
 
     // update gcode
 
-    for (int i = mLastGCode; i < (int)mGCode.size(); i++) {
-        const std::string& cmd = mGCode[i];
-        mMillSimulator->AddGcodeLine(cmd.c_str());
+    auto beginOperations = [this](std::size_t line) {
+        while (mLastOperation < mOperations.size() && mOperations[mLastOperation].first <= line) {
+            mMillSimulator->BeginOperation(mOperations[mLastOperation].second);
+            mLastOperation++;
+        }
+    };
+    for (std::size_t i = mLastGCode; i < mGCode.size(); i++) {
+        beginOperations(i);
+        mMillSimulator->AddGcodeLine(mGCode[i].c_str());
     }
+    beginOperations(mGCode.size());
 
     mLastGCode = mGCode.size();
 

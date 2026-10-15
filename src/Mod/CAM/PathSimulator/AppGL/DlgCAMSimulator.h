@@ -105,6 +105,8 @@ public:
     void resetSimulation();
 
     void addGcodeCommand(const char* cmd);
+    // the commands added from now on belong to a new operation of this name
+    void addOperation(const char* name);
     void addTool(
         const std::vector<float>& toolProfilePoints,
         int toolNumber,
@@ -161,6 +163,9 @@ private:
 
     std::vector<std::string> mGCode;
     std::size_t mLastGCode = 0;
+    // operations: their name and the index of their first command in mGCode
+    std::vector<std::pair<std::size_t, std::string>> mOperations;
+    std::size_t mLastOperation = 0;
 
     std::vector<SimTool> mTools;
 

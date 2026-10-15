@@ -35,6 +35,7 @@
 #include "linmath.h"
 #include <chrono>
 #include <memory>
+#include <string>
 #include <vector>
 
 #define VIEWITEM_SIMULATION 1
@@ -43,6 +44,14 @@
 
 namespace CAMSimulator
 {
+
+// An operation of the toolpath: its name and its steps, from firstStep to endStep (exclusive)
+struct SimOperation
+{
+    std::string name;
+    int firstStep = 0;
+    int endStep = 0;
+};
 
 struct MillSimulationState
 {
@@ -83,6 +92,17 @@ public:
 
     bool LoadGCodeFile(const char* fileName);
     bool AddGcodeLine(const char* line);
+    // The G-code lines added from now on belong to a new operation of this name
+    void BeginOperation(const std::string& name);
+    const std::vector<SimOperation>& GetOperations() const
+    {
+        return mOperations;
+    }
+    // Index of the operation in progress at a step, -1 if there are none
+    int OperationAt(int step) const;
+    // Go to the start of the next operation (direction > 0), or of the operation in progress,
+    // or the previous one if already there (direction < 0)
+    void GoToOperation(int direction);
 
     void SetPlaying(bool b);
     void SingleStep();
@@ -179,6 +199,7 @@ protected:
     std::vector<float> mStockXyz;
     std::vector<uint32_t> mStockTriangles;
     std::vector<CutSegment> mCutSegments;  // one per MillPathSegment
+    std::vector<SimOperation> mOperations;
 
     // protected:
 public:

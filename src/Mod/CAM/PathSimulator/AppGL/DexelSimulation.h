@@ -54,6 +54,7 @@ struct CutSegment
     float axis1[3] = {0, 0, 1};
     int steps = 1;       // steps on the timeline
     int sweepSteps = 1;  // steps of the motion, the parameter of step k is min(1, k / sweepSteps)
+    int operation = -1;  // index of the operation, -1 for none
 
     float StepParam(int step) const;
     void PositionAt(float t, float pos[3]) const;

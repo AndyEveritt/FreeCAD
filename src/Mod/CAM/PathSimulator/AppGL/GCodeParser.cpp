@@ -46,6 +46,7 @@ void GCodeParser::Clear()
     Operations.clear();
     lastState = {};
     lastTool = -1;
+    currentOperation = -1;
 }
 
 bool GCodeParser::Parse(const char* filename)
@@ -268,6 +269,7 @@ bool GCodeParser::ParseLine(const char* ptr)
 bool GCodeParser::AddLine(const char* ptr)
 {
     bool res = ParseLine(ptr);
+    lastState.operation = currentOperation;
     if (res) {
         if (lastState.cmd == eDril) {
             // split to several motions

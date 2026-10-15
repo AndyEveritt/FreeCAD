@@ -58,6 +58,7 @@ void MillSimulation::ClearMillPathSegments()
 void MillSimulation::Clear()
 {
     mCodeParser.Clear();
+    mOperations.clear();
 
     ClearMillPathSegments();
 
@@ -97,6 +98,10 @@ void MillSimulation::InitSimulation(float quality, float maxStockDimension)
     mQuality = quality;
     mCutSegments.clear();
 
+    for (SimOperation& op : mOperations) {
+        op.firstStep = op.endStep = -1;
+    }
+
     int nOperations = (int)mCodeParser.Operations.size();
     int segId = 0;
 
@@ -117,6 +122,13 @@ void MillSimulation::InitSimulation(float quality, float maxStockDimension)
             auto segment = new MillPathSegment(*tool, prevMotion, curMotion);
             segment->indexInArray = i;
             segment->segmentIndex = segId++;
+            const int op = curMotion.operation;
+            if (op >= 0 && op < (int)mOperations.size()) {
+                if (mOperations[op].firstStep < 0) {
+                    mOperations[op].firstStep = mNTotalSteps;
+                }
+                mOperations[op].endStep = mNTotalSteps + segment->numSimSteps;
+            }
             mNTotalSteps += segment->numSimSteps;
             MillPathSegments.push_back(segment);
             segment->AppendPathPoints(millPathLine.MillPathPointsBuffer);
@@ -132,6 +144,7 @@ void MillSimulation::InitSimulation(float quality, float maxStockDimension)
             MotionToolAxis(curMotion, cut.axis1);
             cut.steps = segment->numSimSteps;
             cut.sweepSteps = segment->SweepSteps();
+            cut.operation = curMotion.operation;
             mCutSegments.push_back(cut);
         }
 
@@ -139,6 +152,15 @@ void MillSimulation::InitSimulation(float quality, float maxStockDimension)
     }
 
     assert(mNTotalSteps >= 0);
+
+    // operations without motion are empty, where the operation before them ends
+    int lastEnd = 0;
+    for (SimOperation& op : mOperations) {
+        if (op.firstStep < 0) {
+            op.firstStep = op.endStep = lastEnd;
+        }
+        lastEnd = op.endStep;
+    }
 
     mNPathSteps = (int)MillPathSegments.size();
     millPathLine.GenerateModel();
@@ -795,6 +817,45 @@ bool MillSimulation::LoadGCodeFile(const char* fileName)
 bool MillSimulation::AddGcodeLine(const char* line)
 {
     return mCodeParser.AddLine(line);
+}
+
+void MillSimulation::BeginOperation(const std::string& name)
+{
+    mCodeParser.currentOperation = (int)mOperations.size();
+    mOperations.push_back({name, 0, 0});
+}
+
+int MillSimulation::OperationAt(int step) const
+{
+    // the last operation started at the step, empty operations have no steps
+    int found = -1;
+    for (int i = 0; i < (int)mOperations.size(); i++) {
+        if (mOperations[i].endStep > mOperations[i].firstStep && mOperations[i].firstStep <= step) {
+            found = i;
+        }
+    }
+    return found;
+}
+
+void MillSimulation::GoToOperation(int direction)
+{
+    if (direction > 0) {
+        for (const SimOperation& op : mOperations) {
+            if (op.endStep > op.firstStep && op.firstStep > mCurStep) {
+                SetSimulationStep(op.firstStep);
+                return;
+            }
+        }
+        SetSimulationStep(mNTotalSteps);
+        return;
+    }
+    int target = 0;
+    for (const SimOperation& op : mOperations) {
+        if (op.endStep > op.firstStep && op.firstStep < mCurStep) {
+            target = op.firstStep;
+        }
+    }
+    SetSimulationStep(target);
 }
 
 void MillSimulation::SetPlaying(bool b)

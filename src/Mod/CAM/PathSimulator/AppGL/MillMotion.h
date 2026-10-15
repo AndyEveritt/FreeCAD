@@ -59,6 +59,7 @@ struct MillMotion
     // rotary axes in degrees
     float a = 0.0f, b = 0.0f, c = 0.0f;
     char retract_mode = '\0';
+    int operation = -1;  // index of the operation the motion belongs to, -1 for none
     float retract_z = 0;
 };
 

@@ -343,6 +343,7 @@ class CAMSimulation:
         self.SetupSimulation()
         self.millSim.ResetSimulation(FreeCADGui.getDocument(self.job.Document))
         for op in self.activeOps:
+            self.millSim.AddOperation(op.Label)
             tool = PathDressup.toolController(op).Tool
             toolNumber = PathDressup.toolController(op).ToolNumber
             toolProfile = self.GetToolProfile(tool, 0.5)

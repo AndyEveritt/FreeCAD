@@ -41,6 +41,8 @@ public:
     void setPlaying(bool b);
     void setSpeed(int s);
     void setStage(float f, int total);
+    // the operation in progress, index -1 for none
+    void setOperation(const QString& name, int index, int count);
 
     void setStockVisible(bool b);
     void setBaseVisible(bool b);
@@ -53,6 +55,8 @@ Q_SIGNALS:
     void singleStep();
     void skipToStart();
     void skipToEnd();
+    void previousOperation();
+    void nextOperation();
     void speedChanged(int s);
     void stageChanged(float f);
     void scrubbing(bool b);

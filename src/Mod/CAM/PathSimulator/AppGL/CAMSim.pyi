@@ -60,6 +60,13 @@ class CAMSim(BaseClass):
         """
         ...
 
+    def AddOperation(self, name: str, /) -> None:
+        """
+        The commands and tools added from now on belong to a new operation of this name. The
+        simulator shows the operation in progress and can go from one operation to the next.
+        """
+        ...
+
     def SetFrameTiming(self, enabled: bool, /) -> None:
         """
         Enable or disable recording the time of each simulator frame, for performance

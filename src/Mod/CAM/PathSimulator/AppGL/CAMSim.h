@@ -71,6 +71,7 @@ public:
     );
     void SetBaseShape(const Part::TopoShape& baseShape, float resolution);
     void AddCommand(Command* cmd);
+    void AddOperation(const std::string& name);
 
     void SetFrameTiming(bool enabled);
     std::vector<double> TakeFrameTimes();

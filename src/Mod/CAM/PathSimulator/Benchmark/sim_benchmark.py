@@ -169,7 +169,11 @@ class JobBench:
         self.sim.ResetSimulation(FreeCADGui.getDocument(doc))
         for number, diameter, profile in job["tools"]:
             self.sim.AddTool(profile, number, diameter, 1)
-        for cmd in commands:
+        # operations, by the index of their first command
+        sections = {start: name for name, start in job.get("sections", [])}
+        for index, cmd in enumerate(commands):
+            if index in sections and hasattr(self.sim, "AddOperation"):
+                self.sim.AddOperation(sections[index])
             self.sim.AddCommand(cmd)
         self.result["add_commands_s"] = time.perf_counter() - t0
 

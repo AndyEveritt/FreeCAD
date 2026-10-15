@@ -52,6 +52,9 @@ GuiDisplay::GuiDisplay(QWidget* parent)
     connect(ui->rotateButton, &QToolButton::toggled, this, &GuiDisplay::rotateEnableChanged);
     connect(ui->pathButton, &QToolButton::toggled, this, &GuiDisplay::pathVisibleChanged);
     connect(ui->ssaoButton, &QToolButton::toggled, this, &GuiDisplay::ssaoEnableChanged);
+    connect(ui->previousOperationButton, &QToolButton::clicked, this, &GuiDisplay::previousOperation);
+    connect(ui->nextOperationButton, &QToolButton::clicked, this, &GuiDisplay::nextOperation);
+    setOperation(QString(), -1, 0);
     connect(ui->stageSlider, &QSlider::sliderPressed, this, [this] { Q_EMIT scrubbing(true); });
     connect(ui->stageSlider, &QSlider::sliderReleased, this, [this] { Q_EMIT scrubbing(false); });
 }
@@ -151,6 +154,17 @@ void GuiDisplay::setStage(float f, int total)
 {
     ui->stageSlider->setMaximum(total);
     ui->stageSlider->setValue(f * total);
+}
+
+void GuiDisplay::setOperation(const QString& name, int index, int count)
+{
+    // jumping between operations needs more than one
+    ui->previousOperationButton->setVisible(count > 1);
+    ui->nextOperationButton->setVisible(count > 1);
+    const QString text = index >= 0 ? tr("%1 (%2 of %3)").arg(name).arg(index + 1).arg(count) : QString();
+    if (ui->operationLabel->text() != text) {
+        ui->operationLabel->setText(text);
+    }
 }
 
 void GuiDisplay::on_stageSlider_sliderMoved(int value)

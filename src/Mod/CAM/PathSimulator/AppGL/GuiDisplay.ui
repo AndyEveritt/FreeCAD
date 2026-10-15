@@ -90,6 +90,34 @@
       </widget>
      </item>
      <item>
+      <widget class="QToolButton" name="previousOperationButton">
+       <property name="toolTip">
+        <string>Go to the start of the operation, or of the previous one</string>
+       </property>
+       <property name="icon">
+        <iconset resource="../../Gui/Resources/Path.qrc">
+         <normaloff>:/gl_simulator/PreviousOperation.png</normaloff>:/gl_simulator/PreviousOperation.png</iconset>
+       </property>
+       <property name="autoRaise">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QToolButton" name="nextOperationButton">
+       <property name="toolTip">
+        <string>Go to the start of the next operation</string>
+       </property>
+       <property name="icon">
+        <iconset resource="../../Gui/Resources/Path.qrc">
+         <normaloff>:/gl_simulator/NextOperation.png</normaloff>:/gl_simulator/NextOperation.png</iconset>
+       </property>
+       <property name="autoRaise">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
       <widget class="QToolButton" name="slowerButton">
        <property name="toolTip">
         <string>Decrease simulation speed</string>
@@ -124,6 +152,22 @@
        </property>
        <property name="text">
         <string>x1</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="operationLabel">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+         <horstretch>1</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="toolTip">
+        <string>Operation in progress</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">color:white; padding-left:12px</string>
        </property>
       </widget>
      </item>

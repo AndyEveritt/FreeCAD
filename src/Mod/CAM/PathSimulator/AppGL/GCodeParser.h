@@ -52,6 +52,8 @@ public:
 public:
     std::vector<MillMotion> Operations;
     MillMotion lastState;
+    // operation of the lines added from now on, see MillMotion::operation
+    int currentOperation = -1;
 
 protected:
     const char* GetNextToken(const char* ptr, GCToken* token);

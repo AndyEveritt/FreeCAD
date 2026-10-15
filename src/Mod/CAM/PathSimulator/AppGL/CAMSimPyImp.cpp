@@ -172,6 +172,18 @@ PyObject* CAMSimPy::AddCommand(PyObject* args)
     return Py_None;
 }
 
+PyObject* CAMSimPy::AddOperation(PyObject* args)
+{
+    const char* name;
+    if (!PyArg_ParseTuple(args, "s", &name)) {
+        return nullptr;
+    }
+    getCAMSimPtr()->AddOperation(name);
+
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
 PyObject* CAMSimPy::SetFrameTiming(PyObject* args)
 {
     PyObject* enabled;
