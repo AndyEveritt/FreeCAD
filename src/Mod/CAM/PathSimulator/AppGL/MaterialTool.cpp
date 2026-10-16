@@ -35,8 +35,6 @@ namespace
 {
 
 constexpr double Inf = std::numeric_limits<double>::infinity();
-// largest deviation of the turning tool from the pieces it is swept with
-constexpr double TurnTolerance = 2e-4;
 // angle between the edges of a profile up to which it is smooth there (about 25 degrees)
 constexpr double SmoothCos = 0.9;
 
@@ -714,72 +712,87 @@ Sweep::Sweep(const Motion& motion)
         return;
     }
 
-    // Motions turning the axis are swept in pieces turning by at most an angle that keeps the
-    // deviation of the tool below the tolerance: points at a distance 'reach' from the tip move
-    // by reach * angle / 2 from where the piece has them
     const double cosTurn = std::clamp(Dot(mMotion.a0, mMotion.a1), -1.0, 1.0);
     const double turn = std::acos(cosTurn);
-    double reach = 0;
-    for (const Prim& p : mPrims) {
-        reach = std::max(reach, std::abs(p.zm) + p.bound);
-    }
-    int pieces = 1;
-    if (turn > 1e-9) {
-        const double maxAngle = 2 * TurnTolerance / std::max(reach, 1e-3);
-        pieces = std::clamp((int)std::ceil(turn / maxAngle), 1, 1 << 20);
-    }
-    mPieces.resize(pieces);
-    for (int i = 0; i < pieces; i++) {
-        Piece& p = mPieces[i];
-        const double t0 = (double)i / pieces, t1 = (double)(i + 1) / pieces;
-        double tip1[3], axisMid[3], unused[3];
-        PoseAt(t0, p.p0, unused);
-        PoseAt(t1, tip1, unused);
-        PoseAt(0.5 * (t0 + t1), unused, axisMid);
+    mTurning = turn > 1e-9;
+    if (!mTurning) {
+        // one piece for the whole motion
+        mPieces.resize(1);
+        Piece& p = mPieces[0];
         for (int k = 0; k < 3; k++) {
-            p.d[k] = tip1[k] - p.p0[k];
-            p.a[k] = axisMid[k];
+            p.p0[k] = mMotion.p0[k];
+            p.d[k] = mMotion.p1[k] - mMotion.p0[k];
+            p.a[k] = mMotion.a0[k];
         }
         Frame(p.a, p.e1, p.e2);
+        mBounds.resize(mPrims.size());
+        for (size_t j = 0; j < mPrims.size(); j++) {
+            mBounds[j] = BoundOf(p, mPrims[j]);
+        }
     }
-
-    // bounds of every primitive in every piece
-    const int np = (int)mPrims.size();
-    mBounds.resize((size_t)pieces * np);
+    else {
+        // Motions turning the axis are swept in pieces, every primitive on its own: in a piece,
+        // a primitive turns about its center by a small angle while the center moves on a chord
+        // of its path. Points at a distance 'reach' from the center move by reach * angle / 2
+        // from where the piece has them, the chord deviates by height * angle^2 / 8 from the
+        // path of the center. A sphere doesn't change turning about its center. Long frustums
+        // are split, so their pieces are short and their bounds tight.
+        std::vector<Prim> split;
+        for (const Prim& prim : mPrims) {
+            if (prim.sphere) {
+                split.push_back(prim);
+                continue;
+            }
+            const double rmax = std::max(prim.r0, prim.r1);
+            const double height = prim.z1 - prim.z0;
+            const int parts = std::clamp((int)std::ceil(height / std::max(2 * rmax, 0.5)), 1, 64);
+            for (int i = 0; i < parts; i++) {
+                Prim sub = prim;
+                sub.z0 = prim.z0 + height * i / parts;
+                sub.z1 = prim.z0 + height * (i + 1) / parts;
+                sub.r0 = prim.r0 + (sub.z0 - prim.z0) * (prim.r1 - prim.r0) / height;
+                sub.r1 = prim.r0 + (sub.z1 - prim.z0) * (prim.r1 - prim.r0) / height;
+                sub.zm = 0.5 * (sub.z0 + sub.z1);
+                const double r = std::max(sub.r0, sub.r1);
+                sub.bound = std::sqrt(r * r + 0.25 * (sub.z1 - sub.z0) * (sub.z1 - sub.z0));
+                // only the last part has the top rim of the frustum
+                if (i + 1 < parts) {
+                    sub.index1 = -1;
+                }
+                split.push_back(sub);
+            }
+        }
+        mPrims.swap(split);
+        for (int j = 0; j < (int)mPrims.size(); j++) {
+            const Prim& prim = mPrims[j];
+            const double tol = std::max(1e-6, mMotion.tolerance);
+            const double chord = std::sqrt(8 * tol / std::max(std::abs(prim.zm), 1e-3));
+            const double rotation = prim.sphere ? 1e30 : 2 * tol / std::max(prim.bound, 1e-3);
+            const int pieces = std::clamp((int)std::ceil(turn / chord + turn / rotation), 1, 1 << 16);
+            for (int i = 0; i < pieces; i++) {
+                const double t0 = (double)i / pieces, t1 = (double)(i + 1) / pieces;
+                const Piece p = PieceOf(prim, t0, t1);
+                mPieces.push_back(p);
+                mEntryPrim.push_back(j);
+                mEntryT0.push_back(t0);
+                mEntryT1.push_back(t1);
+                mBounds.push_back(BoundOf(p, prim));
+            }
+        }
+    }
     for (int k = 0; k < 3; k++) {
         mLo[k] = Inf;
         mHi[k] = -Inf;
     }
-    for (int i = 0; i < pieces; i++) {
-        const Piece& p = mPieces[i];
-        for (int j = 0; j < np; j++) {
-            const Prim& prim = mPrims[j];
-            Bound& b = mBounds[(size_t)i * np + j];
-            const double rmax = prim.sphere ? prim.radius : std::max(prim.r0, prim.r1);
-            for (int k = 0; k < 3; k++) {
-                b.c0[k] = p.p0[k] + prim.zm * p.a[k];
-                b.c1[k] = b.c0[k] + p.d[k];
-                double lo = std::min(b.c0[k], b.c1[k]), hi = std::max(b.c0[k], b.c1[k]);
-                // a frustum is a cylinder of its largest radius around its axis segment
-                double ext;
-                if (prim.sphere) {
-                    ext = prim.radius;
-                }
-                else {
-                    const double half = 0.5 * (prim.z1 - prim.z0);
-                    ext = std::abs(p.a[k]) * half + rmax * std::sqrt(std::max(0.0, 1 - p.a[k] * p.a[k]));
-                }
-                ext += 1e-6;
-                b.lo[k] = (float)(lo - ext);
-                b.hi[k] = (float)(hi + ext);
-                // float rounding outwards
-                b.lo[k] = std::nextafter(b.lo[k], -1e30f);
-                b.hi[k] = std::nextafter(b.hi[k], 1e30f);
-                mLo[k] = std::min(mLo[k], (double)b.lo[k]);
-                mHi[k] = std::max(mHi[k], (double)b.hi[k]);
-            }
+    for (const Bound& b : mBounds) {
+        for (int k = 0; k < 3; k++) {
+            mLo[k] = std::min(mLo[k], (double)b.lo[k]);
+            mHi[k] = std::max(mHi[k], (double)b.hi[k]);
         }
     }
+    const int np = (int)mPrims.size();
+    const int pieces = (int)mPieces.size();
+
     // search orders of the primitives
     mByLow.resize(np);
     mByHigh.resize(np);
@@ -802,7 +815,7 @@ Sweep::Sweep(const Motion& motion)
         mByHighRadius[j] = std::max(j ? mByHighRadius[j - 1] : 0.0, PrimRadius(mPrims[mByHigh[j]]));
     }
 
-    if (pieces > 1) {
+    if (mTurning) {
         mNodes.reserve(2 * pieces);
         BuildNode(0, pieces);
     }
@@ -822,6 +835,50 @@ Sweep::Sweep(const Motion& motion)
         }
         mSlabRadius = rmax + 1e-6;
     }
+}
+
+Sweep::Piece Sweep::PieceOf(const Prim& prim, double t0, double t1) const
+{
+    double tip0[3], tip1[3], axis0[3], axis1[3], tipMid[3], axisMid[3];
+    PoseAt(t0, tip0, axis0);
+    PoseAt(t1, tip1, axis1);
+    PoseAt(0.5 * (t0 + t1), tipMid, axisMid);
+    Piece p;
+    for (int k = 0; k < 3; k++) {
+        // the center at both ends, with the axis of the middle
+        const double c0 = tip0[k] + prim.zm * axis0[k];
+        const double c1 = tip1[k] + prim.zm * axis1[k];
+        p.a[k] = axisMid[k];
+        p.p0[k] = c0 - prim.zm * axisMid[k];
+        p.d[k] = c1 - c0;
+    }
+    Frame(p.a, p.e1, p.e2);
+    return p;
+}
+
+Sweep::Bound Sweep::BoundOf(const Piece& p, const Prim& prim)
+{
+    Bound b;
+    const double rmax = prim.sphere ? prim.radius : std::max(prim.r0, prim.r1);
+    for (int k = 0; k < 3; k++) {
+        b.c0[k] = p.p0[k] + prim.zm * p.a[k];
+        b.c1[k] = b.c0[k] + p.d[k];
+        const double lo = std::min(b.c0[k], b.c1[k]), hi = std::max(b.c0[k], b.c1[k]);
+        // a frustum is a cylinder of its largest radius around its axis segment
+        double ext;
+        if (prim.sphere) {
+            ext = prim.radius;
+        }
+        else {
+            const double half = 0.5 * (prim.z1 - prim.z0);
+            ext = std::abs(p.a[k]) * half + rmax * std::sqrt(std::max(0.0, 1 - p.a[k] * p.a[k]));
+        }
+        ext += 1e-6;
+        // float rounding outwards
+        b.lo[k] = std::nextafter((float)(lo - ext), -1e30f);
+        b.hi[k] = std::nextafter((float)(hi + ext), 1e30f);
+    }
+    return b;
 }
 
 bool Sweep::MayTouch(const double pt[3], double margin) const
@@ -888,21 +945,37 @@ int Sweep::BuildNode(int first, int count)
 {
     const int index = (int)mNodes.size();
     mNodes.push_back({});
-    const int np = (int)mPrims.size();
     float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
     for (int i = first; i < first + count; i++) {
-        for (int j = 0; j < np; j++) {
-            const Bound& b = mBounds[(size_t)i * np + j];
-            for (int k = 0; k < 3; k++) {
-                lo[k] = std::min(lo[k], b.lo[k]);
-                hi[k] = std::max(hi[k], b.hi[k]);
-            }
+        const Bound& b = mBounds[i];
+        for (int k = 0; k < 3; k++) {
+            lo[k] = std::min(lo[k], b.lo[k]);
+            hi[k] = std::max(hi[k], b.hi[k]);
         }
     }
     Node n {};
     for (int k = 0; k < 3; k++) {
         n.lo[k] = lo[k];
         n.hi[k] = hi[k];
+    }
+    // pieces of one primitive: the primitive turning about its center over their times, with
+    // the axis of the middle, is within reach * angle / 2 of that, its center within
+    // height * angle^2 / 8 of the chord
+    n.prim = mEntryPrim[first];
+    for (int i = first; i < first + count && n.prim >= 0; i++) {
+        if (mEntryPrim[i] != n.prim) {
+            n.prim = -1;
+        }
+    }
+    if (n.prim >= 0) {
+        const Prim& prim = mPrims[n.prim];
+        const double t0 = mEntryT0[first], t1 = mEntryT1[first + count - 1];
+        n.pose = PieceOf(prim, t0, t1);
+        double a0[3], a1[3], unused[3];
+        PoseAt(t0, unused, a0);
+        PoseAt(t1, unused, a1);
+        const double angle = std::acos(std::clamp(Dot(a0, a1), -1.0, 1.0));
+        n.grow = (prim.sphere ? 0 : prim.bound * angle / 2) + std::abs(prim.zm) * angle * angle / 8 + 1e-6;
     }
     if (count <= 4) {
         n.first = first;
@@ -1120,6 +1193,36 @@ bool Sweep::FrustumLine(const Piece& p, const Prim& f, int axis, const double o[
     return true;
 }
 
+
+void Sweep::LineEntry(int e, int axis, const double o[3], double sMin, double sMax, std::vector<Interval>& found)
+    const
+{
+    const int u = (axis + 1) % 3, v = (axis + 2) % 3;
+    const Bound& b = mBounds[e];
+    if (o[u] < b.lo[u] || o[u] > b.hi[u] || o[v] < b.lo[v] || o[v] > b.hi[v] || b.hi[axis] < sMin
+        || b.lo[axis] > sMax) {
+        return;
+    }
+    const int j = mEntryPrim[e];
+    const Prim& prim = mPrims[j];
+    const double du = b.c1[u] - b.c0[u], dv = b.c1[v] - b.c0[v];
+    const double wu = o[u] - b.c0[u], wv = o[v] - b.c0[v];
+    const double dd = du * du + dv * dv;
+    const double tt = dd > 0 ? std::clamp((wu * du + wv * dv) / dd, 0.0, 1.0) : 0;
+    const double eu = wu - tt * du, ev = wv - tt * dv;
+    if (eu * eu + ev * ev > prim.bound * prim.bound) {
+        return;
+    }
+    Interval iv;
+    const Piece& p = mPieces[e];
+    const bool hit = prim.sphere ? SphereLine(p, prim, axis, o, iv) : FrustumLine(p, prim, axis, o, iv);
+    if (!hit || iv.hi.s < sMin || iv.lo.s > sMax) {
+        return;
+    }
+    iv.lo.primitive = iv.hi.primitive = j;
+    iv.lo.piece = iv.hi.piece = e;
+    found.push_back(iv);
+}
 
 void Sweep::LinePiece(int pi, int axis, const double o[3], double sMin, double sMax, std::vector<Interval>& found)
     const
@@ -1388,9 +1491,36 @@ int Sweep::Line(int axis, const double origin[3], double sMin, double sMax, std:
                 || n.hi[axis] < sMin || n.lo[axis] > sMax) {
                 continue;
             }
+            if (n.prim >= 0 && n.count != 1) {
+                // the sweep of the grown primitive over the times of the node
+                Prim grown = mPrims[n.prim];
+                if (grown.sphere) {
+                    grown.radius += n.grow;
+                }
+                else {
+                    grown.z0 -= n.grow;
+                    grown.z1 += n.grow;
+                    grown.r0 += n.grow;
+                    grown.r1 += n.grow;
+                }
+                Interval iv;
+                const bool hit = grown.sphere ? SphereLine(n.pose, grown, axis, o, iv)
+                                              : FrustumLine(n.pose, grown, axis, o, iv);
+                if (!hit || iv.hi.s < sMin || iv.lo.s > sMax) {
+                    continue;
+                }
+                // nothing to add to what was found
+                bool inside = false;
+                for (const Interval& f : found) {
+                    inside = inside || (iv.lo.s >= f.lo.s && iv.hi.s <= f.hi.s);
+                }
+                if (inside) {
+                    continue;
+                }
+            }
             if (n.count >= 0) {
                 for (int i = n.first; i < n.first + n.count; i++) {
-                    LinePiece(i, axis, o, sMin, sMax, found);
+                    LineEntry(i, axis, o, sMin, sMax, found);
                 }
             }
             else {
@@ -1471,6 +1601,9 @@ bool Sweep::Normal(int axis, const double origin[3], const RemovalEnd& end, floa
                 nz = f.n0z;
                 break;
             case Rim1: {
+                if (prim.index1 < 0) {
+                    return false;  // the top of a part of a split frustum
+                }
                 const Tool::Frustum& top = tool.Frustums()[prim.index1];
                 if (prim.z1 < top.z1 || top.sharp1) {
                     return false;

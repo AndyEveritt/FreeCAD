@@ -309,8 +309,16 @@ void Simulation::Plan(const std::vector<float>& xyz, float quality)
     // cells of the stock away from the tools, and of the tools: a fraction of their features
     const double rootCell = longest / (32 * std::pow(8.0, q));
     const double fraction = 0.5 * std::pow(0.2, q);
-    const double arcTolerance = 0.002 * std::pow(0.25, std::max(0.0, (q - 0.5) * 2));
     const double finest = std::max(1e-3, 0.002 * longest / 100);
+    // Arcs and motions turning the axis are approximated within a fiftieth of the cells of the
+    // features of their tool: far below what the cells show
+    std::vector<double> tolerances(mTools.size(), 5e-4);
+    for (size_t t = 0; t < mTools.size(); t++) {
+        if (mTools[t] && mTools[t]->Cuts()) {
+            const double cell = std::max(finest, fraction * mTools[t]->FeatureSize());
+            tolerances[t] = std::clamp(cell / 50, 5e-4, 1e-2);
+        }
+    }
 
     // motions: arcs into chords
     mMotions.clear();
@@ -320,9 +328,10 @@ void Simulation::Plan(const std::vector<float>& xyz, float quality)
         const Tool* tool = seg.tool >= 0 && seg.tool < (int)mTools.size() ? mTools[seg.tool].get() : nullptr;
         if (tool && tool->Cuts()) {
             int pieces = 1;
+            const double tolerance = tolerances[seg.tool];
             if (seg.arc && seg.radius > 0) {
-                const double maxAngle = arcTolerance < seg.radius
-                    ? 2 * std::acos(1 - arcTolerance / seg.radius)
+                const double maxAngle = tolerance < seg.radius
+                    ? 2 * std::acos(1 - tolerance / seg.radius)
                     : 1.5;
                 pieces = std::max(1, (int)std::ceil(std::abs(seg.sweep) / maxAngle));
             }
@@ -338,6 +347,7 @@ void Simulation::Plan(const std::vector<float>& xyz, float quality)
                 seg.AxisAt(m.t0, m.motion.a0);
                 seg.AxisAt(m.t1, m.motion.a1);
                 m.motion.cutHeight = CuttingHeight(m.motion, mStockLo, mStockHi);
+                m.motion.tolerance = tolerance;
                 mMotions.push_back(m);
             }
         }

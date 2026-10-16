@@ -316,6 +316,9 @@ class JobBench:
     def wait_frame(self, timeout=None):
         """Wait for the next simulator frame, and until the view shows the current state.
 
+        The first frame is requested, the following ones come from the simulator view when it
+        needs them, so frames don't take the CPU from simulations working in other threads.
+
         Callers discard recorded frames (TakeFrameTimes) before changing the simulator state, so
         the first new frame is the one reacting to the change. Returns frame_ms of that frame,
         latency_ms until it was on screen, and converge_ms/converge_frames until the simulator no
@@ -337,7 +340,9 @@ class JobBench:
                 frames += new
                 if not (self.has_pending and self.sim.IsRenderPending()):
                     break
-                self.glw.update()
+            # while the simulator has pending work, it asks for the frames it needs (its timer
+            # renders when NeedsFrame), like in the GUI: simulators that work in other threads
+            # need no frames until they have something new to show
 
         sample = {
             "frame_ms": frames[0],

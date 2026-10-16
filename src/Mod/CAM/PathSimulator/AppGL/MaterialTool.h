@@ -159,6 +159,8 @@ struct Motion
     // Height above the tip beyond which the tool can't reach the material, like the shank above
     // the stock: the parts of the tool above it are left out
     double cutHeight = 1e30;
+    // Largest deviation of the swept volume of a motion turning the axis
+    double tolerance = 5e-4;
 };
 
 // Distance from a point to the parallelogram base + x e1 + y e2, x and y in [0, 1], in 3D, or in
@@ -230,7 +232,7 @@ public:
     }
     bool Turning() const
     {
-        return mPieces.size() > 1;
+        return mTurning;
     }
     // False if no point within 'margin' of 'p' is in the swept volume (motions with a fixed axis:
     // the swept cylinder around the tool, true for turning motions)
@@ -296,6 +298,11 @@ private:
         float lo[3], hi[3];
         int first, count;  // pieces, or children if count < 0: first and right
         int right;
+        // the pieces of one primitive: their sweep is inside the sweep of the primitive grown
+        // by 'grow' with a fixed axis over their times
+        int prim = -1;
+        double grow = 0;
+        Piece pose;
     };
     struct Interval
     {
@@ -303,6 +310,12 @@ private:
     };
     void LinePiece(int piece, int axis, const double o[3], double sMin, double sMax, std::vector<Interval>& found)
         const;
+    // a piece of a primitive of a turning motion
+    void LineEntry(int entry, int axis, const double o[3], double sMin, double sMax, std::vector<Interval>& found)
+        const;
+    static Bound BoundOf(const Piece& p, const Prim& prim);
+    // the piece of a primitive at its center from t0 to t1, with the axis of the middle
+    Piece PieceOf(const Prim& prim, double t0, double t1) const;
     bool SphereLine(const Piece& p, const Prim& prim, int axis, const double o[3], Interval& out) const;
     bool FrustumLine(const Piece& p, const Prim& prim, int axis, const double o[3], Interval& out) const;
     void PoseAt(double t, double tip[3], double axisDir[3]) const;
@@ -320,8 +333,13 @@ private:
     std::vector<double> mByLowTop;
     std::vector<int> mByHigh;
     std::vector<double> mByHighRadius;
+    // fixed axis: one piece for all primitives, bounds by primitive; turning: the pieces of all
+    // primitives, their primitives and bounds
+    bool mTurning = false;
     std::vector<Piece> mPieces;
-    std::vector<Bound> mBounds;  // piece * primitives + primitive
+    std::vector<int> mEntryPrim;
+    std::vector<double> mEntryT0, mEntryT1;  // times of the pieces
+    std::vector<Bound> mBounds;
     std::vector<Node> mNodes;
     double mLo[3] = {};
     double mHi[3] = {};
