@@ -290,6 +290,113 @@ double TriangleDistance(const double p[3], const std::array<double, 3>& a, const
     return length(q);
 }
 
+// On a smooth surface, the vertex onto the surface: the planes of the points meet on the concave
+// side of a curved surface, their mass point is on that side too, so faces through such vertices
+// would cut into convex surfaces. The heights of the points above their mean plane are fitted by a
+// quadric of the position in the plane, the vertex goes to its height at the vertex.
+void SmoothVertex(const std::vector<const Crossing*>& points, const double lo[3], const double hi[3], float out[3])
+{
+    if (points.size() < 8) {
+        return;
+    }
+    double n[3] = {0, 0, 0};
+    for (const Crossing* c : points) {
+        if (!c->hasNormal) {
+            return;
+        }
+        for (int k = 0; k < 3; k++) {
+            n[k] += c->n[k];
+        }
+    }
+    const double len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+    if (len <= 0) {
+        return;
+    }
+    for (double& c : n) {
+        c /= len;
+    }
+    for (const Crossing* c : points) {
+        if (c->n[0] * n[0] + c->n[1] * n[1] + c->n[2] * n[2] < SharpCos) {
+            return;  // not smooth
+        }
+    }
+    // frame of the plane at the vertex
+    double e1[3], e2[3];
+    {
+        double ref[3] = {0, 0, 0};
+        const double ax = std::abs(n[0]), ay = std::abs(n[1]), az = std::abs(n[2]);
+        ref[ax <= ay && ax <= az ? 0 : (ay <= az ? 1 : 2)] = 1;
+        e1[0] = ref[1] * n[2] - ref[2] * n[1];
+        e1[1] = ref[2] * n[0] - ref[0] * n[2];
+        e1[2] = ref[0] * n[1] - ref[1] * n[0];
+        const double l = std::sqrt(e1[0] * e1[0] + e1[1] * e1[1] + e1[2] * e1[2]);
+        for (double& c : e1) {
+            c /= l;
+        }
+        e2[0] = n[1] * e1[2] - n[2] * e1[1];
+        e2[1] = n[2] * e1[0] - n[0] * e1[2];
+        e2[2] = n[0] * e1[1] - n[1] * e1[0];
+    }
+    // least squares h = c0 + c1 x + c2 y + c3 x^2 + c4 x y + c5 y^2, normal equations
+    double A[6][7] = {};
+    double scale = 0;
+    for (const Crossing* c : points) {
+        double d[3];
+        for (int k = 0; k < 3; k++) {
+            d[k] = c->p[k] - out[k];
+        }
+        scale = std::max(scale, d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    }
+    scale = std::sqrt(scale);
+    if (scale <= 0) {
+        return;
+    }
+    for (const Crossing* c : points) {
+        double d[3];
+        for (int k = 0; k < 3; k++) {
+            d[k] = (c->p[k] - out[k]) / scale;
+        }
+        const double x = d[0] * e1[0] + d[1] * e1[1] + d[2] * e1[2];
+        const double y = d[0] * e2[0] + d[1] * e2[1] + d[2] * e2[2];
+        const double h = d[0] * n[0] + d[1] * n[1] + d[2] * n[2];
+        const double f[6] = {1, x, y, x * x, x * y, y * y};
+        for (int r = 0; r < 6; r++) {
+            for (int k = 0; k < 6; k++) {
+                A[r][k] += f[r] * f[k];
+            }
+            A[r][6] += f[r] * h;
+        }
+    }
+    // Gauss elimination with partial pivoting
+    for (int col = 0; col < 6; col++) {
+        int pivot = col;
+        for (int r = col + 1; r < 6; r++) {
+            if (std::abs(A[r][col]) > std::abs(A[pivot][col])) {
+                pivot = r;
+            }
+        }
+        if (std::abs(A[pivot][col]) < 1e-9 * (double)points.size()) {
+            return;  // the points don't determine a quadric: keep the vertex
+        }
+        for (int k = 0; k < 7; k++) {
+            std::swap(A[col][k], A[pivot][k]);
+        }
+        for (int r = 0; r < 6; r++) {
+            if (r != col) {
+                const double f = A[r][col] / A[col][col];
+                for (int k = col; k < 7; k++) {
+                    A[r][k] -= f * A[col][k];
+                }
+            }
+        }
+    }
+    const double height = A[0][6] / A[0][0] * scale;
+    // a small correction only, within the cube
+    for (int k = 0; k < 3; k++) {
+        out[k] = (float)std::clamp(out[k] + height * n[k], lo[k], hi[k]);
+    }
+}
+
 // Minimizer of the squared distances to the planes of the points, near their mass point: the
 // eigenvectors of small eigenvalues are left out, so planes in few directions give the point
 // closest to the mass point on their intersection (sharp edges and corners)
@@ -413,15 +520,21 @@ void SolveQef(const std::vector<const Crossing*>& points, const double lo[3], co
 // Vertex of a sharp edge or corner: if the normals of the points form 2 or 3 tight groups far
 // apart, the point of their planes nearest to the mass point of the points. False otherwise, or if
 // it is outside the bounds.
-bool SharpVertex(const std::vector<const Crossing*>& points, const double lo[3], const double hi[3], float out[3])
+// Groups of the normals of the points of a sharp feature: 2 or 3 tight groups of planes far apart
+// (edges and corners of planes), or 2 groups of curved faces meeting at a ridge, like the ridges
+// between the passes of a ball end: the groups at least 12 degrees apart, each spreading less
+// than a third of that. Returns the number of groups, 0 if the points are no sharp feature, and
+// the group of every point.
+int SharpGroups(const std::vector<const Crossing*>& points, std::vector<int>& group)
 {
-    double n[3][3] = {}, d[3] = {};
-    int count[3] = {};
+    group.assign(points.size(), 0);
+    double n[3][3] = {};
     int groups = 0;
-    double mass[3] = {0, 0, 0};
-    for (const Crossing* c : points) {
+    bool tight = true;
+    for (size_t i = 0; i < points.size() && tight; i++) {
+        const Crossing* c = points[i];
         if (!c->hasNormal) {
-            return false;
+            return 0;
         }
         int g = 0;
         while (g < groups) {
@@ -433,19 +546,103 @@ bool SharpVertex(const std::vector<const Crossing*>& points, const double lo[3],
         }
         if (g == groups) {
             if (groups == 3) {
-                return false;
+                tight = false;
+                break;
             }
             groups++;
         }
+        for (int k = 0; k < 3; k++) {
+            n[g][k] += c->n[k];
+        }
+        group[i] = g;
+    }
+    if (tight && groups >= 2) {
+        for (int a = 0; a < groups; a++) {
+            for (int b = a + 1; b < groups; b++) {
+                const double la = std::sqrt(n[a][0] * n[a][0] + n[a][1] * n[a][1] + n[a][2] * n[a][2]);
+                const double lb = std::sqrt(n[b][0] * n[b][0] + n[b][1] * n[b][1] + n[b][2] * n[b][2]);
+                if ((n[a][0] * n[b][0] + n[a][1] * n[b][1] + n[a][2] * n[b][2]) / (la * lb) > SharpCos) {
+                    tight = false;
+                }
+            }
+        }
+        if (tight) {
+            return groups;
+        }
+    }
+    // a ridge: the two normals farthest apart as seeds, every point to the nearer one
+    if (points.size() < 4) {
+        return 0;
+    }
+    double mean[3] = {0, 0, 0};
+    for (const Crossing* c : points) {
+        for (int k = 0; k < 3; k++) {
+            mean[k] += c->n[k];
+        }
+    }
+    auto dot = [](const float* a, const double* b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; };
+    size_t sa = 0;
+    for (size_t i = 1; i < points.size(); i++) {
+        if (dot(points[i]->n, mean) < dot(points[sa]->n, mean)) {
+            sa = i;
+        }
+    }
+    const double seedA[3] = {points[sa]->n[0], points[sa]->n[1], points[sa]->n[2]};
+    size_t sb = 0;
+    for (size_t i = 1; i < points.size(); i++) {
+        if (dot(points[i]->n, seedA) < dot(points[sb]->n, seedA)) {
+            sb = i;
+        }
+    }
+    const double seedB[3] = {points[sb]->n[0], points[sb]->n[1], points[sb]->n[2]};
+    double m[2][3] = {};
+    for (size_t i = 0; i < points.size(); i++) {
+        group[i] = dot(points[i]->n, seedA) >= dot(points[i]->n, seedB) ? 0 : 1;
+        for (int k = 0; k < 3; k++) {
+            m[group[i]][k] += points[i]->n[k];
+        }
+    }
+    for (auto& g : m) {
+        const double len = std::sqrt(g[0] * g[0] + g[1] * g[1] + g[2] * g[2]);
+        if (len <= 0) {
+            return 0;
+        }
+        for (double& c : g) {
+            c /= len;
+        }
+    }
+    const double separation = std::acos(std::clamp(m[0][0] * m[1][0] + m[0][1] * m[1][1] + m[0][2] * m[1][2], -1.0, 1.0));
+    if (separation < 12 * M_PI / 180) {
+        return 0;
+    }
+    const double maxSpread = std::cos(separation / 3);
+    for (size_t i = 0; i < points.size(); i++) {
+        if (dot(points[i]->n, m[group[i]]) < maxSpread) {
+            return 0;
+        }
+    }
+    return 2;
+}
+
+bool SharpVertex(const std::vector<const Crossing*>& points, const double lo[3], const double hi[3], float out[3])
+{
+    thread_local std::vector<int> group;
+    const int groups = SharpGroups(points, group);
+    if (groups < 2) {
+        return false;
+    }
+    double n[3][3] = {}, d[3] = {};
+    int count[3] = {};
+    double mass[3] = {0, 0, 0};
+    for (size_t i = 0; i < points.size(); i++) {
+        const Crossing* c = points[i];
+        const int g = group[i];
         for (int k = 0; k < 3; k++) {
             n[g][k] += c->n[k];
             mass[k] += c->p[k];
         }
         d[g] += c->n[0] * c->p[0] + c->n[1] * c->p[1] + c->n[2] * c->p[2];
         count[g]++;
-    }
-    if (groups < 2) {
-        return false;
     }
     for (int k = 0; k < 3; k++) {
         mass[k] /= (double)points.size();
@@ -457,13 +654,6 @@ bool SharpVertex(const std::vector<const Crossing*>& points, const double lo[3],
             n[g][k] /= len;
         }
         d[g] = d[g] / count[g] / len;
-    }
-    for (int a = 0; a < groups; a++) {
-        for (int b = a + 1; b < groups; b++) {
-            if (n[a][0] * n[b][0] + n[a][1] * n[b][1] + n[a][2] * n[b][2] > SharpCos) {
-                return false;
-            }
-        }
     }
     // x = mass + sum l_g n_g with n_g . x = d_g: the Gram system N l = d - n . mass
     double N[3][3], r[3];
@@ -835,34 +1025,10 @@ void Mesher::ComputeGeometry(const Grid& grid, int leaf)
     // A sharp edge or corner of planes: the normals of the points form 2 or 3 tight groups far
     // apart, and the planes meet in the block, within a tenth of a cell of all points
     auto sharpFeature = [&](int x0, int y0, int z0, int m, const std::vector<const Crossing*>& points) {
-        float groups[4][3];
-        int count = 0;
-        for (const Crossing* c : points) {
-            if (!c->hasNormal) {
-                return false;
-            }
-            int g = 0;
-            while (g < count
-                   && c->n[0] * groups[g][0] + c->n[1] * groups[g][1] + c->n[2] * groups[g][2] < 0.9986f) {
-                g++;
-            }
-            if (g == count) {
-                if (count == 3) {
-                    return false;
-                }
-                std::copy(c->n, c->n + 3, groups[count++]);
-            }
-        }
+        thread_local std::vector<int> group;
+        const int count = SharpGroups(points, group);
         if (count < 2) {
             return false;
-        }
-        for (int a = 0; a < count; a++) {
-            for (int b = a + 1; b < count; b++) {
-                if (groups[a][0] * groups[b][0] + groups[a][1] * groups[b][1] + groups[a][2] * groups[b][2]
-                    > SharpCos) {
-                    return false;
-                }
-            }
         }
         double lo[3], hi[3];
         const int b[3] = {x0, y0, z0};
@@ -879,17 +1045,14 @@ void Mesher::ComputeGeometry(const Grid& grid, int leaf)
         // not only its plane (like the walls and the floor of a slot, whose planes meet beyond
         // the walls)
         double nearest[3] = {1e30, 1e30, 1e30};
-        for (const Crossing* c : points) {
+        for (size_t i = 0; i < points.size(); i++) {
+            const Crossing* c = points[i];
             const double d = c->n[0] * (vertex[0] - c->p[0]) + c->n[1] * (vertex[1] - c->p[1])
                 + c->n[2] * (vertex[2] - c->p[2]);
             if (std::abs(d) > 0.1 * cellWorld) {
                 return false;
             }
-            int g = 0;
-            while (g < count - 1
-                   && c->n[0] * groups[g][0] + c->n[1] * groups[g][1] + c->n[2] * groups[g][2] < 0.9986f) {
-                g++;
-            }
+            const int g = group[i];
             const double dx = vertex[0] - c->p[0], dy = vertex[1] - c->p[1], dz = vertex[2] - c->p[2];
             nearest[g] = std::min(nearest[g], std::sqrt(dx * dx + dy * dy + dz * dz));
         }
@@ -1045,6 +1208,7 @@ void Mesher::ComputeGeometry(const Grid& grid, int leaf)
         }
         if (!SharpVertex(points, lo, hi, cube.p)) {
             SolveQef(points, lo, hi, cube.p);
+            SmoothVertex(points, lo, hi, cube.p);
         }
         double n[3] = {0, 0, 0};
         int withNormal = 0, tagVotes[64] = {};

@@ -27,6 +27,7 @@
 #include "ThreadPool.h"
 
 #include <algorithm>
+#include <unordered_map>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -88,6 +89,51 @@ double SegmentDistance2D(double px, double py, double ax, double ay, double bx, 
     const double t = dd > 0 ? std::clamp((wx * dx + wy * dy) / dd, 0.0, 1.0) : 0;
     const double ex = wx - t * dx, ey = wy - t * dy;
     return std::sqrt(ex * ex + ey * ey);
+}
+
+// distance between two segments in 3D
+double SegmentDistance(const double a0[3], const double a1[3], const double b0[3], const double b1[3])
+{
+    double u[3], v[3], w[3];
+    for (int k = 0; k < 3; k++) {
+        u[k] = a1[k] - a0[k];
+        v[k] = b1[k] - b0[k];
+        w[k] = a0[k] - b0[k];
+    }
+    const double a = u[0] * u[0] + u[1] * u[1] + u[2] * u[2];
+    const double b = u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+    const double c = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+    const double d = u[0] * w[0] + u[1] * w[1] + u[2] * w[2];
+    const double e = v[0] * w[0] + v[1] * w[1] + v[2] * w[2];
+    const double det = a * c - b * b;
+    double s = 0, t = 0;
+    if (a <= 1e-24 && c <= 1e-24) {
+        s = t = 0;
+    }
+    else if (a <= 1e-24) {
+        t = std::clamp(e / c, 0.0, 1.0);
+    }
+    else if (c <= 1e-24) {
+        s = std::clamp(-d / a, 0.0, 1.0);
+    }
+    else {
+        s = det > 1e-24 * a * c ? std::clamp((b * e - c * d) / det, 0.0, 1.0) : 0.0;
+        t = (b * s + e) / c;
+        if (t < 0) {
+            t = 0;
+            s = std::clamp(-d / a, 0.0, 1.0);
+        }
+        else if (t > 1) {
+            t = 1;
+            s = std::clamp((b - d) / a, 0.0, 1.0);
+        }
+    }
+    double dist = 0;
+    for (int k = 0; k < 3; k++) {
+        const double x = w[k] + s * u[k] - t * v[k];
+        dist += x * x;
+    }
+    return std::sqrt(dist);
 }
 
 // Tables of a tool for the planner, by distance from the axis (rounded up, conservative)
@@ -419,6 +465,7 @@ void Simulation::Plan(const std::vector<float>& xyz, float quality)
         int level;
     };
     std::vector<Request> requests;
+    std::vector<uint8_t> reaches(mMotions.size(), 0);
     for (Motion2& m2 : mMotions) {
         Motion& m = m2.motion;
         const Tool& tool = *m.tool;
@@ -507,6 +554,7 @@ void Simulation::Plan(const std::vector<float>& xyz, float quality)
         if (reach <= tool.MinZ()) {
             continue;  // above the material
         }
+        reaches[&m2 - mMotions.data()] = 1;
         // the cells for the widest part of the tool in the material
         const double width = tool.RadiusBelow(reach - tool.MinZ());
         const int level = levelFor(std::max(width, 0.02 * tool.Radius()));
@@ -529,6 +577,136 @@ void Simulation::Plan(const std::vector<float>& xyz, float quality)
             r.radius = std::sqrt(rr * rr + 0.25 * (zTop - z) * (zTop - z));
             r.level = level;
             requests.push_back(r);
+        }
+    }
+
+    // Grooves: passes of a ball end beside each other leave ridges between them, whose sides
+    // meet at an angle growing with their distance. Where it is more than 10 degrees, and the
+    // ridges are higher than a tenth of the cells of the tool, the cells along the passes get an
+    // eighth of their distance, so the ridges show: up to 2 levels finer than the tool at the
+    // highest quality, none at the lowest. Passes are found by the paths of
+    // the centers of the balls, in 3D, with any tool axis, from all passes of the tool.
+    const int grooveLevels = (int)std::lround(2 * q);
+    if (grooveLevels > 0) {
+        for (size_t t = 0; t < mTools.size(); t++) {
+            const Tool* tool = mTools[t].get();
+            if (!tool || !tool->Cuts() || tool->Spheres().empty()) {
+                continue;
+            }
+            const Tool::Sphere ball = tool->Spheres()[0];
+            if (ball.zc - ball.radius > tool->MinZ() + 1e-3) {
+                continue;  // not a ball end
+            }
+            const double R = ball.radius;
+            // the center paths of its passes in a hash of cells of the size of the ball
+            struct Path
+            {
+                double a[3], b[3];
+                int motion;
+            };
+            std::vector<Path> paths;
+            for (size_t i = 0; i < mMotions.size(); i++) {
+                const Motion& m = mMotions[i].motion;
+                if (m.tool != tool || !reaches[i]) {
+                    continue;
+                }
+                Path path;
+                for (int k = 0; k < 3; k++) {
+                    path.a[k] = m.p0[k] + ball.zc * m.a0[k];
+                    path.b[k] = m.p1[k] + ball.zc * m.a1[k];
+                }
+                path.motion = (int)i;
+                paths.push_back(path);
+            }
+            if (paths.size() < 2) {
+                continue;
+            }
+            const double hashCell = 2 * R;
+            auto keyOf = [&](long x, long y, long z) {
+                return ((uint64_t)(x & 0x1FFFFF)) | ((uint64_t)(y & 0x1FFFFF) << 21)
+                    | ((uint64_t)(z & 0x1FFFFF) << 42);
+            };
+            std::unordered_map<uint64_t, std::vector<int>> hash;
+            for (size_t i = 0; i < paths.size(); i++) {
+                long lo[3], hi[3];
+                for (int k = 0; k < 3; k++) {
+                    lo[k] = (long)std::floor(std::min(paths[i].a[k], paths[i].b[k]) / hashCell);
+                    hi[k] = (long)std::floor(std::max(paths[i].a[k], paths[i].b[k]) / hashCell);
+                }
+                for (long z = lo[2]; z <= hi[2]; z++) {
+                    for (long y = lo[1]; y <= hi[1]; y++) {
+                        for (long x = lo[0]; x <= hi[0]; x++) {
+                            hash[keyOf(x, y, z)].push_back((int)i);
+                        }
+                    }
+                }
+            }
+            const int toolLevel = levelFor(tool->FeatureSize());
+            const double toolCell = rootCell / (double)(1 << toolLevel);
+            std::vector<Request> found(paths.size());
+            std::vector<uint8_t> has(paths.size(), 0);
+            std::atomic<size_t> nextPath {0};
+            mPool->Run([&](int) {
+                std::vector<int> seen;
+                for (size_t i; (i = nextPath.fetch_add(32)) < paths.size();) {
+                    for (size_t pi = i; pi < std::min(paths.size(), i + 32); pi++) {
+                        const Path& p = paths[pi];
+                        long lo[3], hi[3];
+                        for (int k = 0; k < 3; k++) {
+                            lo[k] = (long)std::floor((std::min(p.a[k], p.b[k]) - 2 * R) / hashCell);
+                            hi[k] = (long)std::floor((std::max(p.a[k], p.b[k]) + 2 * R) / hashCell);
+                        }
+                        // the nearest pass beside it, not touching it
+                        double nearest = 2 * R;
+                        seen.clear();
+                        for (long z = lo[2]; z <= hi[2]; z++) {
+                            for (long y = lo[1]; y <= hi[1]; y++) {
+                                for (long x = lo[0]; x <= hi[0]; x++) {
+                                    auto it = hash.find(keyOf(x, y, z));
+                                    if (it == hash.end()) {
+                                        continue;
+                                    }
+                                    for (int other : it->second) {
+                                        if (other == (int)pi) {
+                                            continue;
+                                        }
+                                        const double d = SegmentDistance(p.a, p.b, paths[other].a, paths[other].b);
+                                        if (d > 0.1 * R && d < nearest) {
+                                            nearest = d;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // ridges steeper than 10 degrees, higher than a tenth of the cells of
+                        // the tool
+                        const double ridge = R - std::sqrt(std::max(0.0, R * R - nearest * nearest / 4));
+                        if (nearest >= 2 * R || 2 * std::asin(nearest / (2 * R)) < 10 * M_PI / 180
+                            || ridge < 0.1 * toolCell) {
+                            continue;
+                        }
+                        const int level = std::min(
+                            toolLevel + grooveLevels,
+                            std::clamp((int)std::ceil(std::log2(rootCell / (nearest / 8)) - 1e-9), 0, 10)
+                        );
+                        if (level <= toolLevel) {
+                            continue;
+                        }
+                        Request& r = found[pi];
+                        std::copy(p.a, p.a + 3, r.a);
+                        std::copy(p.b, p.b + 3, r.b);
+                        r.radius = R + rootCell / (double)(1 << level);
+                        r.level = level;
+                        has[pi] = 1;
+                    }
+                }
+            });
+            for (size_t i = 0; i < paths.size(); i++) {
+                if (has[i]) {
+                    requests.push_back(found[i]);
+                    levels = std::max(levels, found[i].level);
+                }
+            }
         }
     }
 
