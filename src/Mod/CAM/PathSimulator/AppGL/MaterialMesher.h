@@ -105,6 +105,8 @@ public:
     {
         return *mLayout;
     }
+    // Memory of the cache and the meshes
+    long MemoryBytes() const;
 
     struct Geometry;
 

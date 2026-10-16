@@ -50,7 +50,7 @@ constexpr double CheckpointMs = 40;
 // Time of a batch of the frontier: a new target waits for it at most
 constexpr double BatchMs = 15;
 // Memory of the bricks kept for checkpoints, beyond it every other checkpoint is dropped
-constexpr long CheckpointBudget = 1L << 30;
+constexpr long CheckpointBudget = 768L << 20;
 
 // Material top along one of the six axis directions, on a grid across it: an upper bound of
 // (point . direction) over the material in each cell

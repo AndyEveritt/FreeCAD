@@ -55,8 +55,10 @@ struct Span
 // there.
 struct Brick
 {
+    // a brick holds at most MaxSpans spans
+    static constexpr size_t MaxSpans = 65535;
     std::vector<Span> spans;
-    uint32_t start[BrickLines + 1] = {};
+    uint16_t start[BrickLines + 1] = {};
 };
 
 // Stock material as tri-dexels in the bricks of a layout. Bricks are shared by copies of the grid

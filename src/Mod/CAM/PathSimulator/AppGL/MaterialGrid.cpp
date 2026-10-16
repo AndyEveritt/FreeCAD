@@ -230,7 +230,7 @@ void Grid::SetMesh(const std::vector<float>& xyz, const std::vector<uint32_t>& t
         std::vector<Hit> hits;
         bool solid = true;
         for (int line = 0; line < (touched ? BrickLines : 1); line++) {
-            brick->start[line] = (uint32_t)brick->spans.size();
+            brick->start[line] = (uint16_t)brick->spans.size();
             const int a = line / AxisLines;
             double origin[3];
             LineOrigin(leaf, line, origin);
@@ -342,7 +342,7 @@ void Grid::SetMesh(const std::vector<float>& xyz, const std::vector<uint32_t>& t
                     s1 = sHi;
                     n1 = NoNormal;
                 }
-                if (s1 - s0 < 1e-6) {
+                if (s1 - s0 < 1e-6 || brick->spans.size() >= Brick::MaxSpans) {
                     continue;
                 }
                 brick->spans.push_back({(float)s0, (float)s1, n0, n1});
@@ -351,7 +351,7 @@ void Grid::SetMesh(const std::vector<float>& xyz, const std::vector<uint32_t>& t
             }
             solid = solid && spans == 1;
         }
-        brick->start[BrickLines] = (uint32_t)brick->spans.size();
+        brick->start[BrickLines] = (uint16_t)brick->spans.size();
         if (brick->spans.empty()) {
             return;
         }
@@ -587,14 +587,17 @@ long Grid::CutLeaf(
         return packed | CutFlag | ((uint32_t)sw.GetMotion().tag << TagShift);
     };
     for (int line = 0; line < BrickLines; line++) {
-        brick->start[line] = (uint32_t)brick->spans.size();
+        brick->start[line] = (uint16_t)brick->spans.size();
         for (const WorkSpan& span : lines[line]) {
+            if (brick->spans.size() >= Brick::MaxSpans) {
+                break;  // finer than a brick can hold, never in practice
+            }
             const uint32_t nlo = span.plo >= 0 ? pack(line, span.plo) : span.nlo;
             const uint32_t nhi = span.phi >= 0 ? pack(line, span.phi) : span.nhi;
             brick->spans.push_back({(float)span.lo, (float)span.hi, nlo, nhi});
         }
     }
-    brick->start[BrickLines] = (uint32_t)brick->spans.size();
+    brick->start[BrickLines] = (uint16_t)brick->spans.size();
     if (undo) {
         *undo = {leaf, mBricks[leaf]};
     }

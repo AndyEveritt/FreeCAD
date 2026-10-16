@@ -1262,6 +1262,22 @@ void Mesher::BuildUnit(const Grid& grid, int unit, UnitMesh& out) const
     }
 }
 
+long Mesher::MemoryBytes() const
+{
+    long bytes = (long)(mGeometry.size() * sizeof(void*) + mNeighbors.size() * sizeof(int));
+    for (const auto& g : mGeometry) {
+        if (g) {
+            bytes += (long)(sizeof(Geometry) + g->cubes.capacity() * sizeof(Geometry::Cube)
+                            + g->crossings.capacity() * sizeof(Crossing) + g->cubeOf.capacity() * 2
+                            + g->edges.capacity() * 4);
+        }
+    }
+    for (const UnitMesh& m : mMeshes) {
+        bytes += (long)(m.vertices.capacity() * sizeof(MeshVertex) + (m.stock.capacity() + m.cut.capacity()) * 4);
+    }
+    return bytes;
+}
+
 std::vector<int> Mesher::Update(const Grid& grid, const std::vector<int>& changed, ThreadPool& pool)
 {
     const Layout& L = *mLayout;
