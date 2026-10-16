@@ -101,6 +101,8 @@ def run_process(args, runs, workdir, name):
     config = {
         "runs": runs,
         "quality": args.quality,
+        "color_by_operation": args.color_by_operation,
+        "thin_walls": args.thin_walls,
         "window": args.window,
         "view": args.view,
         "scenarios": args.scenarios,
@@ -277,12 +279,23 @@ def cell(sc, key="frame_ms"):
     return text + ("*" if sc.get("timed_out") else "")
 
 
+def display_options(data):
+    """The display options of a run. Results from before they were options had them off."""
+    config = data["config"]
+    on = {
+        "colors": config.get("color_by_operation", False),
+        "thin walls": config.get("thin_walls", False),
+    }
+    return "display: " + (", ".join(k for k, v in on.items() if v) or "plain")
+
+
 def print_summary(data, file=sys.stdout):
     git = data["git"]
     print(
         f"\nlabel: {data.get('label')}  commit: {git.get('commit')}"
         f"{' (dirty)' if git.get('dirty') else ''}  mode: {data['config']['mode']}"
-        f"  quality: {data['config'].get('quality')}  wall time: {data.get('wall_s', 0):.0f} s",
+        f"  quality: {data['config'].get('quality')}  {display_options(data)}"
+        f"  wall time: {data.get('wall_s', 0):.0f} s",
         file=file,
     )
     renderers = {r.get("renderer", {}).get("renderer") for r in data["runs"]}
@@ -341,6 +354,9 @@ def print_comparison(base, new, file=sys.stdout):
     quality = (base["config"].get("quality"), new["config"].get("quality"))
     if quality[0] != quality[1]:
         print(f"warning: different quality, base {quality[0]}, new {quality[1]}", file=file)
+    options = (display_options(base), display_options(new))
+    if options[0] != options[1]:
+        print(f"warning: different display, base {options[0]}, new {options[1]}", file=file)
     base_runs = {(r["job"], str(r["size"])): r for r in merge_repeats(base["runs"])}
     for run in merge_repeats(new["runs"]):
         b = base_runs.get((run["job"], str(run["size"])))
@@ -384,6 +400,18 @@ def main():
     parser.add_argument("--repeats", type=int, help="runs of each job, in separate processes")
     parser.add_argument("--window", help="main window size WxH")
     parser.add_argument("--quality", type=int, default=10, help="simulator accuracy 1..10")
+    parser.add_argument(
+        "--color-by-operation",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="color the stock by operation (default: on)",
+    )
+    parser.add_argument(
+        "--thin-walls",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="show thin walls, below the default threshold of 0.5 mm (default: on)",
+    )
     parser.add_argument("--view", default="ViewAxo", help="initial view, e.g. ViewAxo, ViewTop")
     parser.add_argument(
         "--timeout", type=float, default=120.0, help="seconds after which a scenario is stopped"

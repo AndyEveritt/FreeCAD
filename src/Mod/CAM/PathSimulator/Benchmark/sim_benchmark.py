@@ -137,6 +137,16 @@ class Limit:
         return self.timed_out
 
 
+def reference_options():
+    """The part of the name of reference images for the options that are not the defaults."""
+    name = "" if CONFIG["quality"] == 10 else f"_quality{CONFIG['quality']}"
+    if not CONFIG["color_by_operation"]:
+        name += "_nocolors"
+    if not CONFIG["thin_walls"]:
+        name += "_nothin"
+    return name
+
+
 def document_job(name):
     """The job of a CAM document in the format of jobs.make_job(), and the document. The G-code is
     what the simulator task panel gives the simulator for the active operations; the stock and the
@@ -607,7 +617,13 @@ class JobBench:
         self.move_to(self.slider.maximum())
         limit.restart()
         actions = []
-        for name in ("pathButton", "ssaoButton", "stockModelButton"):
+        for name in (
+            "pathButton",
+            "ssaoButton",
+            "stockModelButton",
+            "colorByOperationButton",
+            "thinWallsButton",
+        ):
             if name in self.buttons:
                 # each toggle twice, to restore the original state
                 actions += [self.buttons[name].click, self.buttons[name].click]
@@ -634,9 +650,7 @@ class JobBench:
             resting = self.glw.grab().toImage()
 
             check = {"stage": stage, "interactive_vs_resting": image_diff(interactive, resting)}
-            # references for other qualities than the default have it in their name
-            quality = "" if CONFIG["quality"] == 10 else f"_quality{CONFIG['quality']}"
-            name = f"{self.job}_{self.size}{quality}_{int(stage * 100)}.png"
+            name = f"{self.job}_{self.size}{reference_options()}_{int(stage * 100)}.png"
             if CONFIG.get("save_reference_dir"):
                 resting.save(os.path.join(CONFIG["save_reference_dir"], name))
             elif CONFIG.get("reference_dir"):
@@ -716,6 +730,10 @@ def main():
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetString(
             "NavigationStyle", "Gui::OpenInventorNavigationStyle"
         )
+        # the display options of the simulator
+        cam = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/CAM")
+        cam.SetBool("SimulatorColorByOperation", CONFIG["color_by_operation"])
+        cam.SetBool("SimulatorThinWalls", CONFIG["thin_walls"])
         setup_window()
         for run in CONFIG["runs"]:
             try:
