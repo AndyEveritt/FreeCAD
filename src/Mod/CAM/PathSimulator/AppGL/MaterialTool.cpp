@@ -593,6 +593,56 @@ double ParallelogramDistance(
     return std::sqrt(best);
 }
 
+double ArcDistance(const Motion& m, double x, double y, double& t)
+{
+    const double dx = x - m.center[0], dy = y - m.center[1];
+    const double rho = std::sqrt(dx * dx + dy * dy);
+    if (rho > 1e-12) {
+        // the angle of the point in the parametrization of the arc
+        const double a = std::atan2(-dx, dy);
+        double delta = a - m.startAngle;
+        const double twoPi = 2 * M_PI;
+        if (m.sweep >= 0) {
+            delta = std::fmod(std::fmod(delta, twoPi) + twoPi, twoPi);
+        }
+        else {
+            delta = -std::fmod(std::fmod(-delta, twoPi) + twoPi, twoPi);
+        }
+        const double tt = m.sweep != 0 ? delta / m.sweep : 2;
+        if (tt >= 0 && tt <= 1) {
+            t = tt;
+            return std::abs(rho - m.radius);
+        }
+    }
+    // the closer end
+    auto end = [&](double te) {
+        const double a = m.startAngle + te * m.sweep;
+        const double ex = m.center[0] - std::sin(a) * m.radius - x;
+        const double ey = m.center[1] + std::cos(a) * m.radius - y;
+        return std::sqrt(ex * ex + ey * ey);
+    };
+    const double d0 = end(0), d1 = end(1);
+    t = d0 <= d1 ? 0 : 1;
+    return std::min(d0, d1);
+}
+
+ArcGeometry::ArcGeometry(const Motion& m)
+{
+    cx = m.center[0];
+    cy = m.center[1];
+    radius = m.radius;
+    const double a0 = m.startAngle, a1 = m.startAngle + m.sweep;
+    d0x = -std::sin(a0);
+    d0y = std::cos(a0);
+    d1x = -std::sin(a1);
+    d1y = std::cos(a1);
+    x0 = cx + radius * d0x;
+    y0 = cy + radius * d0y;
+    x1 = cx + radius * d1x;
+    y1 = cy + radius * d1y;
+    side = m.sweep >= 0 ? 1 : -1;
+}
+
 double CuttingHeight(const Motion& motion, const double lo[3], const double hi[3])
 {
     // The highest point of the box along the axis, relative to the tip: max over the corners of
@@ -729,6 +779,37 @@ Sweep::Sweep(const Motion& motion)
         for (size_t j = 0; j < mPrims.size(); j++) {
             mBounds[j] = BoundOf(p, mPrims[j]);
         }
+        if (mMotion.arc) {
+            mArc = ArcGeometry(mMotion);
+            // the box of the arc: its ends and the extremes of its circle within it
+            double lo[2] = {1e300, 1e300}, hi[2] = {-1e300, -1e300};
+            auto add = [&](double a) {
+                const double x = mMotion.center[0] - std::sin(a) * mMotion.radius;
+                const double y = mMotion.center[1] + std::cos(a) * mMotion.radius;
+                lo[0] = std::min(lo[0], x);
+                hi[0] = std::max(hi[0], x);
+                lo[1] = std::min(lo[1], y);
+                hi[1] = std::max(hi[1], y);
+            };
+            add(mMotion.startAngle);
+            add(mMotion.startAngle + mMotion.sweep);
+            for (int q = -8; q <= 8; q++) {
+                const double a = q * M_PI / 2;
+                const double t = (a - mMotion.startAngle) / mMotion.sweep;
+                if (mMotion.sweep != 0 && t > 0 && t < 1) {
+                    add(a);
+                }
+            }
+            for (size_t j = 0; j < mPrims.size(); j++) {
+                const Prim& prim = mPrims[j];
+                const double r = PrimRadius(prim) + 1e-6;
+                Bound& b = mBounds[j];
+                for (int k = 0; k < 2; k++) {
+                    b.lo[k] = std::nextafter((float)(lo[k] - r), -1e30f);
+                    b.hi[k] = std::nextafter((float)(hi[k] + r), 1e30f);
+                }
+            }
+        }
     }
     else {
         // Motions turning the axis are swept in pieces, every primitive on its own: in a piece,
@@ -833,7 +914,7 @@ Sweep::Sweep(const Motion& motion)
             mSlabE1[k] = p.d[k];
             mSlabE2[k] = (zhi - zlo) * p.a[k];
         }
-        mSlabRadius = rmax + 1e-6;
+        mSlabRadius = mMotion.arc ? -1 : rmax + 1e-6;
     }
 }
 
@@ -883,6 +964,20 @@ Sweep::Bound Sweep::BoundOf(const Piece& p, const Prim& prim)
 
 bool Sweep::MayTouch(const double pt[3], double margin) const
 {
+    if (mMotion.arc) {
+        // within the height of the tool, and its radius from the arc
+        double zlo = Inf, zhi = -Inf, rmax = 0;
+        for (const Prim& prim : mPrims) {
+            zlo = std::min(zlo, PrimLow(prim));
+            zhi = std::max(zhi, PrimHigh(prim));
+            rmax = std::max(rmax, PrimRadius(prim));
+        }
+        const double h = (pt[2] - mMotion.p0[2]) * mMotion.a0[2];
+        if (h < zlo - margin || h > zhi + margin) {
+            return false;
+        }
+        return mArc.Distance(pt[0], pt[1]) <= rmax + margin;
+    }
     if (mSlabRadius < 0) {
         return true;
     }
@@ -998,6 +1093,12 @@ void Sweep::PoseAt(double t, double tip[3], double axisDir[3]) const
     for (int k = 0; k < 3; k++) {
         tip[k] = mMotion.p0[k] + t * (mMotion.p1[k] - mMotion.p0[k]);
         axisDir[k] = mMotion.a0[k] + t * (mMotion.a1[k] - mMotion.a0[k]);
+    }
+    if (mMotion.arc) {
+        const double a = mMotion.startAngle + t * mMotion.sweep;
+        tip[0] = mMotion.center[0] - std::sin(a) * mMotion.radius;
+        tip[1] = mMotion.center[1] + std::cos(a) * mMotion.radius;
+        tip[2] = mMotion.p0[2];
     }
     Normalize(axisDir);
 }
@@ -1206,6 +1307,110 @@ bool Sweep::FrustumLine(const Piece& p, const Prim& f, int axis, const double o[
 }
 
 
+void Sweep::ArcDiskLine(int axis, const double o[3], double r, int prim, std::vector<Interval>& found) const
+{
+    // In the plane of the line across the axis: the points within r of the arc are the annulus
+    // around its circle in the wedge of the arc, and the disks around its ends. The line is
+    // q(s) = (o[0], o[1]) + s e, s the world coordinate along the axis (0 or 1).
+    const double cx = mMotion.center[0], cy = mMotion.center[1], R = mMotion.radius;
+    const double ex = axis == 0 ? 1 : 0, ey = axis == 1 ? 1 : 0;
+    const double ox = axis == 0 ? 0 : o[0], oy = axis == 1 ? 0 : o[1];
+    std::pair<double, double> pieces[8];
+    int count = 0;
+    // the line in a disk
+    auto disk = [&](double x, double y, double radius, double& s0, double& s1) {
+        const double wx = ox - x, wy = oy - y;
+        const double b = wx * ex + wy * ey;
+        const double c = wx * wx + wy * wy - radius * radius;
+        const double disc = b * b - c;
+        if (disc < 0) {
+            return false;
+        }
+        const double sq = std::sqrt(disc);
+        s0 = -b - sq;
+        s1 = -b + sq;
+        return true;
+    };
+    double s0, s1;
+    for (double t : {0.0, 1.0}) {
+        double tip[3], unused[3];
+        PoseAt(t, tip, unused);
+        if (disk(tip[0], tip[1], r, s0, s1)) {
+            pieces[count++] = {s0, s1};
+        }
+    }
+    // the wedge: on the inner side of the rays to both ends
+    double w0 = -Inf, w1 = Inf;
+    for (int end = 0; end < 2; end++) {
+        const double a = mMotion.startAngle + end * mMotion.sweep;
+        // direction of the end from the center, and the side of the wedge: the arc turns
+        // counterclockwise for a positive sweep
+        const double dx = -std::sin(a), dy = std::cos(a);
+        const double side = (mMotion.sweep >= 0 ? 1 : -1) * (end == 0 ? 1 : -1);
+        // side * cross(d, q - c) >= 0
+        const double alpha = side * (dx * (oy - cy) - dy * (ox - cx));
+        const double beta = side * (dx * ey - dy * ex);
+        if (std::abs(beta) < 1e-15) {
+            if (alpha < 0) {
+                w0 = Inf;
+                w1 = -Inf;
+            }
+            continue;
+        }
+        const double sb = -alpha / beta;
+        if (beta > 0) {
+            w0 = std::max(w0, sb);
+        }
+        else {
+            w1 = std::min(w1, sb);
+        }
+    }
+    double a0, a1;
+    if (w0 <= w1 && disk(cx, cy, R + r, a0, a1)) {
+        a0 = std::max(a0, w0);
+        a1 = std::min(a1, w1);
+        double i0, i1;
+        if (R > r && disk(cx, cy, R - r, i0, i1)) {
+            // minus the inner disk
+            if (a0 < std::min(a1, i0)) {
+                pieces[count++] = {a0, std::min(a1, i0)};
+            }
+            if (std::max(a0, i1) < a1) {
+                pieces[count++] = {std::max(a0, i1), a1};
+            }
+        }
+        else if (a0 <= a1) {
+            pieces[count++] = {a0, a1};
+        }
+    }
+    if (count == 0) {
+        return;
+    }
+    // at most 4 pieces
+    for (int i = 1; i < count; i++) {
+        for (int j = i; j > 0 && pieces[j] < pieces[j - 1]; j--) {
+            std::swap(pieces[j], pieces[j - 1]);
+        }
+    }
+    const Prim& p = mPrims[prim];
+    auto endOf = [&](double s) {
+        // the time of the closest point is found for the normals, when needed
+        return RemovalEnd {s, 0, prim, p.sphere ? SphereSurface : ConeSurface, -1};
+    };
+    double lo = pieces[0].first, hi = pieces[0].second;
+    for (int i = 1; i <= count; i++) {
+        if (i < count && pieces[i].first <= hi) {
+            hi = std::max(hi, pieces[i].second);
+            continue;
+        }
+        found.push_back({endOf(lo), endOf(hi)});
+        if (i < count) {
+            lo = pieces[i].first;
+            hi = pieces[i].second;
+        }
+    }
+}
+
 void Sweep::LineEntry(int e, int axis, const double o[3], double sMin, double sMax, std::vector<Interval>& found)
     const
 {
@@ -1255,7 +1460,12 @@ void Sweep::LinePiece(int pi, int axis, const double o[3], double sMin, double s
     // line across the axis: the tool frame height of the line is fixed
     const bool lineAcross = across && std::abs(aAxis) < 1e-12;
     double rhoMin = 0, tauMin = 0, zLine = 0;
-    if (along) {
+    if (along && mMotion.arc) {
+        // the time of the closest point is found for the normals, when needed
+        rhoMin = mArc.Distance(o[0], o[1]);
+        tauMin = -1;
+    }
+    else if (along) {
         // distances of the line from the axis during the motion: the closest approach and the
         // farthest end
         const double du = p.d[u], dv = p.d[v];
@@ -1446,6 +1656,12 @@ void Sweep::LinePiece(int pi, int axis, const double o[3], double sMin, double s
         found.push_back(iv);
     }
 
+    if (mMotion.arc) {
+        if (lineAcross && bestPrim >= 0 && bestRadius > 0) {
+            ArcDiskLine(axis, o, bestRadius, bestPrim, found);
+        }
+        return;
+    }
     if (lineAcross && bestPrim >= 0 && bestRadius > 0) {
         // the disk of the largest cross section swept along the motion: a capsule in the plane
         // of the line
@@ -1577,7 +1793,16 @@ bool Sweep::Normal(int axis, const double origin[3], const RemovalEnd& end, floa
     double x[3] = {origin[0], origin[1], origin[2]};
     x[axis] = end.s;
     double out[3];
-    if (prim.sphere) {
+    if (prim.sphere && mMotion.arc) {
+        // the center of the sphere nearest to the point
+        double t, tip[3], axisDir[3];
+        ArcDistance(mMotion, x[0], x[1], t);
+        PoseAt(t, tip, axisDir);
+        for (int k = 0; k < 3; k++) {
+            out[k] = tip[k] + prim.zc * p.a[k] - x[k];
+        }
+    }
+    else if (prim.sphere) {
         double w[3];
         for (int k = 0; k < 3; k++) {
             w[k] = x[k] - (p.p0[k] + prim.zc * p.a[k]);
@@ -1591,8 +1816,20 @@ bool Sweep::Normal(int axis, const double origin[3], const RemovalEnd& end, floa
     else {
         const Tool::Frustum& f = tool.Frustums()[prim.index];
         double w[3];
-        for (int k = 0; k < 3; k++) {
-            w[k] = x[k] - p.p0[k] - end.t * p.d[k];
+        if (mMotion.arc) {
+            double tip[3], axisDir[3], t = end.t;
+            if (t < 0) {
+                ArcDistance(mMotion, x[0], x[1], t);
+            }
+            PoseAt(t, tip, axisDir);
+            for (int k = 0; k < 3; k++) {
+                w[k] = x[k] - tip[k];
+            }
+        }
+        else {
+            for (int k = 0; k < 3; k++) {
+                w[k] = x[k] - p.p0[k] - end.t * p.d[k];
+            }
         }
         const double lx = Dot(w, p.e1), ly = Dot(w, p.e2), lz = Dot(w, p.a);
         double nr, nz;

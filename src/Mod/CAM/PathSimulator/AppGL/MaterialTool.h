@@ -24,6 +24,8 @@
 
 #pragma once
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <vector>
 
@@ -161,6 +163,40 @@ struct Motion
     double cutHeight = 1e30;
     // Largest deviation of the swept volume of a motion turning the axis
     double tolerance = 5e-4;
+    // A circular arc instead of a line, for tools along Z at a constant height: the tip is at
+    // center + radius (-sin(a), cos(a)), a = startAngle + t sweep, |sweep| at most pi / 2, and at
+    // the height of p0
+    bool arc = false;
+    double center[2] = {0, 0};
+    double radius = 0;
+    double startAngle = 0;
+    double sweep = 0;
+};
+
+// Distance in the plane from a point to the arc of a motion, and the time of its closest point
+double ArcDistance(const Motion& m, double x, double y, double& t);
+
+// The arc of a motion, for fast distances: the directions of its ends from its center
+struct ArcGeometry
+{
+    double cx = 0, cy = 0, radius = 0;
+    double x0 = 0, y0 = 0, x1 = 0, y1 = 0;  // ends
+    double d0x = 0, d0y = 0, d1x = 0, d1y = 0;  // directions of the ends from the center
+    double side = 1;  // 1 for counterclockwise
+    explicit ArcGeometry(const Motion& m);
+    ArcGeometry() = default;
+    // distance in the plane from a point to the arc
+    double Distance(double x, double y) const
+    {
+        const double dx = x - cx, dy = y - cy;
+        // in the wedge of the arc (up to a half circle): on the inner side of both ends
+        if (side * (d0x * dy - d0y * dx) >= 0 && side * (dx * d1y - dy * d1x) >= 0) {
+            return std::abs(std::sqrt(dx * dx + dy * dy) - radius);
+        }
+        const double e0 = (x - x0) * (x - x0) + (y - y0) * (y - y0);
+        const double e1 = (x - x1) * (x - x1) + (y - y1) * (y - y1);
+        return std::sqrt(std::min(e0, e1));
+    }
 };
 
 // Distance from a point to the parallelogram base + x e1 + y e2, x and y in [0, 1], in 3D, or in
@@ -320,6 +356,8 @@ private:
     bool FrustumLine(const Piece& p, const Prim& prim, int axis, const double o[3], Interval& out) const;
     void PoseAt(double t, double tip[3], double axisDir[3]) const;
     int BuildNode(int first, int count);
+    // the disk of a cross section swept along the arc, on a line across the axis
+    void ArcDiskLine(int axis, const double o[3], double radius, int prim, std::vector<Interval>& found) const;
     static double PrimLow(const Prim& p);
     static double PrimHigh(const Prim& p);
     static double PrimRadius(const Prim& p);
@@ -343,6 +381,7 @@ private:
     std::vector<Node> mNodes;
     double mLo[3] = {};
     double mHi[3] = {};
+    ArcGeometry mArc;
     double mSlabBase[3] = {};
     double mSlabE1[3] = {};
     double mSlabE2[3] = {};

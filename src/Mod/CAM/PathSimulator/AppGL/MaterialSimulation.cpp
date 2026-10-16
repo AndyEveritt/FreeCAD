@@ -329,7 +329,17 @@ void Simulation::Plan(const std::vector<float>& xyz, float quality)
         if (tool && tool->Cuts()) {
             int pieces = 1;
             const double tolerance = tolerances[seg.tool];
-            if (seg.arc && seg.radius > 0) {
+            // arcs of tools along Z at a constant height are swept exactly, in pieces of up to
+            // a quarter circle, other arcs in chords
+            double axis0[3], axis1[3];
+            seg.AxisAt(0, axis0);
+            seg.AxisAt(1, axis1);
+            const bool exactArc = seg.arc && seg.radius > 0 && seg.start[2] == seg.end[2]
+                && std::abs(axis0[2]) > 1 - 1e-12 && axis0[2] * axis1[2] > 1 - 1e-12;
+            if (exactArc) {
+                pieces = std::max(1, (int)std::ceil(std::abs(seg.sweep) / (M_PI / 2) - 1e-9));
+            }
+            else if (seg.arc && seg.radius > 0) {
                 const double maxAngle = tolerance < seg.radius
                     ? 2 * std::acos(1 - tolerance / seg.radius)
                     : 1.5;
@@ -356,6 +366,15 @@ void Simulation::Plan(const std::vector<float>& xyz, float quality)
                             a[k] = sign;
                         }
                     }
+                }
+                if (exactArc) {
+                    m.motion.arc = true;
+                    m.motion.center[0] = seg.center[0];
+                    m.motion.center[1] = seg.center[1];
+                    m.motion.radius = seg.radius;
+                    m.motion.startAngle = seg.startAngle + m.t0 * seg.sweep;
+                    m.motion.sweep = (m.t1 - m.t0) * seg.sweep;
+                    m.motion.p1[2] = m.motion.p0[2];
                 }
                 m.motion.cutHeight = CuttingHeight(m.motion, mStockLo, mStockHi);
                 m.motion.tolerance = tolerance;
@@ -413,14 +432,24 @@ void Simulation::Plan(const std::vector<float>& xyz, float quality)
         }
         if (map >= 0) {
             HeightMap& hm = maps[map];
+            const ArcGeometry arc = m.arc ? ArcGeometry(m) : ArcGeometry();
             const double tip0 = hm.sign * m.p0[hm.axis], tip1 = hm.sign * m.p1[hm.axis];
             const double tipLo = std::min(tip0, tip1), tipHi = std::max(tip0, tip1);
             const double R = tool.Radius();
             const double au = m.p0[hm.u], av = m.p0[hm.v], bu = m.p1[hm.u], bv = m.p1[hm.v];
-            const int i0 = std::max(0, (int)std::floor((std::min(au, bu) - R - hm.lo[0]) / hm.cell));
-            const int i1 = std::min(hm.n[0] - 1, (int)std::floor((std::max(au, bu) + R - hm.lo[0]) / hm.cell));
-            const int j0 = std::max(0, (int)std::floor((std::min(av, bv) - R - hm.lo[1]) / hm.cell));
-            const int j1 = std::min(hm.n[1] - 1, (int)std::floor((std::max(av, bv) + R - hm.lo[1]) / hm.cell));
+            // the box of the path in the map
+            double plo[2] = {std::min(au, bu), std::min(av, bv)}, phi[2] = {std::max(au, bu), std::max(av, bv)};
+            if (m.arc) {
+                // arcs are along Z: u is X, v is Y; the box of their circle, enough
+                plo[0] = std::min(plo[0], m.center[0] - m.radius);
+                phi[0] = std::max(phi[0], m.center[0] + m.radius);
+                plo[1] = std::min(plo[1], m.center[1] - m.radius);
+                phi[1] = std::max(phi[1], m.center[1] + m.radius);
+            }
+            const int i0 = std::max(0, (int)std::floor((plo[0] - R - hm.lo[0]) / hm.cell));
+            const int i1 = std::min(hm.n[0] - 1, (int)std::floor((phi[0] + R - hm.lo[0]) / hm.cell));
+            const int j0 = std::max(0, (int)std::floor((plo[1] - R - hm.lo[1]) / hm.cell));
+            const int j1 = std::min(hm.n[1] - 1, (int)std::floor((phi[1] + R - hm.lo[1]) / hm.cell));
             const double half = 0.7071067811865476 * hm.cell;
             const ToolTable& table = tableOf(&tool);
             double top = -1e300;
@@ -451,11 +480,12 @@ void Simulation::Plan(const std::vector<float>& xyz, float quality)
                     xlo = std::min(xlo, std::min(au, bu) - reachCell);
                     xhi = std::max(xhi, std::max(au, bu) + reachCell);
                 }
-                const int ri0 = std::max(i0, (int)std::floor((xlo - hm.lo[0]) / hm.cell));
-                const int ri1 = std::min(i1, (int)std::floor((xhi - hm.lo[0]) / hm.cell));
+                const int ri0 = m.arc ? i0 : std::max(i0, (int)std::floor((xlo - hm.lo[0]) / hm.cell));
+                const int ri1 = m.arc ? i1 : std::min(i1, (int)std::floor((xhi - hm.lo[0]) / hm.cell));
                 for (int i = ri0; i <= ri1; i++) {
                     const double cu = hm.lo[0] + (i + 0.5) * hm.cell;
-                    const double dist = SegmentDistance2D(cu, cv, au, av, bu, bv);
+                    const double dist = m.arc ? arc.Distance(cu, cv)
+                                              : SegmentDistance2D(cu, cv, au, av, bu, bv);
                     if (dist > reachCell) {
                         continue;
                     }
@@ -493,7 +523,9 @@ void Simulation::Plan(const std::vector<float>& xyz, float quality)
                 r.a[k] = m.p0[k] + zm * m.a0[k];
                 r.b[k] = m.p1[k] + zm * m.a1[k];
             }
-            const double rr = tool.RadiusBelow(zTop - tool.MinZ()) + cell;
+            // arcs: the capsule of the chord, wide enough for the arc
+            const double sagitta = m.arc ? m.radius * (1 - std::cos(m.sweep / 2)) : 0;
+            const double rr = tool.RadiusBelow(zTop - tool.MinZ()) + cell + sagitta;
             r.radius = std::sqrt(rr * rr + 0.25 * (zTop - z) * (zTop - z));
             r.level = level;
             requests.push_back(r);
@@ -711,6 +743,13 @@ void Simulation::SeekView(long target, long motions, long partialMotion, double 
         Motion m = m2.motion;
         seg.PositionAt(partialT, m.p1);
         seg.AxisAt(partialT, m.a1);
+        if (m.arc) {
+            m.sweep = (partialT - m2.t0) * seg.sweep;
+            m.p1[2] = m.p0[2];
+            m.a1[0] = m.a0[0];
+            m.a1[1] = m.a0[1];
+            m.a1[2] = m.a0[2];
+        }
         const Sweep sweep(m);
         std::vector<std::pair<int, Grid::BrickRef>> undo;
         mView.Cut({&sweep}, *mPool, &undo);

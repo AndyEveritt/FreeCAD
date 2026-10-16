@@ -118,6 +118,11 @@ bool InToolAt(const Tool& tool, const Motion& m, double t, const double p[3], do
         tip[k] = m.p0[k] + t * (m.p1[k] - m.p0[k]);
         axis[k] = m.a0[k] + t * (m.a1[k] - m.a0[k]);
     }
+    if (m.arc) {
+        const double a = m.startAngle + t * m.sweep;
+        tip[0] = m.center[0] - std::sin(a) * m.radius;
+        tip[1] = m.center[1] + std::cos(a) * m.radius;
+    }
     Normalize(axis);
     for (int k = 0; k < 3; k++) {
         w[k] = p[k] - tip[k];
@@ -151,7 +156,7 @@ void CheckSweep(const Tool& tool, const Motion& m, std::mt19937& rng, int lines)
         length += (m.p1[k] - m.p0[k]) * (m.p1[k] - m.p0[k]);
         turn += (m.a1[k] - m.a0[k]) * (m.a1[k] - m.a0[k]);
     }
-    length = std::sqrt(length) + std::sqrt(turn) * tool.MaxZ();
+    length = std::sqrt(length) + std::sqrt(turn) * tool.MaxZ() + std::abs(m.sweep) * m.radius;
     const double tol = 0.01;
     const int times = std::max(2, (int)std::ceil(length / (tol / 4)));
     for (int n = 0; n < lines; n++) {
@@ -351,6 +356,37 @@ TEST(MaterialTool, sweepsOfTurningAxes)
         for (int i = 0; i < 4; i++) {
             SCOPED_TRACE(testing::Message() << "tool radius " << tool.Radius() << " motion " << i);
             CheckSweep(tool, MakeMotion(tool, rng, i % 4, true), rng, 3);
+        }
+    }
+}
+
+TEST(MaterialTool, sweepsOfArcs)
+{
+    std::mt19937 rng(3);
+    std::uniform_real_distribution<double> U(-1, 1);
+    for (const auto& profile : ToolProfiles()) {
+        const Tool tool(profile);
+        for (int i = 0; i < 8; i++) {
+            Motion m;
+            m.tool = &tool;
+            m.arc = true;
+            m.center[0] = U(rng) * tool.Radius();
+            m.center[1] = U(rng) * tool.Radius();
+            m.radius = (0.2 + U(rng) * 0.1 + (i % 3)) * tool.Radius();
+            m.startAngle = U(rng) * M_PI;
+            m.sweep = U(rng) * M_PI / 2;
+            m.p0[2] = m.p1[2] = U(rng);
+            for (int e = 0; e < 2; e++) {
+                const double a = m.startAngle + e * m.sweep;
+                double* p = e ? m.p1 : m.p0;
+                p[0] = m.center[0] - std::sin(a) * m.radius;
+                p[1] = m.center[1] + std::cos(a) * m.radius;
+            }
+            if (i % 2) {
+                // pointing down, like a tool of a work plane from below
+                m.a0[2] = m.a1[2] = -1;
+            }
+            CheckSweep(tool, m, rng, 6);
         }
     }
 }
