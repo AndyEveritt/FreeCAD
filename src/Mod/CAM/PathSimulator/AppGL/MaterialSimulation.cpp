@@ -50,6 +50,9 @@ double MsSince(Clock::time_point start)
 constexpr double CheckpointMs = 40;
 // Time of a batch of the frontier: a new target waits for it at most
 constexpr double BatchMs = 15;
+// While the target is ahead of the frontier, its progress is shown this often: meshing and drawing
+// every state would take the time from the simulation
+constexpr double ProgressMs = 400;
 // Memory of the bricks kept for checkpoints, beyond it every other checkpoint is dropped
 constexpr long CheckpointBudget = 768L << 20;
 
@@ -1085,7 +1088,7 @@ void Simulation::Worker()
                 }
             }
             // while the target is ahead, show how far the frontier got
-            if (motions > mFrontierMotion && MsSince(lastPublish) > 100) {
+            if (motions > mFrontierMotion && MsSince(lastPublish) > ProgressMs) {
                 Publish(frontierStep, mFrontier);
                 lastPublish = Clock::now();
                 mViewStep = -1;

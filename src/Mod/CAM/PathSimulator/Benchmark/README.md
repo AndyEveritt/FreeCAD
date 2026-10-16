@@ -35,7 +35,9 @@ python3 $B --summary after.json
 python3 $B --freecad build/bin/FreeCAD --jobs manifold_block --quality 5
 ```
 
-`--quality` (1 low to 10 high, default 10) is the Accuracy slider of the simulator task panel. The
+`--legacy-engine` simulates with the previous dexel simulation (`SimulatorLegacyEngine`), to
+compare it with the material simulation, the default. `--quality` (1 low to 10 high, default 10)
+is the Accuracy slider of the simulator task panel. The
 stock is colored by operation and thin walls are shown, the display options of the simulator view;
 `--no-color-by-operation` and `--no-thin-walls` turn them off. Showing thin walls measures the
 thickness of the stock, which takes time. Only compare runs made with the same quality and display
@@ -144,7 +146,7 @@ paths are the ones a user triggers.
 
 | scenario | what it measures |
 | --- | --- |
-| `load` | time from `BeginSimulation` until the first frame is shown |
+| `load` | time from `BeginSimulation` until the first frame is shown (`load s`), and until the view shows the end of the job, with the slider moved there right after the first frame (`complete_s`, `end s`): the time a user waits for the whole job |
 | `jump` | right after loading, releasing the slider at far positions (end, middle, start, ...): the time until the view shows each, before and while the background simulation makes its snapshots. What a user waits for after moving the slider; the scrub scenarios move it in small steps and run later |
 | `idle` | frames without any change |
 | `playback` | playing the whole job from start to end |
@@ -165,9 +167,14 @@ paths are the ones a user triggers.
 - `release`: for scrub scenarios, the frame and convergence after releasing the slider.
 - `memory`: resident and peak resident memory of the FreeCAD process after every scenario (Linux).
 
-Compared between runs are the median frame time of every scenario, for the scrub scenarios the
-median convergence time and the release time, and for `jump` the first, median and longest time
-until the view shows a jump.
+Compared between runs are the time until the view shows the end of the job (`load.complete`), the
+median frame time of every scenario, for the scrub scenarios the median convergence time and the
+release time, and for `jump` the first, median and longest time until the view shows a jump.
+
+While the simulator reports pending work, the benchmark waits for the frames the simulator view
+asks for (its timer renders when `NeedsFrame`), like in the GUI, instead of rendering continuously:
+a simulation working in other threads doesn't need frames until it has something new to show, and
+continuous frames would take the CPU from it on the software renderer.
 
 ### Correctness
 

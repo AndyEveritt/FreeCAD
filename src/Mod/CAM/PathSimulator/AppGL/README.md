@@ -3,6 +3,10 @@
 OpenGL simulator of the CAM workbench (`CAM_SimulatorGL`). It removes material from the stock
 along the toolpath and shows the result in its own 3D view.
 
+There are two simulation engines: the material simulation (`Material*`, the default) and the
+previous dexel simulation (`Dexel*`, with `SimulatorLegacyEngine`, kept for comparison). The
+original stencil renderer is still there too (`SimulatorStencilRendering`).
+
 ## Material removal
 
 The stock is stored as tri-dexels: lines along X, Y and Z through the points of a grid, each
@@ -10,109 +14,114 @@ holding the ranges where there is material. Every end of a range is a point of t
 exact along its line, with the normal of the surface there, whether it was cut and by which
 operation (packed into 32 bits: the normal in 24, the operation in 6, see `PackNormal`). This
 represents any stock and any material removal, including undercuts (dovetail, slitting saw,
-thread mill) and cuts with tilted tools.
+thread mill) and cuts with tilted and turning tools.
 
-- `CutterProfile`: a tool as the solid of revolution of its profile. Gives the material of the tool
-  along a line with the surface normals: exactly for any line (tilted tools), from a table for
-  lines parallel to the axis, and the radius of its cross sections. The normals are interpolated
-  between the edges of the profile where it is smooth, so a ball approximated by edges cuts
-  surfaces shaded like a real ball.
-- `DexelLayout`: adaptive resolution. The stock is covered by a grid of bricks of 8 x 8 x 8
-  cells, which are divided into 8 bricks with cells of half the size where tools cut. Before
-  simulating, the path of every tool is refined to cells of 0.5 (lowest quality) to 0.1 (highest)
-  times the size of the features it cuts, so the detail doesn't depend on the size of the stock.
-  The stock away from the tools has 32 to 104 cells along its longest side. Neighboring bricks
-  differ by at most one level. The refinements that follow the toolpath
-  (`DexelSimulation::BuildLayout`, on all cores):
-  - grooves: where passes of a tool run beside each other closer than its cells can resolve,
-    like a ball end mill finishing with a small stepover, a band along the pass gets cells of
-    about a quarter of the spacing (at the highest quality, up to two levels finer than the
-    tool). Passes are found by the centers of the lower ends of the tools (the ball center), in
-    3D, with any tool axis. Whether they leave visible grooves comes from the cross section the
-    tool sweeps (`CutterProfile::SweptLowerEdge`, for any tool shape and axis): two passes leave
-    grooves where the surfaces they make meet at more than 10 degrees at the ridge between them,
-    so a flat end mill on a floor doesn't, tilted it does. The band follows the point where the
-    tool touches the surface, also on slopes and with tilted tools, half way to the passes beside
-    it. Grooves along a short path only are ignored.
-  - final surface: the lower surface of the vertical tools is followed on a grid in XY, the lowest
-    of all their moves. Passes that deeper moves cut away everywhere along them, like the step
-    downs above the last one, get no finer cells for their grooves: they are not seen at the end.
-  - levels: cells are powers of two apart, aligned to the cells of the tool cutting the longest
-    path, so it gets the cells it asks for.
-  - material: the top of the material is followed on a grid in XY, lowered where vertical tools
-    leave nothing above their lower surface. Moves are refined only up to the material left by
-    the moves before them, not to the top of the stock, so a small tool finishing below material
-    removed by a large one refines little.
-- `DexelStock`: the dexels of the bricks. The lines of a brick extend one cell beyond it, so its
-  border is known exactly in each brick. Bricks are shared by copies of the stock and copied when
-  they change, so snapshots are cheap; completely empty or filled bricks hold no lines. A group of
-  moves is cut brick by brick: every brick once, with all moves touching it, divided into parts
-  by axis and lines that the threads take as they become free. The material of a line only
-  depends on its position, so the copies of a line in neighboring bricks stay equal.
-  - vertical tools: lines along Z remove the tool solid of the closest approach of moves divided
-    into pieces of at most a quarter cell of height, lines along X and Y the cross sections of
-    the tool, exactly (convex hull of the sections at the profile vertices)
-  - tilted tools with a fixed axis (3+2, horizontal tools): the whole move at once along every
-    line, exactly. The tool is a stack of frustums (`CutterProfile::Frustums`); the points of a
-    line inside one frustum at some time of the move form a convex region of the plane of the
-    line position and the time, bounded by a conic and straight lines, whose extremes are found
-    in closed form. The normals at the ends come from the tool where the move reaches them.
-  - turning tools (5 axis), and tilted tools that are not stacks of frustums: tool instances
-    along the move, limited to the part of the tool below the top of the stock. Tools with sharp
-    edges there have instances at most half a cell apart, smooth tools (ball, bull nose) farther,
-    as long as the ridges between instances stay below a hundredth of a cell
-    (`CutterProfile::SmoothRadius`). Where a sharp edge of a tool makes the surface, its normal is
-    not known, the mesher estimates it.
-  - Moves only visit the dexels the tool can reach: lines farther than its cutting radius (of the
-    part below the top of the stock, not a wider shank), and lines whose material is below the
-    lowest point of the tool at their distance from the move, like under the passes beside the
-    one finishing the surface there, are skipped. Normals are only computed for the ends of a
-    removal that become ends of the material.
-  - Tools whose profile has tiny steps (up to a hundredth of the radius, like where the flutes meet
-    the shank) still use the fast cut of vertical tools.
-- `DexelSimulation`: builds the layout and maps the simulation timeline (steps of the toolpath
-  segments) to cuts. A background thread simulates the whole toolpath once and keeps snapshots of
-  the stock at regular amounts of work, with low thread priority. Moving to any step restores the
-  closest snapshot before it and cuts the rest, within a time budget per frame;
-  `MillSimulation::IsRenderPending` tells if the view is not up to date yet.
+- `MaterialTool`: a tool as the solid of revolution of its profile, made of primitives whose
+  sweeps along a straight motion meet every line in one interval: spheres, the arcs of the
+  profile centered on the axis (ball ends, the tips of engravers), and frustums, the straight
+  edges (cylinders and cones). An arc given as edges is fitted by a sphere if the rest of the
+  sphere is inside the tool. The normals of frustums are interpolated between neighboring edges
+  where the profile is smooth, so a bull nose corner given as edges cuts smoothly shaded surfaces.
+  Probes (all of their solid below the tip) don't cut. `Sweep` intersects the volume a tool sweeps
+  along a motion with lines, exactly:
+  - spheres: a capsule along the motion, in closed form for any line.
+  - frustums with a fixed axis (3 axis, 3+2): the points of a line inside a frustum at some time of
+    the motion form a convex region of the plane of the line position and the time, bounded by a
+    conic and straight lines; its extremes are where the lines meet the conic, at their corners,
+    or where the conic is tangent to the lines of constant position, found in closed form.
+  - motions across the tool axis, the most common: lines along the axis from the closest approach
+    of the motion, by the primitives sorted by height; lines across the axis by the largest cross
+    section at their height swept along the motion.
+  - arcs of tools along Z at a constant height (pockets, adaptive clearing): exactly, in pieces of
+    up to a quarter circle, lines along the axis by their distance from the arc, lines across it
+    by the cross section swept along the arc (an annulus in the wedge of the arc and the disks at
+    its ends). Other arcs are divided into chords.
+  - turning tools (5 axis): every primitive in its own pieces, turning about its center by a small
+    angle while its center moves on a chord of its path, within a fiftieth of the cells of the
+    tool of the exact sweep. A sphere doesn't change turning about its center, so few pieces sweep
+    a ball end exactly; long frustums are split. The pieces of a primitive are culled together, by
+    the sweep of the primitive grown by their error.
+  - the tool beyond the box of the stock along its axis, like the shank above it, is left out
+    (`CuttingHeight`).
+  The ends of the removals carry how to find their normal: on the tool where the motion reaches
+  them, unknown at sharp edges of the tool.
+- `MaterialLayout`: adaptive resolution, an octree of bricks of 8 x 8 x 8 cells over a grid of
+  root bricks, neighboring bricks at most one level apart. It is built from the bricks requested
+  at every level, collected on all threads and counted once, in one pass from the finest level up.
+- `MaterialGrid`: the dexels of the bricks. The lines of a brick extend one cell beyond it, so the
+  material crossing its border has no ends there. Bricks are shared by copies of the grid and
+  replaced when cut, so checkpoints are cheap; empty and completely filled bricks hold no lines.
+  The stock mesh fills the bricks near its triangles, the others are all inside or all outside.
+  A batch of motions is cut brick by brick, on all threads: every brick once, with all motions
+  touching it in their order, so later motions skip the lines earlier ones emptied. A brick only
+  gets the motions whose swept volume can reach it, and every motion only the lines of the brick
+  in its box. Normals are only computed for the ends that remain.
+- `MaterialSimulation`: the plan and the timeline, in a worker thread with low priority.
+  - plan: the path divided into motions; the cells of every tool, a fraction of the features it
+    cuts (0.5 of them at the lowest quality, 0.1 at the highest), where it can reach the material:
+    the material top along tool axes along the axes of the stock is followed on height maps,
+    lowered where tools without undercuts leave nothing above their bottom, so a small tool
+    finishing below material removed by a large one refines little. The stock away from the tools
+    has 32 to 256 cells along its longest side. Grooves: where passes of a ball end run beside
+    each other (found by the paths of the ball centers, in 3D) and leave ridges steeper than 10
+    degrees and higher than a tenth of the cells of the tool, the cells along the passes get an
+    eighth of their distance, up to 2 levels finer than the tool at the highest quality.
+  - timeline: the worker simulates the whole path once (the frontier), with a checkpoint at every
+    40 ms of cutting, at most 768 MB of them (every other one is dropped beyond). A step before the
+    frontier is reached from the closest checkpoint before it, a motion in progress is cut into
+    the stock shown only. The stock shown is published to the display when it is at the requested
+    step, or every 400 ms on the way to it while the frontier catches up (meshing and drawing
+    every state would take the time from the simulation).
+
+Arcs and turning motions are approximated within a fiftieth of the cells of the features of their
+tool, far below what the cells show. Axes of work planes along the axes of the stock, computed
+from angles, are snapped to them.
 
 ## Display
 
-- `DexelMesher`: dual contouring. Grid points are inside the material if the Z dexel through them
-  is. Cells of a brick are merged into cubes of 2, 4 or 8 cells where one vertex fits the surface
-  within a tenth of a cell, so flat and gently curved surfaces get few large polygons. Every cube
-  with a surface gets a vertex where the planes of the dexel crossings on its edges meet, so sharp
-  edges and corners are kept. Every edge with a change of inside gets a quad of the 4 cubes around
-  it, taken at the smallest cubes around the edge, so bricks and cubes of different sizes
-  connect without cracks. Cubes are only merged where the normals of their crossings agree within
-  about 8 degrees, so shallow features like scallops keep their shading. Ridges of cut surfaces,
-  like between the passes of a ball end mill, are found where the surface bends convex between
-  neighboring dexels much more than next to them: the crossings on each side of a ridge get their
-  own vertex normals, so it stays sharp. Flat faces along the axes are merged into rectangles.
-  Faces get the cut color from their crossings. The surface of every brick is kept until it
-  changes.
-- `DexelMeshUnits`: the mesh per mesh unit of the layout (up to 16 bricks). Changed bricks are
-  updated oldest first within a time budget per frame, every group of touching changed bricks
-  together with all units depending on them, so the mesh never has cracks between new and old
-  parts.
-- `DexelRenderer`: draws the mesh units per root brick. The vertices carry the operation that cut
-  their faces and, while thin walls are shown, the thickness of the material behind them: the
-  length of the material along a dexel, followed through the bricks ahead, times the component of
-  the normals along it, where the material ends at a face facing the other way (exact for walls
-  with flat faces, up to 10 mm). The shader colors the faces by operation and thin material red.
+- `MaterialMesher`: dual contouring. Grid points are inside the material if the Z dexel through
+  them is; the edges between grid points lie on dexels, which have the exact points of the surface
+  on them and its normals. Cells of a brick are merged into cubes of 2, 4 or 8 cells where the
+  surface is flat (normals within about 8 degrees, points within a tenth of a cell of a plane), or
+  into cubes of up to 4 cells holding one sharp edge or corner of planes, or a ridge between
+  curved faces (like between passes of a ball end), with one sheet of surface. Every cube with a
+  surface gets a vertex: on the edge or corner of the planes of its points at sharp features, else
+  where the planes of its points meet (every plane counting the same), moved onto curved surfaces
+  by a quadric fit. Every edge of the cubes with a change of inside gets a quad of the vertices of
+  the 4 cubes around it, from the smallest cubes around it, so bricks of different levels connect
+  without cracks, split along the diagonal passing nearest to the surface point of the edge.
+  Vertices on smooth surfaces share their normal, at sharp edges every quad gets the normal of its
+  own surface point. Faces get the operation that cut them, and while thin walls are shown, the
+  thickness of the material behind them: the length of the material along the dexel of their
+  edge, followed into the bricks ahead, times the component of their normal along it (exact for
+  walls with flat faces, up to 10 mm). The cubes of every brick are kept until it changes.
+- `MaterialRenderer` (`Material::View`): the simulation, a mesher thread and the GPU buffers. The
+  mesher builds the meshes of the stock the simulation publishes, for the mesh units (up to 8
+  bricks) depending on its changed bricks; the GUI thread only uploads them, all units of a stock
+  at once, so the mesh never has cracks between new and old parts, and draws them in chunks of
+  units. The view asks for a frame when a new mesh is ready.
 - `SimDisplay`: deferred shading with optional ambient occlusion (SSAO, at half resolution). The
   toolpath is drawn a few pixels closer to the camera than it is, so a path on the surface of the
-  stock, like the bottom of a ball end mill groove, is not hidden by it. Transparent objects (the
+  stock, like the bottom of a ball end mill groove, is not hidden by it. The model is drawn a
+  little behind the stock: where the stock is cut to the model, the stock and the colors of its
+  operations are shown, the model only where the stock is cut deeper. Transparent objects (the
   stock or the model with an opacity below 1) are drawn after the opaque ones into a second
   G-buffer starting with their depth: the front-most transparent surface is lit and blended over
   the opaque ones.
 
-Rotating or zooming the view only draws the meshes, independent of the toolpath length. Every
-frame has a time budget for simulating and meshing: the simulation takes what it needs, the mesh
-the rest; while catching up with a far position, intermediate states are only shown after a
-quarter second. The budget shrinks while frames take longer than 30 ms, so heavy scenes keep
-their frame rate. During playback the tool waits for the stock: the timeline doesn't advance
+Rotating or zooming the view only draws the meshes, independent of the toolpath length, and
+nothing of the simulation or the meshing runs in the GUI thread, so the view stays responsive
+while simulating. During playback the tool waits for the stock: the timeline doesn't advance
 while the shown stock is behind the tool. The view is only rendered when something changed.
+
+## Previous dexel simulation
+
+With `SimulatorLegacyEngine`: tri-dexels in bricks too (`DexelLayout`, `DexelStock`), tools as
+stacks of frustums (`CutterProfile`), vertical tools cut by pieces of their moves, turning tools by
+instances along their moves, the layout from a toolpath analysis (`DexelSimulation::BuildLayout`),
+simulated within a time budget per frame in the GUI thread while a background thread makes
+snapshots, meshed with dual contouring (`DexelMesher`, `DexelMeshUnits`) and drawn by
+`DexelRenderer`. It is kept to compare with the material simulation and will be removed.
 
 ## Simulator window
 
@@ -135,10 +144,12 @@ around Z. This is the place to add machine specific kinematics. Arcs are in the 
 
 `User parameter:BaseApp/Preferences/Mod/CAM`:
 
+- `SimulatorLegacyEngine` (bool, default false): simulate with the previous dexel simulation
+  instead of the material simulation.
 - `SimulatorStencilRendering` (bool, default false): use the original renderer, which subtracts the
-  tool sweeps from the stock in screen space with the stencil buffer, instead of the dexel
-  simulation. It supports 3 axis toolpaths only, and every change of the view renders all cuts, so
-  it gets slow on long toolpaths.
+  tool sweeps from the stock in screen space with the stencil buffer, instead of the simulations.
+  It supports 3 axis toolpaths only, and every change of the view renders all cuts, so it gets slow
+  on long toolpaths.
 - `SimulatorColorByOperation` (bool, default false): cut faces in the color of their operation.
 - `SimulatorThinWalls` (bool, default false): faces in front of material thinner than
   `SimulatorThinWallThreshold` (float, mm, default 0.5) in red.
@@ -147,6 +158,12 @@ around Z. This is the place to add machine specific kinematics. Arcs are in the 
 
 ## Tests and benchmark
 
-- Unit tests of the material removal, the layout and the mesh: `tests/src/Mod/CAM/App/Simulator.cpp`
-  (`CAM_tests_run`).
+- Unit tests (`CAM_tests_run`): of the material simulation in
+  `tests/src/Mod/CAM/App/MaterialSimulator.cpp` (sweeps of all tool shapes, fixed, turning and
+  along arcs, against sampled tools; exact cuts; seeks against simulating from the start; a closed
+  mesh), of the previous dexel simulation in `tests/src/Mod/CAM/App/Simulator.cpp`.
 - Performance and image regression benchmark: `../Benchmark/README.md`.
+- Developer aid: with the environment variable `CAM_SIM_DUMP` set to a file name, the previous
+  dexel simulation writes its input there (tools, segments, stock), to replay jobs outside of the
+  GUI. With `CAM_SIM_LOG` set to a file name, the material simulation appends the times of its
+  plan, stock and simulation there when it reaches the end of the path.

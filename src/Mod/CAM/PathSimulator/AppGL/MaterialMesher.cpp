@@ -839,15 +839,24 @@ void Mesher::ComputeGeometry(const Grid& grid, int leaf)
     auto g = std::make_unique<Geometry>();
     const double cellWorld = lf.cell * L.Unit();
 
-    // inside at the grid points
+    // inside at the grid points, along every Z dexel at once
     bool inside[Cells + 1][Cells + 1][Cells + 1];
     bool any = false, all = true;
-    for (int k = 0; k <= Cells; k++) {
-        for (int j = 0; j <= Cells; j++) {
-            for (int i = 0; i <= Cells; i++) {
-                inside[k][j][i] = Inside(grid, leaf, i, j, k);
-                any = any || inside[k][j][i];
-                all = all && inside[k][j][i];
+    for (int j = 0; j <= Cells; j++) {
+        for (int i = 0; i <= Cells; i++) {
+            Span scratch;
+            const Span* spans;
+            const int n = grid.Line(leaf, LineIndex(2, i, j), spans, scratch);
+            int sp = 0;
+            for (int k = 0; k <= Cells; k++) {
+                const float z = (float)L.Coord(2, lf.lo[2] + k * lf.cell);
+                while (sp < n && spans[sp].hi <= z) {
+                    sp++;
+                }
+                const bool in = sp < n && spans[sp].lo <= z;
+                inside[k][j][i] = in;
+                any = any || in;
+                all = all && in;
             }
         }
     }
@@ -1083,7 +1092,7 @@ void Mesher::ComputeGeometry(const Grid& grid, int leaf)
                     for (int c = 0; c < 8 && ok; c++) {
                         ok = merged[level - 1][2 * z + (c >> 2 & 1)][2 * y + (c >> 1 & 1)][2 * x + (c & 1)];
                     }
-                    if (ok) {
+                    if (ok && !g->crossings.empty()) {
                         points.clear();
                         gather(x * m, y * m, z * m, m, points);
                         // flat, or a sharp edge or corner of up to 4 cells with one sheet
@@ -1460,16 +1469,19 @@ std::vector<int> Mesher::Update(const Grid& grid, const std::vector<int>& change
         }
     }
     else {
-        // geometry of the changed leaves and of their neighbors (points on shared faces)
+        // geometry of the changed leaves and of their coarser neighbors, which take the surface
+        // points of finer leaves on their faces
         for (int leaf : changed) {
             if (!mark[leaf]) {
                 mark[leaf] = 1;
                 geometry.push_back(leaf);
             }
+            const int level = L.GetLeaf(leaf).level;
             for (int n = mNeighborStart[leaf]; n < mNeighborStart[leaf + 1]; n++) {
-                if (!mark[mNeighbors[n]]) {
-                    mark[mNeighbors[n]] = 1;
-                    geometry.push_back(mNeighbors[n]);
+                const int other = mNeighbors[n];
+                if (!mark[other] && L.GetLeaf(other).level < level) {
+                    mark[other] = 1;
+                    geometry.push_back(other);
                 }
             }
         }
