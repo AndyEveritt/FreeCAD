@@ -169,6 +169,7 @@ protected:
     EndMill* GetTool(int tool);
     void RemoveTool(int toolId);
     void StartDexelSimulation();
+    void DumpJob(const char* path, const std::vector<CutSegment>& segments) const;
     void UpdateDexelSimulation();
     void RenderDexelStock();
 

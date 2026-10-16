@@ -27,6 +27,8 @@
 #include "GlUtils.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <iostream>
 
 // include this last as the defines can mess up other includes
@@ -1027,12 +1029,56 @@ void MillSimulation::StartDexelSimulation()
         segments[i].tool = (int)(std::find(toolIds.begin(), toolIds.end(), id) - toolIds.begin());
     }
 
+    if (const char* dumpPath = std::getenv("CAM_SIM_DUMP")) {
+        DumpJob(dumpPath, segments);
+    }
     if (!mDexel) {
         mDexel = std::make_unique<DexelSimulation>();
     }
     mDexel->Start(std::move(tools), std::move(segments), mStockXyz, mStockTriangles, mQuality);
     mDexelRenderer.Reset(mDexel->Stock());
     mShownStep = mTargetStep = 0;
+}
+
+// Write the input of the simulation to a file, to replay it outside of the GUI (developer aid, set
+// the environment variable CAM_SIM_DUMP to the file name)
+void MillSimulation::DumpJob(const char* path, const std::vector<CutSegment>& segments) const
+{
+    FILE* f = std::fopen(path, "wb");
+    if (!f) {
+        return;
+    }
+    auto u32 = [f](uint32_t v) { std::fwrite(&v, 4, 1, f); };
+    auto i32 = [f](int v) { std::fwrite(&v, 4, 1, f); };
+    auto flt = [f](const float* v, size_t n) { std::fwrite(v, 4, n, f); };
+    std::fwrite("CAMJOB1", 1, 8, f);
+    flt(&mQuality, 1);
+    u32((uint32_t)mToolTable.size());
+    for (EndMill* tool : mToolTable) {
+        u32((uint32_t)tool->rawProfile.size());
+        flt(tool->rawProfile.data(), tool->rawProfile.size());
+    }
+    u32((uint32_t)segments.size());
+    for (const CutSegment& s : segments) {
+        i32(s.tool);
+        i32(s.arc ? 1 : 0);
+        flt(s.start, 3);
+        flt(s.end, 3);
+        flt(s.center, 2);
+        flt(&s.radius, 1);
+        flt(&s.startAngle, 1);
+        flt(&s.sweep, 1);
+        flt(s.axis0, 3);
+        flt(s.axis1, 3);
+        i32(s.steps);
+        i32(s.sweepSteps);
+        i32(s.operation);
+    }
+    u32((uint32_t)mStockXyz.size());
+    flt(mStockXyz.data(), mStockXyz.size());
+    u32((uint32_t)mStockTriangles.size());
+    std::fwrite(mStockTriangles.data(), 4, mStockTriangles.size(), f);
+    std::fclose(f);
 }
 
 void MillSimulation::UpdateDexelSimulation()

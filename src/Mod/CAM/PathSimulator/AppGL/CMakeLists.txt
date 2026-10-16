@@ -48,6 +48,14 @@ SET(CAMSimulator_SRCS_Core
     GuiDisplay.cpp
     GuiDisplay.h
     linmath.h
+    MaterialGrid.cpp
+    MaterialGrid.h
+    MaterialLayout.cpp
+    MaterialLayout.h
+    MaterialSimulation.cpp
+    MaterialSimulation.h
+    MaterialTool.cpp
+    MaterialTool.h
     MillMotion.h
     MillPathLine.cpp
 	MillPathLine.h
