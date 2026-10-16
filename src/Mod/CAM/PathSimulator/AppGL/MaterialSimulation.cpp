@@ -390,7 +390,7 @@ void Simulation::Plan(const std::vector<float>& xyz, float quality)
     // Where every motion can reach material: the material top along aligned tool axes, followed
     // on height maps, lowered where tools without undercuts leave nothing above their bottom
     HeightMap maps[6];
-    const double mapCell = rootCell / 2;
+    const double mapCell = rootCell;
     for (int i = 0; i < 6; i++) {
         maps[i].Init(i / 2, i % 2 ? -1 : 1, mStockLo, mStockHi, mapCell);
     }
@@ -424,11 +424,39 @@ void Simulation::Plan(const std::vector<float>& xyz, float quality)
             const double half = 0.7071067811865476 * hm.cell;
             const ToolTable& table = tableOf(&tool);
             double top = -1e300;
+            const double reachCell = R + half;
             for (int j = j0; j <= j1; j++) {
-                for (int i = i0; i <= i1; i++) {
-                    const double cu = hm.lo[0] + (i + 0.5) * hm.cell, cv = hm.lo[1] + (j + 0.5) * hm.cell;
+                // the cells of the row within reach of the path: the row through the capsule
+                const double cv = hm.lo[1] + (j + 0.5) * hm.cell;
+                double xlo = 1e300, xhi = -1e300;
+                for (const double* e : {m.p0, m.p1}) {
+                    const double dv = cv - e[hm.v];
+                    if (std::abs(dv) <= reachCell) {
+                        const double h = std::sqrt(reachCell * reachCell - dv * dv);
+                        xlo = std::min(xlo, e[hm.u] - h);
+                        xhi = std::max(xhi, e[hm.u] + h);
+                    }
+                }
+                const double su = bu - au, sv = bv - av;
+                const double len = std::sqrt(su * su + sv * sv);
+                if (len > 1e-12 && std::abs(sv) > 1e-12) {
+                    // the band of the segment: |cross| <= reach * len, between its ends
+                    const double t0 = (cv - av) / sv;
+                    const double width = std::abs(reachCell * len / sv);
+                    const double x = au + t0 * su;
+                    xlo = std::min(xlo, x - width);
+                    xhi = std::max(xhi, x + width);
+                }
+                else if (len > 1e-12 && std::abs(cv - av) <= reachCell) {
+                    xlo = std::min(xlo, std::min(au, bu) - reachCell);
+                    xhi = std::max(xhi, std::max(au, bu) + reachCell);
+                }
+                const int ri0 = std::max(i0, (int)std::floor((xlo - hm.lo[0]) / hm.cell));
+                const int ri1 = std::min(i1, (int)std::floor((xhi - hm.lo[0]) / hm.cell));
+                for (int i = ri0; i <= ri1; i++) {
+                    const double cu = hm.lo[0] + (i + 0.5) * hm.cell;
                     const double dist = SegmentDistance2D(cu, cv, au, av, bu, bv);
-                    if (dist - half > R) {
+                    if (dist > reachCell) {
                         continue;
                     }
                     float& cellTop = hm.top[(size_t)j * hm.n[0] + i];

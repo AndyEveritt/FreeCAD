@@ -81,6 +81,10 @@ struct Layout::Builder::Data
     int roots[3];
     // requested bricks per thread and level
     std::vector<std::vector<std::vector<uint64_t>>> requests;
+    // levels with few bricks: requested bricks as bits, by brick index, so requests of the same
+    // brick by many capsules count once
+    std::vector<std::unique_ptr<std::atomic<uint64_t>[]>> bits;
+    std::vector<size_t> bitWords;
 };
 
 Layout::Builder::Builder(const double lo[3], const double hi[3], double rootCell, int levels, int threads)
@@ -95,6 +99,18 @@ Layout::Builder::Builder(const double lo[3], const double hi[3], double rootCell
         d->origin[k] = 0.5 * (lo[k] + hi[k]) - 0.5 * d->roots[k] * rootSize;
     }
     d->requests.assign(std::max(1, threads), std::vector<std::vector<uint64_t>>(d->levels + 1));
+    d->bits.resize(d->levels + 1);
+    d->bitWords.assign(d->levels + 1, 0);
+    for (int level = 1; level <= d->levels; level++) {
+        const size_t bricks = (size_t)d->roots[0] * d->roots[1] * d->roots[2] << (3 * level);
+        if (bricks <= (size_t)1 << 28) {
+            d->bitWords[level] = (bricks + 63) / 64;
+            d->bits[level].reset(new std::atomic<uint64_t>[d->bitWords[level]]);
+            for (size_t w = 0; w < d->bitWords[level]; w++) {
+                d->bits[level][w].store(0, std::memory_order_relaxed);
+            }
+        }
+    }
 }
 
 Layout::Builder::~Builder() = default;
@@ -129,6 +145,8 @@ void Layout::Builder::AddCapsule(int thread, const double a[3], const double b[3
     }
     const double half = 0.8660254037844386 * size;
     std::vector<uint64_t>& out = d->requests[thread][level];
+    std::atomic<uint64_t>* bits = d->bits[level].get();
+    const size_t nx = (size_t)d->roots[0] * count, ny = (size_t)d->roots[1] * count;
     for (int z = lo[2]; z <= hi[2]; z++) {
         for (int y = lo[1]; y <= hi[1]; y++) {
             for (int x = lo[0]; x <= hi[0]; x++) {
@@ -137,7 +155,14 @@ void Layout::Builder::AddCapsule(int thread, const double a[3], const double b[3
                     d->origin[1] + (y + 0.5) * size,
                     d->origin[2] + (z + 0.5) * size,
                 };
-                if (BoxSegmentDistance(c, half, a, b) <= radius) {
+                if (BoxSegmentDistance(c, half, a, b) > radius) {
+                    continue;
+                }
+                if (bits) {
+                    const size_t index = ((size_t)z * ny + y) * nx + x;
+                    bits[index / 64].fetch_or(1ull << (index % 64), std::memory_order_relaxed);
+                }
+                else {
                     out.push_back(Key(x, y, z));
                 }
             }
@@ -165,6 +190,21 @@ std::shared_ptr<Layout> Layout::Builder::Build(ThreadPool& pool)
         pool.Run([&](int) {
             for (int level; (level = next++) <= levels;) {
                 std::vector<uint64_t>& out = requested[level];
+                if (d->bits[level]) {
+                    // the bits in brick index order
+                    const int count = 1 << level;
+                    const size_t nx = (size_t)L.mRoots[0] * count, ny = (size_t)L.mRoots[1] * count;
+                    for (size_t w = 0; w < d->bitWords[level]; w++) {
+                        uint64_t word = d->bits[level][w].load(std::memory_order_relaxed);
+                        while (word) {
+                            const int bit = __builtin_ctzll(word);
+                            word &= word - 1;
+                            const size_t index = w * 64 + bit;
+                            out.push_back(Key(index % nx, (index / nx) % ny, index / (nx * ny)));
+                        }
+                    }
+                    d->bits[level].reset();
+                }
                 for (auto& perThread : d->requests) {
                     out.insert(out.end(), perThread[level].begin(), perThread[level].end());
                     std::vector<uint64_t>().swap(perThread[level]);
