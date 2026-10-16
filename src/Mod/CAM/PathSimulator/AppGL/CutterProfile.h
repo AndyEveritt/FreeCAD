@@ -142,6 +142,18 @@ public:
     };
     SweptEdge SweptLowerEdge(const float axis[3], float extent, int bins) const;
 
+    // The solid as a stack of frustums between neighboring vertex heights: at a height z from z0
+    // to z1 its cross section is the disk of radius r0 + (z - z0) * (r1 - r0) / (z1 - z0). Each
+    // frustum is convex. Empty if the solid is not such a stack, like a tool with an overhang.
+    struct Frustum
+    {
+        float z0, z1, r0, r1;
+    };
+    const std::vector<Frustum>& Frustums() const
+    {
+        return mFrustums;
+    }
+
     // Parameter ranges where the line origin + s * dir is inside the solid. Origin and direction
     // are given in tool coordinates, dir must be normalized. Writes the ranges in increasing
     // order to 'out', and if given the surface normals at their ends (tool coordinates, out of
@@ -177,6 +189,7 @@ private:
     void ForEdgesAt(float z, F f) const;
     // smallest radius of curvature of every edge, 0 at sharp corners, from its lowest point on
     std::vector<std::pair<float, float>> mCurvature;
+    std::vector<Frustum> mFrustums;
     float mRadius = 0;
     float mMinZ = 0;
     float mMaxZ = 0;

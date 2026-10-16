@@ -138,6 +138,10 @@ public:
     );
     // Estimated work of cutting a move, in lines
     long EstimateWork(const CutMove& move) const;
+    // True if the move is cut for its whole length at once along each line: a tilted tool made
+    // of frustums moving straight with a fixed axis. Other tilted moves are cut by instances of
+    // the tool along them.
+    static bool Sweeps(const CutMove& move);
 
     // Material spans of a line of a leaf, 'out' points to them. 'scratch' holds the span of
     // completely filled bricks.

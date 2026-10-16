@@ -187,6 +187,7 @@ CutterProfile::CutterProfile(const std::vector<float>& profile)
     }
     mSliceStart.push_back((int)mSliceEdges.size());
 
+
     // table of axial intervals
     mTableStep = mRadius > 0 ? mRadius / (TableSize - 1) : 1;
     std::vector<Interval> intervals;
@@ -217,6 +218,29 @@ CutterProfile::CutterProfile(const std::vector<float>& profile)
             }
             mMonotonic &= contained;
         }
+    }
+
+    // frustums: between neighboring vertex heights, the solid from the axis to the one edge
+    // crossing the range. Or to the outermost edge in ranges as thin as the tiny steps where the
+    // flutes meet the shank, see above.
+    for (size_t i = 0; i + 1 < mVertexHeights.size(); i++) {
+        const float lo = mVertexHeights[i], hi = mVertexHeights[i + 1];
+        const float mid = (lo + hi) / 2;
+        float r0 = -1, r1 = -1;
+        int count = 0;
+        for (int k = mSliceStart[i]; k < mSliceStart[i + 1]; k++) {
+            const Edge& e = mEdges[mSliceEdges[k]];
+            if (std::min(e.z1, e.z2) < mid && std::max(e.z1, e.z2) > mid) {
+                r0 = std::max(r0, e.r1 + (lo - e.z1) * (e.r2 - e.r1) / (e.z2 - e.z1));
+                r1 = std::max(r1, e.r1 + (hi - e.z1) * (e.r2 - e.r1) / (e.z2 - e.z1));
+                count++;
+            }
+        }
+        if (count == 0 || (count > 1 && hi - lo > slack)) {
+            mFrustums.clear();
+            break;
+        }
+        mFrustums.push_back({lo, hi, std::max(0.0f, r0), std::max(0.0f, r1)});
     }
 }
 

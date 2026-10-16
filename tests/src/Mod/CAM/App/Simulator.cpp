@@ -726,6 +726,135 @@ TEST(DexelStock, horizontalToolCutsSideways)
     EXPECT_NEAR(n[0], 1, 0.01);
 }
 
+TEST(CutterProfile, frustumsOfToolShapes)
+{
+    // tools with one radius per height are stacks of frustums from the tip to the top
+    for (const auto& profile : {FlatProfile(3), BallProfile(3, 8), DovetailProfile()}) {
+        CutterProfile tool(profile);
+        const auto& frustums = tool.Frustums();
+        ASSERT_FALSE(frustums.empty());
+        EXPECT_FLOAT_EQ(frustums.front().z0, 0);
+        EXPECT_FLOAT_EQ(frustums.back().z1, ToolLength);
+        for (size_t i = 0; i < frustums.size(); i++) {
+            const auto& f = frustums[i];
+            EXPECT_LT(f.z0, f.z1);
+            if (i > 0) {
+                EXPECT_FLOAT_EQ(frustums[i - 1].z1, f.z0);
+            }
+            const float z = (f.z0 + f.z1) / 2;
+            EXPECT_NEAR(tool.SliceRadius(z), (f.r0 + f.r1) / 2, 1e-4f);
+        }
+    }
+    // a lip overhanging the neck: two radii at some heights, not a stack
+    CutterProfile lip({2, ToolLength, 2, 4, 5, 6, 5, 2, 0, 0});
+    EXPECT_TRUE(lip.Frustums().empty());
+    // unless it is as thin as where the profile of a face mill meets its shank
+    CutterProfile faceMill({11, 45, 11, 5.99f, 25, 6, 25, 0});
+    ASSERT_FALSE(faceMill.Frustums().empty());
+    EXPECT_NEAR(faceMill.SliceRadius(3), 25, 1e-4f);
+    for (const auto& f : faceMill.Frustums()) {
+        EXPECT_GE(f.r0, 11);
+        EXPECT_GE(f.r1, 11);
+    }
+}
+
+TEST(DexelStock, tiltedMovesRemoveTheSweptTool)
+{
+    // A tilted tool with a fixed axis moving straight removes exactly the points the tool contains
+    // at some time of the move: the material left along lines in all three directions matches
+    // the tool sampled along the move, away from the boundary of the cut
+    struct Case
+    {
+        std::vector<float> profile;
+        float axis[3];
+        float p0[3], p1[3];
+    };
+    const std::vector<Case> cases = {
+        {FlatProfile(3), {0, 0.5f, 1}, {4, 6, -3}, {16, 13, -5}},
+        {BallProfile(3, 16), {0.3f, -0.8f, 0.5f}, {5, 15, -2}, {15, 5, -6}},
+        {DovetailProfile(), {1, 0, 0}, {6, 4, -5}, {6, 16, -5}},
+        // a V bit plunging along its axis, and a flat end mill moving across its axis
+        {{4, ToolLength, 4, 4, 0, 0}, {0.6f, 0, 0.8f}, {13, 10, 0}, {10.6f, 10, -3.2f}},
+        {FlatProfile(2.5f), {-1, 1, 1}, {4, 4, -6}, {16, 16, -6}},
+        // a face mill with the step to its shank, upside down
+        {{2, ToolLength, 2, 2.99f, 4, 3, 4, 0}, {0.2f, 0.1f, -1}, {3, 10, -9}, {17, 12, -7}},
+    };
+    for (const Case& c : cases) {
+        Fixture f;
+        CutterProfile tool(c.profile);
+        float axis[3];
+        const float len = std::sqrt(c.axis[0] * c.axis[0] + c.axis[1] * c.axis[1] + c.axis[2] * c.axis[2]);
+        for (int k = 0; k < 3; k++) {
+            axis[k] = c.axis[k] / len;
+        }
+        const CutMove move = Move(tool, c.p0, c.p1, axis);
+        ASSERT_TRUE(DexelStock::Sweeps(move));
+        f.stock.Cut({move}, f.pool);
+
+        auto removed = [&](const float x[3]) {
+            for (int i = 0; i <= 1000; i++) {
+                const float t = i / 1000.0f;
+                float q[3], w = 0;
+                for (int k = 0; k < 3; k++) {
+                    q[k] = x[k] - (c.p0[k] + t * (c.p1[k] - c.p0[k]));
+                    w += q[k] * axis[k];
+                }
+                float rho2 = 0;
+                for (int k = 0; k < 3; k++) {
+                    rho2 += (q[k] - w * axis[k]) * (q[k] - w * axis[k]);
+                }
+                if (tool.Contains(std::sqrt(rho2), w)) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        auto inBox = [](const float x[3]) {
+            return x[0] > 0 && x[0] < 20 && x[1] > 0 && x[1] < 20 && x[2] > -10 && x[2] < 0;
+        };
+        constexpr float margin = 0.1f;
+        int checked = 0, cut = 0;
+        for (int a = 0; a < 3; a++) {
+            const int u = (a + 1) % 3, v = (a + 2) % 3;
+            for (float pu = 0.3f; pu < 20; pu += 1.7f) {
+                for (float pv = 0.3f; pv < 20; pv += 1.7f) {
+                    const float cu = u == 2 ? -pu / 2 : pu, cv = v == 2 ? -pv / 2 : pv;
+                    const auto material = f.Material(a, cu, cv);
+                    float x[3];
+                    x[u] = f.Snap(u, cu);
+                    x[v] = f.Snap(v, cv);
+                    for (float s = -10; s < 20; s += 0.1f) {
+                        x[a] = s;
+                        if (!inBox(x)) {
+                            continue;
+                        }
+                        // away from the boundary of the cut and of the stock
+                        bool near = false;
+                        const bool here = removed(x);
+                        for (const float ds : {-margin, margin}) {
+                            float y[3] = {x[0], x[1], x[2]};
+                            y[a] += ds;
+                            near |= !inBox(y) || removed(y) != here;
+                        }
+                        if (near) {
+                            continue;
+                        }
+                        bool inside = false;
+                        for (const Span& sp : material) {
+                            inside |= sp.lo <= s && s <= sp.hi;
+                        }
+                        ASSERT_EQ(inside, !here) << "line " << a << " " << cu << " " << cv << " at " << s;
+                        checked++;
+                        cut += here;
+                    }
+                }
+            }
+        }
+        EXPECT_GT(cut, 100);
+        EXPECT_GT(checked, 3000);
+    }
+}
+
 TEST(DexelStock, adaptiveLevelsAgree)
 {
     // lines shared by bricks of different levels get the same material
@@ -1336,3 +1465,39 @@ TEST(DexelSimulation, finishingUnderRemovedMaterialRefinesLess)
 
 
 // NOLINTEND(cppcoreguidelines-*,readability-*)
+
+TEST(DexelStock, tiltedFlatFaceGetsItsNormal)
+{
+    // A face mill on a 45 degree plane passing across it: the face its flat bottom leaves has the
+    // normal of the plane, not the unknown normal of the sharp edge of the tool where the face
+    // ends
+    const float size = 40, depth = 20;
+    Fixture f(MakeLayout(size, depth, 0.25f), size, depth);
+    CutterProfile tool({11, 45, 11, 5.99f, 25, 6, 25, 0});
+    const float s = std::sqrt(0.5f);
+    const float axis[3] = {0, s, s};
+    const float p0[3] = {-30, 35, -5}, p1[3] = {70, 35, -5};
+    const CutMove move = Move(tool, p0, p1, axis);
+    ASSERT_TRUE(DexelStock::Sweeps(move));
+    f.stock.Cut({move}, f.pool);
+    int floor = 0;
+    for (float x = 1; x < 39; x += 0.7f) {
+        for (float y = 20; y < 39; y += 0.6f) {
+            const auto m = f.At(x, y);
+            ASSERT_FALSE(m.empty());
+            const float top = m.back().hi;
+            const float plane = -5 - (f.Snap(1, y) - 35);
+            if (std::abs(top - plane) > 0.01f || top > -0.5f || top < -depth + 0.5f) {
+                continue;
+            }
+            floor++;
+            ASSERT_TRUE(HasNormal(m.back().nhi)) << x << " " << y;
+            float n[3];
+            UnpackNormal(m.back().nhi, n);
+            EXPECT_NEAR(n[0], 0, 0.02f) << x << " " << y;
+            EXPECT_NEAR(n[1], s, 0.02f) << x << " " << y;
+            EXPECT_NEAR(n[2], s, 0.02f) << x << " " << y;
+        }
+    }
+    EXPECT_GT(floor, 500);
+}

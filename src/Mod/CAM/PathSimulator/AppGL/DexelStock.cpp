@@ -198,6 +198,140 @@ bool InsideMaterial(const Span* spans, int n, float x)
     return it != spans + n && it->lo < x;
 }
 
+// A half plane a * s + b * t + c >= 0, with (a, b) a unit vector
+struct HalfPlane
+{
+    double a, b, c;
+};
+
+// The range of s over the points (s, t) where the quadratic
+// q[0] s^2 + 2 q[1] s t + q[2] t^2 + 2 q[3] s + 2 q[4] t + q[5] is at most 0, inside the half planes,
+// and the t of its ends. The set must be convex and bounded in s. Its extremes in s are corners of
+// the half planes, points where their lines cross the conic, or points of the conic tangent to s.
+// Where an extreme is reached along a range of t, like on a flat face of the tool, the t of the
+// middle of it, away from the edges of the face. False if the set is empty. tol is the tolerance
+// of the tests, a distance.
+bool ConvexRange(
+    const double q[6],
+    const HalfPlane* planes,
+    int n,
+    double tol,
+    double& sMin,
+    double& tMin,
+    double& sMax,
+    double& tMax
+)
+{
+    auto quadric = [&](double s, double t) {
+        return q[0] * s * s + 2 * q[1] * s * t + q[2] * t * t + 2 * q[3] * s + 2 * q[4] * t + q[5];
+    };
+    bool found = false;
+    // the range of t at each extreme
+    double minT0 = 0, minT1 = 0, maxT0 = 0, maxT1 = 0;
+    const double same = 10 * tol;
+    auto consider = [&](double s, double t) {
+        if (found && s > sMin + same && s < sMax - same) {
+            return;  // can't change the range
+        }
+        for (int i = 0; i < n; i++) {
+            if (planes[i].a * s + planes[i].b * t + planes[i].c < -tol) {
+                return;
+            }
+        }
+        const double gs = q[0] * s + q[1] * t + q[3], gt = q[1] * s + q[2] * t + q[4];
+        if (quadric(s, t) > 2 * tol * std::sqrt(gs * gs + gt * gt) + tol * tol) {
+            return;
+        }
+        if (!found || s < sMin - same) {
+            sMin = s;
+            minT0 = minT1 = t;
+        }
+        else if (s <= sMin + same) {
+            sMin = std::min(sMin, s);
+            minT0 = std::min(minT0, t);
+            minT1 = std::max(minT1, t);
+        }
+        if (!found || s > sMax + same) {
+            sMax = s;
+            maxT0 = maxT1 = t;
+        }
+        else if (s >= sMax - same) {
+            sMax = std::max(sMax, s);
+            maxT0 = std::min(maxT0, t);
+            maxT1 = std::max(maxT1, t);
+        }
+        found = true;
+    };
+    // the points where the line a * s + b * t + c = 0, (a, b) a unit vector, meets the conic
+    auto crossings = [&](double a, double b, double c) {
+        const double ps = -a * c, pt = -b * c, ds = -b, dt = a;
+        const double qa = q[0] * ds * ds + 2 * q[1] * ds * dt + q[2] * dt * dt;
+        const double qb = ds * (q[0] * ps + q[1] * pt + q[3]) + dt * (q[1] * ps + q[2] * pt + q[4]);
+        const double qc = quadric(ps, pt);
+        if (std::abs(qa) < 1e-12) {
+            if (std::abs(qb) > 1e-15) {
+                const double l = -qc / (2 * qb);
+                consider(ps + l * ds, pt + l * dt);
+            }
+            return;
+        }
+        double disc = qb * qb - qa * qc;
+        if (disc < 0) {
+            if (disc < -1e-12 * (qb * qb + std::abs(qa * qc))) {
+                return;
+            }
+            disc = 0;
+        }
+        const double sq = std::sqrt(disc);
+        for (const double l : {(-qb - sq) / qa, (-qb + sq) / qa}) {
+            consider(ps + l * ds, pt + l * dt);
+        }
+    };
+
+    for (int i = 0; i < n; i++) {
+        crossings(planes[i].a, planes[i].b, planes[i].c);
+        for (int j = i + 1; j < n; j++) {
+            const double det = planes[i].a * planes[j].b - planes[j].a * planes[i].b;
+            if (std::abs(det) > 1e-9) {
+                consider(
+                    (planes[i].b * planes[j].c - planes[j].b * planes[i].c) / det,
+                    (planes[j].a * planes[i].c - planes[i].a * planes[j].c) / det
+                );
+            }
+        }
+    }
+    // where the conic is tangent to s: dQ/dt = 0
+    const double len = std::sqrt(q[1] * q[1] + q[2] * q[2]);
+    if (len > 1e-12) {
+        crossings(q[1] / len, q[2] / len, q[4] / len);
+    }
+    tMin = (minT0 + minT1) / 2;
+    tMax = (maxT0 + maxT1) / 2;
+    return found;
+}
+
+// Unit vectors across a unit tool axis, e1, e2 and the axis right handed
+void ToolFrame(const float axis[3], float e1[3], float e2[3])
+{
+    if (std::abs(axis[0]) < 0.9f) {
+        e1[0] = 0;
+        e1[1] = axis[2];
+        e1[2] = -axis[1];
+    }
+    else {
+        e1[0] = -axis[2];
+        e1[1] = 0;
+        e1[2] = axis[0];
+    }
+    const float len = std::sqrt(e1[0] * e1[0] + e1[1] * e1[1] + e1[2] * e1[2]);
+    for (int k = 0; k < 3; k++) {
+        e1[k] /= len;
+    }
+    e2[0] = axis[1] * e1[2] - axis[2] * e1[1];
+    e2[1] = axis[2] * e1[0] - axis[0] * e1[2];
+    e2[2] = axis[0] * e1[1] - axis[1] * e1[0];
+}
+
 const DexelStock::BrickRef& SolidBrick()
 {
     static const DexelStock::BrickRef solid = [] {
@@ -336,9 +470,133 @@ struct DexelStock::Prepared
     // at most a quarter cell
     bool fast = false;
     int pieces = 1;
+    // tilted tool with a fixed axis, made of frustums: the material a line loses is found for
+    // the whole move at once, frustum by frustum
+    bool swept = false;
+    float frame[3][3];  // e1, e2 and the axis
     // otherwise: tool instances along the move
     std::vector<Instance> instances;
     std::vector<int> leaves;
+
+    // A range of the line removed by a swept move, and the times of the move when the tool
+    // reaches its ends
+    struct Chord
+    {
+        float lo, hi, tLo, tHi;
+    };
+    // The ranges of the line base + s * e_a the tool of a swept move passes through, in order. A
+    // point of the line is in a frustum of the tool at a time t of the move where it is in a
+    // conic region of the (s, t) plane between the planes of the ends of the frustum. The region
+    // is convex, its extremes in s are its range on the line.
+    // Only if material(lo, hi) says there is material in the range [lo, hi] of the line inside
+    // the cylinder around the cutting part of the tool.
+    template<class F>
+    void SweptChords(const float base[3], int a, std::vector<Chord>& out, F material) const
+    {
+        out.clear();
+        const CutterProfile& tool = *move->tool;
+        const auto& frustums = tool.Frustums();
+        // the line and the motion in tool coordinates, the motion as a unit vector and its length
+        double o[3], d[3], m[3];
+        for (int k = 0; k < 3; k++) {
+            o[k] = 0;
+            d[k] = frame[k][a];
+            m[k] = 0;
+            for (int c = 0; c < 3; c++) {
+                o[k] += ((double)base[c] - move->p0[c]) * frame[k][c];
+                m[k] += ((double)move->p1[c] - move->p0[c]) * frame[k][c];
+            }
+        }
+        const double travel = std::sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
+        for (int k = 0; k < 3; k++) {
+            m[k] = travel > 1e-9 ? m[k] / travel : 0;
+        }
+        constexpr double tol = 1e-5;
+        // the range on the line of the frustum from z0 to z1, the time along the motion as the
+        // distance travelled
+        auto range = [&](double z0, double z1, double r0, double r1, Chord& chord) {
+            const double k = (r1 - r0) / (z1 - z0);
+            const double xs = d[0], xt = -m[0], x0 = o[0];
+            const double ys = d[1], yt = -m[1], y0 = o[1];
+            const double ws = d[2], wt = -m[2], w0 = o[2];
+            const double rs = k * ws, rt = k * wt, r = r0 + k * (w0 - z0);
+            const double q[6] = {
+                xs * xs + ys * ys - rs * rs,
+                xs * xt + ys * yt - rs * rt,
+                xt * xt + yt * yt - rt * rt,
+                x0 * xs + y0 * ys - r * rs,
+                x0 * xt + y0 * yt - r * rt,
+                x0 * x0 + y0 * y0 - r * r,
+            };
+            HalfPlane planes[4];
+            int n = 0;
+            auto add = [&](double pa, double pb, double pc) {
+                const double len = std::sqrt(pa * pa + pb * pb);
+                if (len < 1e-12) {
+                    return pc >= -tol;
+                }
+                planes[n++] = {pa / len, pb / len, pc / len};
+                return true;
+            };
+            if (!add(ws, wt, w0 - z0) || !add(-ws, -wt, z1 - w0)) {
+                return false;
+            }
+            add(0, 1, 0);
+            add(0, -1, travel);
+            double sMin, tMin, sMax, tMax;
+            if (!ConvexRange(q, planes, n, tol, sMin, tMin, sMax, tMax)) {
+                return false;
+            }
+            chord = {
+                (float)sMin,
+                (float)sMax,
+                travel > 1e-9 ? (float)(tMin / travel) : 0.0f,
+                travel > 1e-9 ? (float)(tMax / travel) : 0.0f,
+            };
+            return true;
+        };
+
+        // nothing if the line misses the cylinder around the cutting part, or has no material there
+        Chord chord;
+        if (frustums.empty() || !range(frustums.front().z0, length, radius, radius, chord)
+            || !material(chord.lo, chord.hi)) {
+            return;
+        }
+        // the heights along the tool the line reaches inside the cylinder during the move
+        const double wLo = o[2] + std::min(chord.lo * d[2], chord.hi * d[2]) + std::min(0.0, -travel * m[2]) - tol;
+        const double wHi = o[2] + std::max(chord.lo * d[2], chord.hi * d[2]) + std::max(0.0, -travel * m[2]) + tol;
+        for (const auto& f : frustums) {
+            if (f.z0 >= length || f.z0 > wHi) {
+                break;
+            }
+            if (f.z1 < wLo) {
+                continue;
+            }
+            float z1 = f.z1, r1 = f.r1;
+            if (z1 > length) {
+                r1 = f.r0 + (length - f.z0) * (f.r1 - f.r0) / (f.z1 - f.z0);
+                z1 = length;
+            }
+            if (z1 - f.z0 > 1e-7f && range(f.z0, z1, f.r0, r1, chord)) {
+                out.push_back(chord);
+            }
+        }
+        // the union, in order
+        std::sort(out.begin(), out.end(), [](const Chord& x, const Chord& y) { return x.lo < y.lo; });
+        size_t kept = 0;
+        for (size_t i = 0; i < out.size(); i++) {
+            if (kept > 0 && out[i].lo <= out[kept - 1].hi + (float)tol) {
+                if (out[i].hi > out[kept - 1].hi) {
+                    out[kept - 1].hi = out[i].hi;
+                    out[kept - 1].tHi = out[i].tHi;
+                }
+            }
+            else {
+                out[kept++] = out[i];
+            }
+        }
+        out.resize(kept);
+    }
 };
 
 struct DexelStock::InstanceRef
@@ -366,6 +624,7 @@ struct DexelStock::Scratch
     std::vector<float> normals;
     std::vector<int> instances;
     std::vector<Span> out;
+    std::vector<Prepared::Chord> chords;
     long work = 0;
 };
 
@@ -747,6 +1006,7 @@ void DexelStock::Prepare(const CutMove& move, Prepared& p) const
     p.leaves.clear();
     const bool vertical = IsVertical(move.a0) && IsVertical(move.a1);
     p.fast = vertical && tool.IsRadiallyMonotonic();
+    p.swept = !vertical && Sweeps(move);
 
     LayoutRegion& region = p.region;
     if (vertical) {
@@ -799,6 +1059,14 @@ void DexelStock::Prepare(const CutMove& move, Prepared& p) const
         const float tolerance = p.cell * 0.25f;
         p.pieces = (dxy > 1e-6f && dz > tolerance) ? (int)std::ceil(dz / tolerance) : 1;
     }
+    else if (p.swept) {
+        float* axis = p.frame[2];
+        const float len = std::sqrt(move.a0[0] * move.a0[0] + move.a0[1] * move.a0[1] + move.a0[2] * move.a0[2]);
+        for (int k = 0; k < 3; k++) {
+            axis[k] = move.a0[k] / len;
+        }
+        ToolFrame(axis, p.frame[0], p.frame[1]);
+    }
     else {
         // tool instances, close enough that neither the tip nor the top of the cutting part of
         // the tool moves more than half a cell between them
@@ -831,24 +1099,7 @@ void DexelStock::Prepare(const CutMove& move, Prepared& p) const
                 axis[k] /= len;
             }
             inst.vertical = IsVertical(axis);
-            float* e1 = inst.e1;
-            if (std::abs(axis[0]) < 0.9f) {
-                e1[0] = 0;
-                e1[1] = axis[2];
-                e1[2] = -axis[1];
-            }
-            else {
-                e1[0] = -axis[2];
-                e1[1] = 0;
-                e1[2] = axis[0];
-            }
-            const float elen = std::sqrt(e1[0] * e1[0] + e1[1] * e1[1] + e1[2] * e1[2]);
-            for (int k = 0; k < 3; k++) {
-                e1[k] /= elen;
-            }
-            inst.e2[0] = axis[1] * e1[2] - axis[2] * e1[1];
-            inst.e2[1] = axis[2] * e1[0] - axis[0] * e1[2];
-            inst.e2[2] = axis[0] * e1[1] - axis[1] * e1[0];
+            ToolFrame(axis, inst.e1, inst.e2);
             // only the part of the tool below the top of the material can cut
             float h = tool.Height();
             const float side = r * std::sqrt(std::max(0.0f, 1 - axis[2] * axis[2]));
@@ -873,6 +1124,16 @@ void DexelStock::Prepare(const CutMove& move, Prepared& p) const
     mLayout->LeavesIn(region, p.leaves);
 }
 
+bool DexelStock::Sweeps(const CutMove& move)
+{
+    // a tilted tool turning no more than the rounding of the axes
+    bool turning = false;
+    for (int k = 0; k < 3; k++) {
+        turning |= std::abs(move.a1[k] - move.a0[k]) > 1e-6f;
+    }
+    return !(IsVertical(move.a0) && IsVertical(move.a1)) && !turning && !move.tool->Frustums().empty();
+}
+
 long DexelStock::EstimateWork(const CutMove& move) const
 {
     Prepared p;
@@ -887,6 +1148,11 @@ long DexelStock::EstimateWork(const CutMove& move) const
     double work = 0;
     if (p.fast) {
         work = faces(p.region.lo, p.region.hi) * p.pieces;
+    }
+    else if (p.swept) {
+        // the lines through the region, each with the frustums of the tool, about as costly as
+        // a tool instance each
+        work = faces(p.region.lo, p.region.hi) * (8.0 + p.move->tool->Frustums().size());
     }
     else {
         for (const auto& inst : p.instances) {
@@ -1009,7 +1275,7 @@ void DexelStock::CutBrick(
     float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
     for (int m = 0; m < count; m++) {
         const Prepared& p = *moves[m];
-        if (p.fast) {
+        if (p.fast || p.swept) {
             s.fastMoves.push_back(&p);
         }
         else {
@@ -1148,6 +1414,56 @@ void DexelStock::CutBrick(
                     const CutMove& move = *p.move;
                     const CutterProfile& tool = *move.tool;
                     const float r = p.radius;
+                    if (p.swept) {
+                        p.SweptChords(base, a, s.chords, [&](float lo, float hi) {
+                            return MaterialIn(lineData, lineSize, lo, hi);
+                        });
+                        s.removal.clear();
+                        for (const auto& chord : s.chords) {
+                            if (!MaterialIn(lineData, lineSize, chord.lo, chord.hi)) {
+                                continue;
+                            }
+                            // normals from the tool where it reaches the ends that become ends of
+                            // the material
+                            uint32_t normal[2] = {0, 0};
+                            const float ends[2] = {chord.lo, chord.hi}, times[2] = {chord.tLo, chord.tHi};
+                            for (int e = 0; e < 2; e++) {
+                                if (!InsideMaterial(lineData, lineSize, ends[e])) {
+                                    continue;
+                                }
+                                float origin[3], dir[3];
+                                for (int k = 0; k < 3; k++) {
+                                    origin[k] = 0;
+                                    for (int c = 0; c < 3; c++) {
+                                        const float tip = move.p0[c] + times[e] * (move.p1[c] - move.p0[c]);
+                                        origin[k] += (base[c] - tip) * p.frame[k][c];
+                                    }
+                                    dir[k] = p.frame[k][a];
+                                }
+                                tool.LineIntervals(origin, dir, s.intervals, &s.normals, p.cell);
+                                int best = -1;
+                                float distance = 1e30f;
+                                for (int k = 0; k < (int)s.intervals.size(); k++) {
+                                    const float dk = std::abs((e == 0 ? s.intervals[k].lo : s.intervals[k].hi) - ends[e]);
+                                    if (dk < distance) {
+                                        distance = dk;
+                                        best = k;
+                                    }
+                                }
+                                if (best >= 0) {
+                                    const float* nt = &s.normals[6 * best + 3 * e];
+                                    float nw[3];
+                                    for (int c = 0; c < 3; c++) {
+                                        nw[c] = nt[0] * p.frame[0][c] + nt[1] * p.frame[1][c] + nt[2] * p.frame[2][c];
+                                    }
+                                    normal[e] = ToolNormal3(nw);
+                                }
+                            }
+                            s.removal.push_back({chord.lo, chord.hi, normal[0], normal[1]});
+                        }
+                        apply(s.removal.data(), (int)s.removal.size(), move);
+                        continue;
+                    }
                     if (a == 2) {
         // vertical line through (x, y)
         const float cx = base[0], cy = base[1];

@@ -52,11 +52,17 @@ thread mill) and cuts with tilted tools.
   - vertical tools: lines along Z remove the tool solid of the closest approach of moves divided
     into pieces of at most a quarter cell of height, lines along X and Y the cross sections of
     the tool, exactly (convex hull of the sections at the profile vertices)
-  - tilted or turning tools (5 axis): tool instances along the move, limited to the part of the
-    tool below the top of the stock. Tools with sharp edges there have instances at most half a
-    cell apart, smooth tools (ball, bull nose) farther, as long as the ridges between instances
-    stay below a hundredth of a cell (`CutterProfile::SmoothRadius`). Where a sharp edge of a tool
-    makes the surface, its normal is not known, the mesher estimates it.
+  - tilted tools with a fixed axis (3+2, horizontal tools): the whole move at once along every
+    line, exactly. The tool is a stack of frustums (`CutterProfile::Frustums`); the points of a
+    line inside one frustum at some time of the move form a convex region of the plane of the
+    line position and the time, bounded by a conic and straight lines, whose extremes are found
+    in closed form. The normals at the ends come from the tool where the move reaches them.
+  - turning tools (5 axis), and tilted tools that are not stacks of frustums: tool instances
+    along the move, limited to the part of the tool below the top of the stock. Tools with sharp
+    edges there have instances at most half a cell apart, smooth tools (ball, bull nose) farther,
+    as long as the ridges between instances stay below a hundredth of a cell
+    (`CutterProfile::SmoothRadius`). Where a sharp edge of a tool makes the surface, its normal is
+    not known, the mesher estimates it.
   - Moves only visit the dexels the tool can reach: lines farther than its cutting radius (of the
     part below the top of the stock, not a wider shank), and lines whose material is below the
     lowest point of the tool at their distance from the move, like under the passes beside the
