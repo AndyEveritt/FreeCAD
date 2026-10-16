@@ -632,7 +632,6 @@ bool SharpVertex(const std::vector<const Crossing*>& points, const double lo[3],
         return false;
     }
     double n[3][3] = {}, d[3] = {};
-    int count[3] = {};
     double mass[3] = {0, 0, 0};
     for (size_t i = 0; i < points.size(); i++) {
         const Crossing* c = points[i];
@@ -642,7 +641,6 @@ bool SharpVertex(const std::vector<const Crossing*>& points, const double lo[3],
             mass[k] += c->p[k];
         }
         d[g] += c->n[0] * c->p[0] + c->n[1] * c->p[1] + c->n[2] * c->p[2];
-        count[g]++;
     }
     for (int k = 0; k < 3; k++) {
         mass[k] /= (double)points.size();
@@ -653,7 +651,7 @@ bool SharpVertex(const std::vector<const Crossing*>& points, const double lo[3],
         for (int k = 0; k < 3; k++) {
             n[g][k] /= len;
         }
-        d[g] = d[g] / count[g] / len;
+        d[g] /= len;
     }
     // x = mass + sum l_g n_g with n_g . x = d_g: the Gram system N l = d - n . mass
     double N[3][3], r[3];
@@ -706,15 +704,17 @@ bool SharpVertex(const std::vector<const Crossing*>& points, const double lo[3],
             n[0][2] * n[1][0] - n[0][0] * n[1][2],
             n[0][0] * n[1][1] - n[0][1] * n[1][0],
         };
+        // an edge on a face of the bounds, like the edge of the stock, is in them
         double t0 = -1e30, t1 = 1e30;
         for (int k = 0; k < 3; k++) {
+            const double margin = 1e-6 * (hi[k] - lo[k]);
             if (std::abs(dir[k]) < 1e-12) {
-                if (x[k] < lo[k] || x[k] > hi[k]) {
+                if (x[k] < lo[k] - margin || x[k] > hi[k] + margin) {
                     return false;
                 }
                 continue;
             }
-            double a = (lo[k] - x[k]) / dir[k], b = (hi[k] - x[k]) / dir[k];
+            double a = (lo[k] - margin - x[k]) / dir[k], b = (hi[k] + margin - x[k]) / dir[k];
             if (a > b) {
                 std::swap(a, b);
             }
