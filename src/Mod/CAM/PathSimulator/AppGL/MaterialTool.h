@@ -294,7 +294,8 @@ private:
     struct Node
     {
         float lo[3], hi[3];
-        int first, count;  // pieces, or children if count < 0: first and first + 1
+        int first, count;  // pieces, or children if count < 0: first and right
+        int right;
     };
     struct Interval
     {

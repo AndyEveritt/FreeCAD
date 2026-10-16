@@ -242,13 +242,22 @@ class JobBench:
         if job.get("model_shape") is not None:
             self.sim.SetBaseShape(job["model_shape"], 1)
         sample = self.wait_frame()
+        wall_s = time.perf_counter() - t0
+        # time from starting the simulation until the view shows the end of the job
+        self.slider.setSliderDown(True)
+        self.slider.setSliderPosition(self.slider.maximum())
+        self.sim.TakeFrameTimes()
+        self.slider.setSliderDown(False)
+        self.wait_frame()
+        complete_s = time.perf_counter() - t0
         self.result["scenarios"]["load"] = {
-            "wall_s": time.perf_counter() - t0,
+            "wall_s": wall_s,
+            "complete_s": complete_s,
             "first_frame_ms": sample["frame_ms"],
             "memory_before": memory_before,
             "memory": memory_mb(),
         }
-        self.settle()
+        self.move_to(0)
 
         self.result["renderer"] = self.sim.GetRendererInfo()
         self.result["total_steps"] = self.slider.maximum()
@@ -734,6 +743,7 @@ def main():
         cam = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/CAM")
         cam.SetBool("SimulatorColorByOperation", CONFIG["color_by_operation"])
         cam.SetBool("SimulatorThinWalls", CONFIG["thin_walls"])
+        cam.SetBool("SimulatorLegacyEngine", CONFIG.get("legacy_engine", False))
         setup_window()
         for run in CONFIG["runs"]:
             try:

@@ -51,6 +51,7 @@ void CAMSettings::applySettings()
     OnChange(*hGrp, "DefaultNormalPathColor");
     OnChange(*hGrp, "DefaultRapidPathColor");
     OnChange(*hGrp, "SimulatorStencilRendering");
+    OnChange(*hGrp, "SimulatorLegacyEngine");
     OnChange(*hGrp, "SimulatorColorByOperation");
     OnChange(*hGrp, "SimulatorThinWalls");
     OnChange(*hGrp, "SimulatorStockOpacity");
@@ -80,6 +81,9 @@ void CAMSettings::OnChange(ParameterGrp::SubjectType& rCaller, ParameterGrp::Mes
     }
     else if (Reason == "SimulatorStencilRendering"sv) {
         mDlg.setStencilRendering(hGrp->GetBool("SimulatorStencilRendering", false));
+    }
+    else if (Reason == "SimulatorLegacyEngine"sv) {
+        mDlg.setLegacyEngine(hGrp->GetBool("SimulatorLegacyEngine", false));
     }
     else if (Reason == "SimulatorColorByOperation"sv) {
         mDlg.setColorByOperation(hGrp->GetBool("SimulatorColorByOperation", false));

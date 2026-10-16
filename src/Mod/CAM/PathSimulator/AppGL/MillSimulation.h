@@ -27,6 +27,7 @@
 #include "DexelRenderer.h"
 #include "DexelSimulation.h"
 #include "GCodeParser.h"
+#include "MaterialRenderer.h"
 #include "MillPathLine.h"
 #include "MillPathSegment.h"
 #include "SimDisplay.h"
@@ -150,6 +151,8 @@ public:
     // Use the original stencil based renderer instead of the dexel simulation. It only supports
     // 3 axis toolpaths and gets slow on large toolpaths.
     void SetStencilRendering(bool b);
+    // Use the previous dexel simulation instead of the material simulation, for comparison
+    void SetLegacyEngine(bool b);
 
 protected:
     void InitDisplay(float quality);
@@ -169,6 +172,12 @@ protected:
     EndMill* GetTool(int tool);
     void RemoveTool(int toolId);
     void StartDexelSimulation();
+    void StartMaterialSimulation();
+    void UpdateMaterialSimulation();
+    bool UsesMaterial() const
+    {
+        return !mStencilRendering && !mLegacyEngine;
+    }
     void DumpJob(const char* path, const std::vector<CutSegment>& segments) const;
     void UpdateDexelSimulation();
     void RenderDexelStock();
@@ -198,6 +207,9 @@ protected:
 
     // dexel simulation, used unless mStencilRendering
     bool mStencilRendering = false;
+    // the previous dexel simulation instead of the material simulation
+    bool mLegacyEngine = false;
+    std::unique_ptr<Material::View> mMaterial;
     std::unique_ptr<DexelSimulation> mDexel;
     DexelRenderer mDexelRenderer;
     bool mDexelNeedsStart = false;

@@ -117,9 +117,11 @@ public:
     bool Pending() const;
     // Step up to which the whole path has been simulated once
     long FrontierStep() const;
+    // The layout, once the worker planned it, null before
     std::shared_ptr<const Layout> GetLayout() const
     {
-        return mLayout;
+        std::lock_guard<std::mutex> lock(mMutex);
+        return mPlanned ? mLayout : nullptr;
     }
     // Called from the worker when a new stock is ready
     void SetNotify(std::function<void()> notify);
@@ -150,10 +152,13 @@ private:
     struct Checkpoint
     {
         long motion;  // motions done
-        std::vector<int> changed;  // leaves changed since the previous checkpoint
+        std::vector<int> changed;  // leaves changed since the previous live checkpoint
+        bool live = true;  // dropped checkpoints are not restored to
     };
 
     void Plan(const std::vector<float>& xyz, float quality);
+    // Plan, the initial stock, then simulate
+    void Prepare();
     void Worker();
     // Cut a batch of the motions from 'from' on, up to 'to', returns where it got
     long CutBatch(Grid& grid, long from, long to);
@@ -167,6 +172,10 @@ private:
     void TrackView();
     void SeekView(long target, long motions, long partialMotion, double partialT);
     void AddCheckpoint();
+    // Drop every other checkpoint, to stay within the memory budget
+    void ThinCheckpoints();
+    // The last live checkpoint at or before a number of motions
+    int CheckpointAt(long motions) const;
     void Publish(long step, const Grid& grid);
 
     std::vector<std::shared_ptr<const Tool>> mTools;
@@ -175,6 +184,9 @@ private:
     std::vector<long> mSegmentMotion;  // first motion of each segment, and the total
     std::vector<Motion2> mMotions;
     std::shared_ptr<const Layout> mLayout;
+    bool mPlanned = false;
+    std::vector<float> mStockXyz;
+    std::vector<uint32_t> mStockTriangles;
     double mStockLo[3] = {}, mStockHi[3] = {};
     float mQuality = 10;
 

@@ -457,6 +457,12 @@ void DlgCAMSimulator::setStencilRendering(bool b)
     update();
 }
 
+void DlgCAMSimulator::setLegacyEngine(bool b)
+{
+    mMillSimulator->SetLegacyEngine(b);
+    update();
+}
+
 void DlgCAMSimulator::setColorByOperation(bool b)
 {
     mColorByOperation = b;

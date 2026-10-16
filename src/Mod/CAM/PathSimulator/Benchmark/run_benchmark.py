@@ -103,6 +103,7 @@ def run_process(args, runs, workdir, name):
         "quality": args.quality,
         "color_by_operation": args.color_by_operation,
         "thin_walls": args.thin_walls,
+        "legacy_engine": args.legacy_engine,
         "window": args.window,
         "view": args.view,
         "scenarios": args.scenarios,
@@ -199,6 +200,8 @@ def metrics(run):
     """The values compared between runs, in ms: {name: value}."""
     out = {}
     for name, sc in run.get("scenarios", {}).items():
+        if name == "load" and sc.get("complete_s") is not None:
+            out["load.complete"] = sc["complete_s"] * 1000
         if sc.get("frame_ms", {}).get("count"):
             out[f"{name}.frame"] = sc["frame_ms"]["median"]
         if name == "jump" and sc.get("max_ms") is not None:
@@ -286,7 +289,8 @@ def display_options(data):
         "colors": config.get("color_by_operation", False),
         "thin walls": config.get("thin_walls", False),
     }
-    return "display: " + (", ".join(k for k, v in on.items() if v) or "plain")
+    engine = "  engine: legacy" if config.get("legacy_engine") else ""
+    return "display: " + (", ".join(k for k, v in on.items() if v) or "plain") + engine
 
 
 def print_summary(data, file=sys.stdout):
@@ -311,7 +315,7 @@ def print_summary(data, file=sys.stdout):
     )
 
     columns = [s for s in data["config"]["scenarios"] if s != "correctness"]
-    header = f"{'job':12s} {'size':7s} {'load s':>6s}"
+    header = f"{'job':12s} {'size':7s} {'load s':>6s} {'end s':>6s}"
     header += "".join(f" {s.replace('playback', 'play'):>14s}" for s in columns)
     header += f" {'converge':>9s} {'release':>8s} {'mem MB':>7s} {'image':>7s}"
     print(header, file=file)
@@ -319,6 +323,8 @@ def print_summary(data, file=sys.stdout):
         scenarios = run.get("scenarios", {})
         line = f"{run['job']:12s} {str(run['size']):7s}"
         line += f" {scenarios.get('load', {}).get('wall_s', 0):6.1f}"
+        complete = scenarios.get("load", {}).get("complete_s")
+        line += f" {complete:6.1f}" if complete is not None else f" {'-':>6s}"
         line += "".join(f" {cell(scenarios.get(s)):>14s}" for s in columns)
         scrubs = [scenarios[s] for s in SCRUBS if s in scenarios]
         converge = [s["converge_ms"]["median"] for s in scrubs if s.get("converge_ms")]
@@ -411,6 +417,11 @@ def main():
         action=argparse.BooleanOptionalAction,
         default=True,
         help="show thin walls, below the default threshold of 0.5 mm (default: on)",
+    )
+    parser.add_argument(
+        "--legacy-engine",
+        action="store_true",
+        help="simulate with the previous dexel engine (SimulatorLegacyEngine), for comparison",
     )
     parser.add_argument("--view", default="ViewAxo", help="initial view, e.g. ViewAxo, ViewTop")
     parser.add_argument(

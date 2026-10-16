@@ -1,4 +1,5 @@
 add_executable(CAM_tests_run
+    MaterialSimulator.cpp
     Path.cpp
     Simulator.cpp
 )
@@ -11,5 +12,10 @@ target_sources(CAM_tests_run PRIVATE
     ${CAMSimulatorEngine_DIR}/DexelMesher.cpp
     ${CAMSimulatorEngine_DIR}/DexelSimulation.cpp
     ${CAMSimulatorEngine_DIR}/DexelStock.cpp
+    ${CAMSimulatorEngine_DIR}/MaterialGrid.cpp
+    ${CAMSimulatorEngine_DIR}/MaterialLayout.cpp
+    ${CAMSimulatorEngine_DIR}/MaterialMesher.cpp
+    ${CAMSimulatorEngine_DIR}/MaterialSimulation.cpp
+    ${CAMSimulatorEngine_DIR}/MaterialTool.cpp
     ${CAMSimulatorEngine_DIR}/ThreadPool.cpp
 )

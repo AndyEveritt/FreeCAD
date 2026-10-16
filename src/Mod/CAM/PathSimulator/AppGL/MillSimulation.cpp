@@ -72,6 +72,7 @@ void MillSimulation::Clear()
     mStockObject.Clear();
     mDexel.reset();
     mDexelRenderer.FreeResources();
+    mMaterial.reset();
     mCutSegments.clear();
     simDisplay.CleanGL();
 
@@ -595,7 +596,9 @@ void MillSimulation::RenderBaseShape()
         return;
     }
     simDisplay.StartDepthPass();
-    glPolygonOffset(0, -2);
+    // the model a little behind the stock: where the stock is cut to the model, the stock and
+    // the colors of its operations are shown, the model only where the stock is cut deeper
+    glPolygonOffset(1, 4);
     glEnable(GL_POLYGON_OFFSET_FILL);
     simDisplay.StartGeometryPass(baseShapeColor, false);
     mBaseShape.render();
@@ -710,7 +713,10 @@ void MillSimulation::SimNext(const clock::duration& elapsed)
     // the tool waits for the stock: playback doesn't advance while the shown stock is behind
     // the tool, which can happen when cutting and meshing take longer than the playback speed
     // allows
-    if (mSimPlaying && !mStencilRendering && mDexel && mShownStep < mTargetStep) {
+    const bool stockBehind = UsesMaterial()
+        ? mMaterial && mMaterial->Started() && mMaterial->ShownStep() < mTargetStep
+        : !mStencilRendering && mDexel && mShownStep < mTargetStep;
+    if (mSimPlaying && stockBehind) {
         mTotalElapsed = 0s;
         numSteps = 0;
     }
@@ -899,6 +905,9 @@ void MillSimulation::SetThinWalls(bool enabled, float threshold)
     mThinThreshold = threshold;
     // the thickness is only measured while it is shown, it costs time
     mDexelRenderer.SetMeasureThickness(enabled);
+    if (mMaterial) {
+        mMaterial->SetMeasureThickness(enabled);
+    }
     mDexelColoring.thinThreshold = enabled ? threshold : 0;
     simDisplay.updateDisplay = true;
 }
@@ -984,13 +993,34 @@ void MillSimulation::SetSimulationStep(int step)
 // renderers that spread the work over several frames.
 bool MillSimulation::IsRenderPending() const
 {
+    if (UsesMaterial()) {
+        return mDexelNeedsStart || (mMaterial && mMaterial->Pending());
+    }
     return !mStencilRendering && mDexel && (mDexel->Pending() || mMeshPending || mDexelNeedsStart);
 }
 
 bool MillSimulation::NeedsFrame() const
 {
+    if (UsesMaterial()) {
+        // the simulation and the mesh are made in other threads, a frame shows a new mesh
+        return mSimPlaying || mSingleStep || simDisplay.updateDisplay || mDexelNeedsStart
+            || (mMaterial && mMaterial->HasNewMesh());
+    }
     return mSimPlaying || mSingleStep || simDisplay.updateDisplay
         || (!mStencilRendering && mDexelNeedsStart) || IsRenderPending();
+}
+
+void MillSimulation::SetLegacyEngine(bool b)
+{
+    if (b == mLegacyEngine) {
+        return;
+    }
+    mLegacyEngine = b;
+    mDexelNeedsStart = true;
+    mMaterial.reset();
+    mDexel.reset();
+    mDexelRenderer.FreeResources();
+    simDisplay.updateDisplay = true;
 }
 
 void MillSimulation::SetStencilRendering(bool b)
@@ -1003,6 +1033,9 @@ void MillSimulation::SetStencilRendering(bool b)
     if (b && mDexel) {
         mDexel->Stop();
     }
+    if (b) {
+        mMaterial.reset();
+    }
     simDisplay.simCacheValid = false;
     simDisplay.updateDisplay = true;
 }
@@ -1013,6 +1046,11 @@ void MillSimulation::StartDexelSimulation()
     if (mStockXyz.empty() || mCutSegments.size() != MillPathSegments.size()) {
         mDexel.reset();
         mDexelRenderer.FreeResources();
+        mMaterial.reset();
+        return;
+    }
+    if (UsesMaterial()) {
+        StartMaterialSimulation();
         return;
     }
 
@@ -1081,11 +1119,69 @@ void MillSimulation::DumpJob(const char* path, const std::vector<CutSegment>& se
     std::fclose(f);
 }
 
+void MillSimulation::StartMaterialSimulation()
+{
+    // tools by their id, segments refer to them by index
+    std::vector<std::shared_ptr<const Material::Tool>> tools;
+    std::vector<int> toolIds;
+    for (EndMill* tool : mToolTable) {
+        tools.push_back(std::make_shared<Material::Tool>(tool->rawProfile));
+        toolIds.push_back(tool->toolId);
+    }
+    std::vector<Material::Segment> segments(mCutSegments.size());
+    for (size_t i = 0; i < segments.size(); i++) {
+        const CutSegment& c = mCutSegments[i];
+        Material::Segment& m = segments[i];
+        const int id = MillPathSegments[i]->endmill->toolId;
+        m.tool = (int)(std::find(toolIds.begin(), toolIds.end(), id) - toolIds.begin());
+        m.arc = c.arc;
+        for (int k = 0; k < 3; k++) {
+            m.start[k] = c.start[k];
+            m.end[k] = c.end[k];
+            m.axis0[k] = c.axis0[k];
+            m.axis1[k] = c.axis1[k];
+        }
+        m.center[0] = c.center[0];
+        m.center[1] = c.center[1];
+        m.radius = c.radius;
+        m.startAngle = c.startAngle;
+        m.sweep = c.sweep;
+        m.steps = c.steps;
+        m.sweepSteps = c.sweepSteps;
+        m.operation = c.operation;
+    }
+    if (!mMaterial) {
+        mMaterial = std::make_unique<Material::View>();
+    }
+    mMaterial->SetMeasureThickness(mThinWalls);
+    mMaterial->Start(std::move(tools), std::move(segments), mStockXyz, mStockTriangles, mQuality);
+    mDexel.reset();
+    mDexelRenderer.FreeResources();
+    mShownStep = mTargetStep = 0;
+}
+
+void MillSimulation::UpdateMaterialSimulation()
+{
+    if (!mMaterial || !mMaterial->Started()) {
+        return;
+    }
+    const long target = mPathStep < 0 ? 0 : mMaterial->GlobalStep(mPathStep, mSubStep);
+    mMaterial->SetTarget(target);
+    mTargetStep = target;
+    if (mMaterial->Update()) {
+        simDisplay.updateDisplay = true;
+    }
+}
+
 void MillSimulation::UpdateDexelSimulation()
 {
     if (mDexelNeedsStart) {
         StartDexelSimulation();
         simDisplay.updateDisplay = true;
+    }
+    if (UsesMaterial()) {
+        UpdateMaterialSimulation();
+        return;
     }
     if (!mDexel) {
         return;
@@ -1141,6 +1237,12 @@ void MillSimulation::UpdateDexelSimulation()
 void MillSimulation::RenderDexelStock()
 {
     if ((mViewItems & VIEWITEM_SIMULATION) == 0) {
+        return;
+    }
+    if (UsesMaterial()) {
+        if (mMaterial) {
+            mMaterial->Render(simDisplay, stockColor, cutColor, mDexelColoring);
+        }
         return;
     }
     mDexelRenderer.Render(simDisplay, stockColor, cutColor, mDexelColoring);

@@ -29,6 +29,8 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 
 namespace CAMSimulator::Material
 {
@@ -47,6 +49,8 @@ double MsSince(Clock::time_point start)
 constexpr double CheckpointMs = 40;
 // Time of a batch of the frontier: a new target waits for it at most
 constexpr double BatchMs = 15;
+// Memory of the bricks kept for checkpoints, beyond it every other checkpoint is dropped
+constexpr long CheckpointBudget = 1L << 30;
 
 // Material top along one of the six axis directions, on a grid across it: an upper bound of
 // (point . direction) over the material in each cell
@@ -220,17 +224,28 @@ void Simulation::Start(
         mBase.push_back(mBase.back() + std::max(1, s.steps));
     }
     mStats = Stats();
+    mStockXyz = xyz;
+    mStockTriangles = triangles;
+    {
+        std::lock_guard<std::mutex> lock(mMutex);
+        mPlanned = false;
+        mTarget = 0;
+        mFrontierStep = 0;
+        mDisplayStep = -1;
+    }
+    mWorker = std::thread([this] { Worker(); });
+}
 
+void Simulation::Prepare()
+{
     auto start = Clock::now();
-    Plan(xyz, mQuality);
-    mStats.planMs = MsSince(start);
+    Plan(mStockXyz, mQuality);
+    const double planMs = MsSince(start);
     start = Clock::now();
     mInitial.Init(mLayout);
-    mInitial.SetMesh(xyz, triangles, *mPool);
+    mInitial.SetMesh(mStockXyz, mStockTriangles, *mPool);
     mInitial.TakeDirty();
-    mStats.stockMs = MsSince(start);
-    mStats.motions = (long)mMotions.size();
-    mStats.leaves = mLayout->LeafCount();
+    const double stockMs = MsSince(start);
 
     const int leaves = mLayout->LeafCount();
     mFrontier.Init(mLayout);
@@ -250,15 +265,23 @@ void Simulation::Start(
     mHistory.assign(leaves, {});
     mCheckpoints.assign(1, Checkpoint {0, {}});
     mCheckpointBytes = 0;
+    std::function<void()> notify;
     {
         std::lock_guard<std::mutex> lock(mMutex);
-        mTarget = 0;
+        mStats.planMs = planMs;
+        mStats.stockMs = stockMs;
+        mStats.motions = (long)mMotions.size();
+        mStats.leaves = leaves;
         mFrontierStep = mMotions.empty() ? TotalSteps() : 0;
         mDisplay.Init(mLayout);
         mDisplay.Restore(mInitial.Bricks());
         mDisplayStep = 0;
+        mPlanned = true;
+        notify = mNotify;
     }
-    mWorker = std::thread([this] { Worker(); });
+    if (notify) {
+        notify();
+    }
 }
 
 void Simulation::Plan(const std::vector<float>& xyz, float quality)
@@ -429,7 +452,13 @@ void Simulation::Plan(const std::vector<float>& xyz, float quality)
     }
 
     // the layout
-    Layout::Builder builder(mStockLo, mStockHi, rootCell, levels, mPool->Size());
+    // a cell of margin around the stock, so its faces are inside the layout
+    double layoutLo[3], layoutHi[3];
+    for (int k = 0; k < 3; k++) {
+        layoutLo[k] = mStockLo[k] - rootCell;
+        layoutHi[k] = mStockHi[k] + rootCell;
+    }
+    Layout::Builder builder(layoutLo, layoutHi, rootCell, levels, mPool->Size());
     std::atomic<size_t> next {0};
     mPool->Run([&](int thread) {
         for (size_t i; (i = next.fetch_add(64)) < requests.size();) {
@@ -513,34 +542,47 @@ void Simulation::TrackView()
     }
 }
 
+int Simulation::CheckpointAt(long motions) const
+{
+    int c = (int)(std::upper_bound(
+                      mCheckpoints.begin(),
+                      mCheckpoints.end(),
+                      motions,
+                      [](long m, const Checkpoint& ck) { return m < ck.motion; }
+                  )
+                  - mCheckpoints.begin())
+        - 1;
+    while (c > 0 && !mCheckpoints[c].live) {
+        c--;
+    }
+    return std::max(c, 0);
+}
+
 long Simulation::RestoreView(long motions)
 {
-    // the last checkpoint at or before the motions
-    const int c = std::max(
-        0,
-        (int)(std::upper_bound(
-                  mCheckpoints.begin(),
-                  mCheckpoints.end(),
-                  motions,
-                  [](long m, const Checkpoint& ck) { return m < ck.motion; }
-              )
-              - mCheckpoints.begin())
-            - 1
-    );
+    const int c = CheckpointAt(motions);
     // the view can go on from where it is
-    if (mViewMotion >= mCheckpoints[c].motion && mViewMotion <= motions) {
+    if (mViewMotion >= 0 && mViewMotion >= mCheckpoints[c].motion && mViewMotion <= motions) {
         return mViewMotion;
     }
     // the leaves that differ from the checkpoint: changed in the view since its checkpoint,
-    // and between the checkpoints
+    // and between the checkpoints; all of them if the view lost its checkpoint
     TrackView();
     std::vector<int> leaves;
     leaves.swap(mViewChanged);
     for (int leaf : leaves) {
         mViewFlag[leaf] = 0;
     }
-    for (int k = std::min(c, mViewCheckpoint) + 1; k <= std::max(c, mViewCheckpoint); k++) {
-        leaves.insert(leaves.end(), mCheckpoints[k].changed.begin(), mCheckpoints[k].changed.end());
+    if (mViewMotion < 0) {
+        leaves.resize(mLayout->LeafCount());
+        for (int l = 0; l < (int)leaves.size(); l++) {
+            leaves[l] = l;
+        }
+    }
+    else {
+        for (int k = std::min(c, mViewCheckpoint) + 1; k <= std::max(c, mViewCheckpoint); k++) {
+            leaves.insert(leaves.end(), mCheckpoints[k].changed.begin(), mCheckpoints[k].changed.end());
+        }
     }
     for (int leaf : leaves) {
         const auto& h = mHistory[leaf];
@@ -553,6 +595,50 @@ long Simulation::RestoreView(long motions)
     mViewCheckpoint = c;
     mViewMotion = mCheckpoints[c].motion;
     return mViewMotion;
+}
+
+void Simulation::ThinCheckpoints()
+{
+    auto bytes = [](const Grid::BrickRef& b) {
+        return b && b != Grid::Solid() ? (long)(sizeof(Brick) + b->spans.size() * sizeof(Span)) : 0L;
+    };
+    std::vector<int> live;
+    for (int k = 0; k < (int)mCheckpoints.size(); k++) {
+        if (mCheckpoints[k].live) {
+            live.push_back(k);
+        }
+    }
+    // keep the first and the last
+    for (size_t i = 1; i + 1 < live.size(); i += 2) {
+        const int k = live[i], next = live[i + 1];
+        Checkpoint& dead = mCheckpoints[k];
+        Checkpoint& keep = mCheckpoints[next];
+        for (int leaf : dead.changed) {
+            auto& h = mHistory[leaf];
+            auto it = std::find_if(h.begin(), h.end(), [&](const auto& e) { return e.first == k; });
+            if (it == h.end()) {
+                continue;
+            }
+            auto after = std::next(it);
+            if (after != h.end() && after->first <= next) {
+                // changed again before the next checkpoint: never restored
+                mCheckpointBytes -= bytes(it->second);
+                h.erase(it);
+            }
+            else {
+                it->first = next;
+                keep.changed.push_back(leaf);
+            }
+        }
+        std::sort(keep.changed.begin(), keep.changed.end());
+        keep.changed.erase(std::unique(keep.changed.begin(), keep.changed.end()), keep.changed.end());
+        dead.changed.clear();
+        dead.changed.shrink_to_fit();
+        dead.live = false;
+        if (mViewCheckpoint == k) {
+            mViewMotion = -1;  // restored completely next time
+        }
+    }
 }
 
 void Simulation::SeekView(long target, long motions, long partialMotion, double partialT)
@@ -603,6 +689,9 @@ void Simulation::AddCheckpoint()
         }
     }
     mCheckpoints.push_back(std::move(ck));
+    if (mCheckpointBytes > CheckpointBudget) {
+        ThinCheckpoints();
+    }
 }
 
 void Simulation::Publish(long step, const Grid& grid)
@@ -622,6 +711,9 @@ void Simulation::Publish(long step, const Grid& grid)
 long Simulation::TakeDisplay(Grid& grid, std::vector<int>& changed)
 {
     std::lock_guard<std::mutex> lock(mMutex);
+    if (!mPlanned) {
+        return -1;
+    }
     for (int leaf : mDisplay.TakeDirty()) {
         grid.SetBrick(leaf, mDisplay.GetBrick(leaf));
         changed.push_back(leaf);
@@ -663,6 +755,7 @@ void Simulation::Worker()
 {
     ThreadPool::LowerCurrentThreadPriority();
     const auto start = Clock::now();
+    Prepare();
     double sinceCheckpoint = 0;
     auto lastPublish = Clock::now();
     bool frontierDone = false;
@@ -706,6 +799,24 @@ void Simulation::Worker()
             }
             if (frontierDone) {
                 mFrontierDone.notify_all();
+                if (const char* log = std::getenv("CAM_SIM_LOG")) {
+                    FILE* f = std::fopen(log, "a");
+                    std::fprintf(
+                        f ? f : stderr,
+                        "CAM simulation: plan %.0f ms, stock %.0f ms, done after %.0f ms, %ld motions, "
+                        "%d leaves, %zu checkpoints, %.0f MB\n",
+                        mStats.planMs,
+                        mStats.stockMs,
+                        mStats.simulateMs,
+                        mStats.motions,
+                        mLayout->LeafCount(),
+                        mCheckpoints.size(),
+                        mCheckpointBytes / 1e6
+                    );
+                    if (f) {
+                        std::fclose(f);
+                    }
+                }
             }
             // while the target is ahead, show how far the frontier got
             if (motions > mFrontierMotion && MsSince(lastPublish) > 100) {

@@ -129,6 +129,7 @@ public:
     void setBackgroundColor(const QColor& c);
     void setPathColor(const QColor& normal, const QColor& rapid);
     void setStencilRendering(bool b);
+    void setLegacyEngine(bool b);
     void setColorByOperation(bool b);
     void setThinWalls(bool enabled, float threshold);
     // opacity of the stock and the model, from 0 to 1

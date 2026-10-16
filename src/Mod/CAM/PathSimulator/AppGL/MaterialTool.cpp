@@ -309,6 +309,30 @@ void Tool::Build(std::vector<std::pair<double, double>> points)
             i++;
             continue;
         }
+        // the sphere fitted to all vertices of the run: r^2 + z^2 = 2 z zc + (R^2 - zc^2)
+        {
+            double sz = 0, sy = 0, szz = 0, szy = 0;
+            int count = 0;
+            auto add = [&](double r, double z) {
+                const double y = r * r + z * z;
+                sz += z;
+                sy += y;
+                szz += z * z;
+                szy += z * y;
+                count++;
+            };
+            add(mFrustums[i].r0, mFrustums[i].z0);
+            for (size_t k = i; k < end; k++) {
+                add(mFrustums[k].r1, mFrustums[k].z1);
+            }
+            const double det = count * szz - sz * sz;
+            if (det > 1e-12) {
+                const double slope = (count * szy - sz * sy) / det;
+                const double intercept = (sy - slope * sz) / count;
+                zc = slope / 2;
+                radius = std::sqrt(std::max(0.0, intercept + zc * zc));
+            }
+        }
         mSpheres.push_back({zc, radius});
         for (size_t k = i; k < end; k++) {
             replaced[k] = true;
@@ -373,7 +397,8 @@ void Tool::Build(std::vector<std::pair<double, double>> points)
         }
         std::sort(iv.begin(), iv.end());
         for (size_t i = 1; i < iv.size(); i++) {
-            if (iv[i].first > iv[i - 1].second + 1e-9) {
+            // gaps from the joints of fitted spheres are not undercuts
+            if (iv[i].first > iv[i - 1].second + 1e-4 * mRadius) {
                 mSingleAxial = false;
             }
             iv[i].second = std::max(iv[i].second, iv[i - 1].second);
@@ -889,8 +914,9 @@ int Sweep::BuildNode(int first, int count)
     n.count = -1;
     mNodes[index] = n;
     const int left = BuildNode(first, half);
-    BuildNode(first + half, count - half);
+    const int right = BuildNode(first + half, count - half);
     mNodes[index].first = left;
+    mNodes[index].right = right;
     return index;
 }
 
@@ -1369,7 +1395,7 @@ int Sweep::Line(int axis, const double origin[3], double sMin, double sMax, std:
             }
             else {
                 stack[top++] = n.first;
-                stack[top++] = n.first + 1;
+                stack[top++] = n.right;
             }
         }
     }
