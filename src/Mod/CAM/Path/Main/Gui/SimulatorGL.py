@@ -29,6 +29,7 @@ import os
 import FreeCAD
 import Path.Base.Util as PathUtil
 import Path.Dressup.Utils as PathDressup
+from Path.Main.SimulatorFeed import SimulatorFeed
 from PathScripts import PathUtils
 import CAMSimulator
 
@@ -436,13 +437,19 @@ class CAMSimulation:
         """Activate the simulation"""
         self.SetupSimulation()
         self.millSim.ResetSimulation(FreeCADGui.getDocument(self.job.Document))
+        feed = SimulatorFeed(self.stock.BoundBox)
         for op in self.activeOps:
+            # an operation without a tool controller, a Custom one say, runs
+            # with the tool already in the spindle
+            tc = PathDressup.toolController(op)
+            toolProfile = self.GetToolProfile(tc.Tool, 0.5) if tc is not None else None
+            toolLength = max(toolProfile[1::2]) - min(toolProfile[1::2]) if toolProfile else None
+            retract, opCommands = feed.add(op, toolLength)
+            for cmd in retract:
+                self.millSim.AddCommand(cmd)
             self.millSim.AddOperation(op.Label, self.operationColors[self.operations.index(op)])
-            tool = PathDressup.toolController(op).Tool
-            toolNumber = PathDressup.toolController(op).ToolNumber
-            toolProfile = self.GetToolProfile(tool, 0.5)
-            self.millSim.AddTool(toolProfile, toolNumber, tool.Diameter, 1)
-            opCommands = PathUtils.getPathWithPlacement(op).Commands
+            if tc is not None:
+                self.millSim.AddTool(toolProfile, tc.ToolNumber, tc.Tool.Diameter, 1)
             for cmd in opCommands:
                 self.millSim.AddCommand(cmd)
         self.millSim.BeginSimulation(self.stock, self.quality)
