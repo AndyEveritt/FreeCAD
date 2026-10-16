@@ -8,11 +8,13 @@ FreeCAD.
 ## Files
 
 - `jobs.py`: generates G-code jobs, tool profiles and stock. Uses only the Python standard library.
+  Also lists the document jobs, CAM jobs of FreeCAD documents.
 - `sim_benchmark.py`: runs inside the FreeCAD GUI, drives the simulator and records results.
 - `run_benchmark.py`: launcher. Starts FreeCAD, prints a summary, compares with a baseline and
   reports a verdict.
 - `reference/`: correctness reference images for the default options: `mixed` at sizes `small`
-  (quick mode) and `medium`, and `five_axis` at size `small` (quick mode).
+  (quick mode) and `medium`, `five_axis` at size `small` (quick mode), and `manifold_block` at
+  `--quality 6`.
 
 ## Running
 
@@ -28,7 +30,13 @@ python3 $B --freecad build/bin/FreeCAD --label after --baseline baseline.json -o
 # compare two existing result files, or show the summary of one
 python3 $B --compare baseline.json after.json
 python3 $B --summary after.json
+
+# the job of the demo part, at a medium accuracy
+python3 $B --freecad build/bin/FreeCAD --jobs manifold_block --quality 5
 ```
+
+`--quality` (1 low to 10 high, default 10) is the Accuracy slider of the simulator task panel. Only
+compare runs made with the same quality, `--compare` warns about a difference.
 
 Result files are machine specific and must not be committed; `*.json` in this directory is
 ignored by git. `run_benchmark.py --help` lists all options.
@@ -97,7 +105,8 @@ sizes may then differ from the reference images.
 ## Jobs
 
 Sizes are target motion command counts: `small` 2k, `medium` 20k, `large` 100k, `huge` 400k. A
-number can be given instead of a size name.
+number can be given instead of a size name. Document jobs have one size, `document`, whatever
+`--sizes` says.
 
 | job | content |
 | --- | --- |
@@ -108,6 +117,7 @@ number can be given instead of a size name.
 | `adaptive` | trochoidal slots side by side at several depths, lots of small arcs |
 | `drilling` | grid of `G81` drill cycles |
 | `tool_shapes` | a pocket machined with every tool shape FreeCAD supports: roughing, bull nose floor finishing, ball end channels, a dovetail undercut and a slitting saw groove in the walls, corner radius rounding of the top edges, a bored and thread milled hole, a V groove and drilled holes |
+| `manifold_block` | document job: the CAM job of `../../DemoParts/manifold_block_3plus2.fcstd` (made by `make_manifold_block_3plus2.py` there), a manifold block machined done-in-one with every tool shape and every 3 axis operation, and 3+2 work planes for the front, the right side and a 45 degree chamfer. It is given to the simulator like the simulator task panel does (`SimulationSteps` in `Path/Main/Gui/SimulatorGL.py`): the active operations in world coordinates with the tool axis of their work plane, the tool backing out and turning around the stock between work planes, the job's stock and model. Not in quick or full mode, run it with `--jobs manifold_block` |
 
 Operations are laid out like on a real part: every operation cuts material, in its own area of the
 stock or on features made by an earlier operation. 5 axis operations turn the tool only at safe
@@ -169,9 +179,11 @@ apply.
 The `mixed` reference images were rendered by the original stencil based simulator at rest, in quick
 mode on Xvfb, an independent check of the dexel simulation. The original simulator can't simulate
 5 axis toolpaths, so the `five_axis` reference images were rendered by the dexel simulation itself,
-they only detect changes. They depend on the window size, view, quality and job, so they only apply to runs with the
-default options. To replace them after an intended visual change, run with `--update-reference`
-and commit the new images.
+they only detect changes. They depend on the window size, view, quality and job, so they only apply
+to runs with the default options; the images of other qualities than 10 have it in their name,
+like `mixed_small_quality5_50.png`. To replace them after an intended visual change, run with
+`--update-reference` and commit the new images. The `manifold_block` reference images are at
+`--quality 6`, rendered by the dexel simulation, so they also only detect changes.
 
 ## Results
 

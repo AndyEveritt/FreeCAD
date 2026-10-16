@@ -433,12 +433,12 @@ class CAMSimulation:
                 break
         form.toolButtonPlay.setEnabled(playvalid)
 
-    def SimPlay(self):
-        """Activate the simulation"""
-        self.SetupSimulation()
-        self.millSim.ResetSimulation(FreeCADGui.getDocument(self.job.Document))
-        feed = SimulatorFeed(self.stock.BoundBox)
-        for op in self.activeOps:
+    def SimulationSteps(self, ops, stock, colors):
+        """SimulationSteps(ops, stock, colors) ... the calls that give ops to the
+        simulator, in order: ("command", cmd), ("operation", label, color) and
+        ("tool", profile, number, diameter). colors are those of ops."""
+        feed = SimulatorFeed(stock.BoundBox)
+        for op, color in zip(ops, colors):
             # an operation without a tool controller, a Custom one say, runs
             # with the tool already in the spindle
             tc = PathDressup.toolController(op)
@@ -446,12 +446,25 @@ class CAMSimulation:
             toolLength = max(toolProfile[1::2]) - min(toolProfile[1::2]) if toolProfile else None
             retract, opCommands = feed.add(op, toolLength)
             for cmd in retract:
-                self.millSim.AddCommand(cmd)
-            self.millSim.AddOperation(op.Label, self.operationColors[self.operations.index(op)])
+                yield ("command", cmd)
+            yield ("operation", op.Label, color)
             if tc is not None:
-                self.millSim.AddTool(toolProfile, tc.ToolNumber, tc.Tool.Diameter, 1)
+                yield ("tool", toolProfile, tc.ToolNumber, tc.Tool.Diameter)
             for cmd in opCommands:
-                self.millSim.AddCommand(cmd)
+                yield ("command", cmd)
+
+    def SimPlay(self):
+        """Activate the simulation"""
+        self.SetupSimulation()
+        self.millSim.ResetSimulation(FreeCADGui.getDocument(self.job.Document))
+        colors = [self.operationColors[self.operations.index(op)] for op in self.activeOps]
+        for step in self.SimulationSteps(self.activeOps, self.stock, colors):
+            if step[0] == "command":
+                self.millSim.AddCommand(step[1])
+            elif step[0] == "operation":
+                self.millSim.AddOperation(step[1], step[2])
+            else:
+                self.millSim.AddTool(step[1], step[2], step[3], 1)
         self.millSim.BeginSimulation(self.stock, self.quality)
         if self.baseShape is not None:
             self.millSim.SetBaseShape(self.baseShape, 1)

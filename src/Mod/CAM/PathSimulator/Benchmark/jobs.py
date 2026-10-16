@@ -18,11 +18,15 @@ its own area of the stock, or on features created by an earlier operation. Run t
 The jobs only depend on the Python standard library, so they can also be inspected or exported
 outside of FreeCAD. The analysis needs numpy.
 
+Document jobs are the CAM jobs of FreeCAD documents (DOCUMENT_JOBS). They have one size, the
+document's, and are read inside FreeCAD by sim_benchmark.py.
+
     python3 jobs.py                      list all jobs and their sizes
     python3 jobs.py analyze mixed small  material removed by every operation of a job
 """
 
 import math
+import os
 import sys
 
 # Target number of motion commands per job size
@@ -766,7 +770,24 @@ JOBS = {
 }
 
 
+# CAM documents, by job name: the file, relative to this directory. Their job is simulated with the
+# operations that are active in the document, as the simulator task panel does.
+DOCUMENT_JOBS = {
+    "manifold_block": "../../DemoParts/manifold_block_3plus2.fcstd",
+}
+# the size of a document job
+DOCUMENT_SIZE = "document"
+
+
+def document_path(name):
+    """The file of a document job."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    return os.path.normpath(os.path.join(here, DOCUMENT_JOBS[name]))
+
+
 def make_job(name, size):
+    if name in DOCUMENT_JOBS:
+        raise ValueError(f"{name} is a document job, it is read inside FreeCAD")
     n_moves = SIZES[size] if isinstance(size, str) else int(size)
     job = JOBS[name](n_moves)
     job["size"] = size
@@ -999,6 +1020,8 @@ def _main(argv):
         for size in SIZES:
             job = make_job(name, size)
             print(f"{name:12s} {size:7s} {len(job['gcode']):8d} lines, {len(job['tools'])} tools")
+    for name in DOCUMENT_JOBS:
+        print(f"{name:12s} {DOCUMENT_SIZE:7s} {document_path(name)}")
 
 
 if __name__ == "__main__":

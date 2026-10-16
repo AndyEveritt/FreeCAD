@@ -137,6 +137,38 @@ class Limit:
         return self.timed_out
 
 
+def document_job(name):
+    """The job of a CAM document in the format of jobs.make_job(), and the document. The G-code is
+    what the simulator task panel gives the simulator for the active operations; the stock and the
+    model are those of the job ("stock_shape", "model_shape")."""
+    import Path.Base.Util as PathUtil
+    import Path.Main.Gui.SimulatorGL as SimulatorGL
+
+    doc = FreeCAD.openDocument(jobs.document_path(name))
+    cam = doc.findObjects("Path::FeaturePython", "Job.*")[0]
+    ops = [op for op in cam.Operations.OutList if PathUtil.opProperty(op, "Active")]
+    job = {
+        "name": name,
+        "tools": [],
+        "gcode": [],
+        "sections": [],
+        "stock_shape": cam.Stock.Shape,
+        "model_shape": Part.makeCompound([o.Shape for o in cam.Model.OutList]),
+    }
+    steps = SimulatorGL.CAMSimulation().SimulationSteps(ops, cam.Stock.Shape, [None] * len(ops))
+    for step in steps:
+        if step[0] == "command":
+            job["gcode"].append(step[1].toGCode())
+        elif step[0] == "operation":
+            job["sections"].append((step[1], len(job["gcode"])))
+        else:
+            profile, number, diameter = step[1:]
+            if number not in [t[0] for t in job["tools"]]:
+                job["tools"].append((number, float(diameter), profile))
+            job["gcode"].append(f"T{number}")
+    return job, doc
+
+
 class JobBench:
     def __init__(self, job, size):
         self.job = job
@@ -153,8 +185,11 @@ class JobBench:
     # setup
 
     def load(self):
-        job = jobs.make_job(self.job, self.size)
-        doc = FreeCAD.newDocument("CamSimBenchmark")
+        if self.job in jobs.DOCUMENT_JOBS:
+            job, doc = document_job(self.job)
+        else:
+            job = jobs.make_job(self.job, self.size)
+            doc = FreeCAD.newDocument("CamSimBenchmark")
         pump(0.2)
 
         t0 = time.perf_counter()
@@ -162,19 +197,27 @@ class JobBench:
         self.result["gcode_lines"] = len(commands)
         self.result["command_build_s"] = time.perf_counter() - t0
 
-        x, y, z, length, width, height = job["stock"]
-        stock = Part.makeBox(length, width, height, FreeCAD.Vector(x, y, z))
+        if "stock_shape" in job:
+            stock = job["stock_shape"]
+        else:
+            x, y, z, length, width, height = job["stock"]
+            stock = Part.makeBox(length, width, height, FreeCAD.Vector(x, y, z))
 
         t0 = time.perf_counter()
         self.sim.ResetSimulation(FreeCADGui.getDocument(doc))
         for number, diameter, profile in job["tools"]:
             self.sim.AddTool(profile, number, diameter, 1)
-        # operations, by the index of their first command
-        sections = {start: name for name, start in job.get("sections", [])}
-        for index, cmd in enumerate(commands):
-            if index in sections and hasattr(self.sim, "AddOperation"):
-                self.sim.AddOperation(sections[index])
-            self.sim.AddCommand(cmd)
+        # operations, by the index of their first command; operations without commands start
+        # where the next one does
+        sections = {}
+        for name, start in job.get("sections", []):
+            sections.setdefault(start, []).append(name)
+        for index in range(len(commands) + 1):
+            if hasattr(self.sim, "AddOperation"):
+                for name in sections.get(index, []):
+                    self.sim.AddOperation(name)
+            if index < len(commands):
+                self.sim.AddCommand(commands[index])
         self.result["add_commands_s"] = time.perf_counter() - t0
 
         pump(0.2)
@@ -186,6 +229,8 @@ class JobBench:
         self.sim.TakeFrameTimes()
         t0 = time.perf_counter()
         self.sim.BeginSimulation(stock, CONFIG["quality"])
+        if job.get("model_shape") is not None:
+            self.sim.SetBaseShape(job["model_shape"], 1)
         sample = self.wait_frame()
         self.result["scenarios"]["load"] = {
             "wall_s": time.perf_counter() - t0,
@@ -589,7 +634,9 @@ class JobBench:
             resting = self.glw.grab().toImage()
 
             check = {"stage": stage, "interactive_vs_resting": image_diff(interactive, resting)}
-            name = f"{self.job}_{self.size}_{int(stage * 100)}.png"
+            # references for other qualities than the default have it in their name
+            quality = "" if CONFIG["quality"] == 10 else f"_quality{CONFIG['quality']}"
+            name = f"{self.job}_{self.size}{quality}_{int(stage * 100)}.png"
             if CONFIG.get("save_reference_dir"):
                 resting.save(os.path.join(CONFIG["save_reference_dir"], name))
             elif CONFIG.get("reference_dir"):

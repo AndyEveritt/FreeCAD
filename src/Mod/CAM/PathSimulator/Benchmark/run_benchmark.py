@@ -282,7 +282,7 @@ def print_summary(data, file=sys.stdout):
     print(
         f"\nlabel: {data.get('label')}  commit: {git.get('commit')}"
         f"{' (dirty)' if git.get('dirty') else ''}  mode: {data['config']['mode']}"
-        f"  wall time: {data.get('wall_s', 0):.0f} s",
+        f"  quality: {data['config'].get('quality')}  wall time: {data.get('wall_s', 0):.0f} s",
         file=file,
     )
     renderers = {r.get("renderer", {}).get("renderer") for r in data["runs"]}
@@ -338,6 +338,9 @@ def print_comparison(base, new, file=sys.stdout):
         f"   new: {new.get('label')} ({new['git'].get('commit')})",
         file=file,
     )
+    quality = (base["config"].get("quality"), new["config"].get("quality"))
+    if quality[0] != quality[1]:
+        print(f"warning: different quality, base {quality[0]}, new {quality[1]}", file=file)
     base_runs = {(r["job"], str(r["size"])): r for r in merge_repeats(base["runs"])}
     for run in merge_repeats(new["runs"]):
         b = base_runs.get((run["job"], str(run["size"])))
@@ -368,7 +371,10 @@ def main():
     )
     parser.add_argument("--freecad", help="FreeCAD GUI executable")
     parser.add_argument("--full", action="store_true", help="all jobs and sizes, with repeats")
-    parser.add_argument("--jobs", help=f"comma separated, from: {', '.join(jobs.JOBS)}")
+    parser.add_argument(
+        "--jobs",
+        help=f"comma separated, from: {', '.join(list(jobs.JOBS) + list(jobs.DOCUMENT_JOBS))}",
+    )
     parser.add_argument(
         "--sizes", help=f"comma separated, from: {', '.join(jobs.SIZES)} or a move count"
     )
@@ -458,9 +464,13 @@ def main():
         os.makedirs(args.images, exist_ok=True)
     baseline = json.load(open(args.baseline)) if args.baseline else None
 
-    runs = [
-        {"job": job, "size": size} for job in args.jobs.split(",") for size in args.sizes.split(",")
-    ]
+    # a document job has one size, its own
+    runs = []
+    for job in args.jobs.split(","):
+        if job not in jobs.JOBS and job not in jobs.DOCUMENT_JOBS:
+            parser.error(f"unknown job {job}")
+        sizes = [jobs.DOCUMENT_SIZE] if job in jobs.DOCUMENT_JOBS else args.sizes.split(",")
+        runs += [{"job": job, "size": size} for size in sizes]
     data = {
         "label": args.label,
         "date": datetime.datetime.now().isoformat(timespec="seconds"),
