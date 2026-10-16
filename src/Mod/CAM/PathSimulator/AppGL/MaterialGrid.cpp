@@ -184,6 +184,43 @@ void Grid::SetMesh(const std::vector<float>& xyz, const std::vector<uint32_t>& t
         if (outside) {
             return;
         }
+        // no triangle near the leaf (with the cell its lines reach beyond it): all inside or
+        // all outside, as one of its lines
+        bool touched = false;
+        {
+            double blo[3], bhi[3];
+            for (int k = 0; k < 3; k++) {
+                blo[k] = mLayout->Coord(k, l.lo[k] - l.cell);
+                bhi[k] = mLayout->Coord(k, l.lo[k] + (Cells + 1) * l.cell);
+            }
+            const Grid2D& g = grids[2];
+            const int i0 = std::clamp((int)std::floor((blo[0] - g.lo[0]) / g.cell[0]), 0, g.n[0] - 1);
+            const int i1 = std::clamp((int)std::floor((bhi[0] - g.lo[0]) / g.cell[0]), 0, g.n[0] - 1);
+            const int j0 = std::clamp((int)std::floor((blo[1] - g.lo[1]) / g.cell[1]), 0, g.n[1] - 1);
+            const int j1 = std::clamp((int)std::floor((bhi[1] - g.lo[1]) / g.cell[1]), 0, g.n[1] - 1);
+            for (int j = j0; j <= j1 && !touched; j++) {
+                for (int i = i0; i <= i1 && !touched; i++) {
+                    for (uint32_t t : g.cells[(size_t)j * g.n[0] + i]) {
+                        double tlo[3] = {1e300, 1e300, 1e300}, thi[3] = {-1e300, -1e300, -1e300};
+                        for (int c = 0; c < 3; c++) {
+                            const float* p = &xyz[3 * triangles[3 * t + c]];
+                            for (int k = 0; k < 3; k++) {
+                                tlo[k] = std::min(tlo[k], (double)p[k]);
+                                thi[k] = std::max(thi[k], (double)p[k]);
+                            }
+                        }
+                        bool overlap = true;
+                        for (int k = 0; k < 3; k++) {
+                            overlap = overlap && tlo[k] <= bhi[k] && thi[k] >= blo[k];
+                        }
+                        if (overlap) {
+                            touched = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
         auto brick = std::make_shared<Brick>();
         struct Hit
         {
@@ -192,7 +229,7 @@ void Grid::SetMesh(const std::vector<float>& xyz, const std::vector<uint32_t>& t
         };
         std::vector<Hit> hits;
         bool solid = true;
-        for (int line = 0; line < BrickLines; line++) {
+        for (int line = 0; line < (touched ? BrickLines : 1); line++) {
             brick->start[line] = (uint32_t)brick->spans.size();
             const int a = line / AxisLines;
             double origin[3];
@@ -216,10 +253,20 @@ void Grid::SetMesh(const std::vector<float>& xyz, const std::vector<uint32_t>& t
                     double area = 0;
                     double e[3];
                     for (int c = 0; c < 3; c++) {
+                        // in the same order of its ends in both triangles of an edge, so the
+                        // two are exact negatives of each other
                         const float* q0 = p[c];
                         const float* q1 = p[(c + 1) % 3];
+                        const bool swap = q1[ax[0]] < q0[ax[0]]
+                            || (q1[ax[0]] == q0[ax[0]] && q1[ax[1]] < q0[ax[1]]);
+                        if (swap) {
+                            std::swap(q0, q1);
+                        }
                         e[c] = ((double)q1[ax[0]] - q0[ax[0]]) * (pv - q0[ax[1]])
                             - ((double)q1[ax[1]] - q0[ax[1]]) * (pu - q0[ax[0]]);
+                        if (swap) {
+                            e[c] = -e[c];
+                        }
                         area += e[c];
                     }
                     if (area == 0) {
@@ -311,6 +358,9 @@ void Grid::SetMesh(const std::vector<float>& xyz, const std::vector<uint32_t>& t
         if (solid) {
             mBricks[leaf] = Solid();
             return;
+        }
+        if (!touched) {
+            return;  // the line of a uniform leaf is all inside or all outside
         }
         mBricks[leaf] = std::move(brick);
     });

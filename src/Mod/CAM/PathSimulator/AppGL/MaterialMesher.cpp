@@ -27,6 +27,7 @@
 #include "ThreadPool.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <unordered_map>
@@ -219,6 +220,74 @@ float Thickness(const Grid& grid, int leaf, int a, int i, int j, double s, bool 
         (void)cell;
     }
     return NoThickness;
+}
+
+// Distance from a point to a triangle
+double TriangleDistance(const double p[3], const std::array<double, 3>& a, const std::array<double, 3>& b, const std::array<double, 3>& c)
+{
+    auto sub = [](const double* x, const double* y, double* r) {
+        for (int k = 0; k < 3; k++) {
+            r[k] = x[k] - y[k];
+        }
+    };
+    auto dot = [](const double* x, const double* y) { return x[0] * y[0] + x[1] * y[1] + x[2] * y[2]; };
+    double ab[3], ac[3], ap[3];
+    sub(b.data(), a.data(), ab);
+    sub(c.data(), a.data(), ac);
+    sub(p, a.data(), ap);
+    auto length = [&](const double* q) { return std::sqrt(dot(q, q)); };
+    auto toPoint = [&](const std::array<double, 3>& q) {
+        double r[3];
+        sub(p, q.data(), r);
+        return length(r);
+    };
+    const double d1 = dot(ab, ap), d2 = dot(ac, ap);
+    if (d1 <= 0 && d2 <= 0) {
+        return length(ap);
+    }
+    double bp[3];
+    sub(p, b.data(), bp);
+    const double d3 = dot(ab, bp), d4 = dot(ac, bp);
+    if (d3 >= 0 && d4 <= d3) {
+        return toPoint(b);
+    }
+    double cp[3];
+    sub(p, c.data(), cp);
+    const double d5 = dot(ab, cp), d6 = dot(ac, cp);
+    if (d6 >= 0 && d5 <= d6) {
+        return toPoint(c);
+    }
+    double q[3];
+    const double vc = d1 * d4 - d3 * d2;
+    if (vc <= 0 && d1 >= 0 && d3 <= 0) {
+        const double t = d1 / (d1 - d3);
+        for (int k = 0; k < 3; k++) {
+            q[k] = ap[k] - t * ab[k];
+        }
+        return length(q);
+    }
+    const double vb = d5 * d2 - d1 * d6;
+    if (vb <= 0 && d2 >= 0 && d6 <= 0) {
+        const double t = d2 / (d2 - d6);
+        for (int k = 0; k < 3; k++) {
+            q[k] = ap[k] - t * ac[k];
+        }
+        return length(q);
+    }
+    const double va = d3 * d6 - d5 * d4;
+    if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0) {
+        const double t = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        for (int k = 0; k < 3; k++) {
+            q[k] = bp[k] - t * (c[k] - b[k]);
+        }
+        return length(q);
+    }
+    const double denom = 1 / (va + vb + vc);
+    const double v = vb * denom, w = vc * denom;
+    for (int k = 0; k < 3; k++) {
+        q[k] = ap[k] - v * ab[k] - w * ac[k];
+    }
+    return length(q);
 }
 
 // Minimizer of the squared distances to the planes of the points, near their mass point: the
@@ -497,10 +566,21 @@ struct Mesher::Geometry
         uint8_t tag;
     };
     std::vector<Cube> cubes;
-    uint16_t cubeOf[CellCount];
-    // crossing of each edge, -1 for none
-    int16_t crossingOf[EdgeCount];
     std::vector<Crossing> crossings;
+    // the cube of each cell, empty if there is one cube
+    std::vector<uint16_t> cubeOf;
+    // edges with a crossing, sorted, and the index of their crossing: edge << 16 | crossing
+    std::vector<uint32_t> edges;
+
+    int CubeOf(int cell) const
+    {
+        return cubeOf.empty() ? 0 : cubeOf[cell];
+    }
+    int CrossingOf(int edge) const
+    {
+        auto it = std::lower_bound(edges.begin(), edges.end(), (uint32_t)edge << 16);
+        return it != edges.end() && (*it >> 16) == (uint32_t)edge ? (int)(*it & 0xFFFF) : -1;
+    }
 };
 
 Mesher::Mesher() = default;
@@ -582,7 +662,10 @@ void Mesher::ComputeGeometry(const Grid& grid, int leaf)
         }
     }
     // the crossings of the edges
-    std::fill(std::begin(g->crossingOf), std::end(g->crossingOf), (int16_t)-1);
+    thread_local std::vector<int16_t> crossingOf;
+    crossingOf.assign(EdgeCount, -1);
+    thread_local std::vector<uint16_t> cubeOf;
+    cubeOf.assign(CellCount, 0xFFFF);
     if (any && !all) {
         for (int a = 0; a < 3; a++) {
             const int u = AxisU(a), v = AxisV(a);
@@ -601,7 +684,8 @@ void Mesher::ComputeGeometry(const Grid& grid, int leaf)
                         }
                         Crossing c;
                         FindCrossing(grid, leaf, a, i, j, t, s0, c);
-                        g->crossingOf[EdgeIndex(a, i, j, t)] = (int16_t)g->crossings.size();
+                        crossingOf[EdgeIndex(a, i, j, t)] = (int16_t)g->crossings.size();
+                        g->edges.push_back(((uint32_t)EdgeIndex(a, i, j, t) << 16) | (uint32_t)g->crossings.size());
                         g->crossings.push_back(c);
                     }
                 }
@@ -617,7 +701,7 @@ void Mesher::ComputeGeometry(const Grid& grid, int leaf)
             for (int j = lo[v]; j <= lo[v] + m; j++) {
                 for (int i = lo[u]; i <= lo[u] + m; i++) {
                     for (int t = lo[a]; t < lo[a] + m; t++) {
-                        const int c = g->crossingOf[EdgeIndex(a, i, j, t)];
+                        const int c = crossingOf[EdgeIndex(a, i, j, t)];
                         if (c >= 0) {
                             out.push_back(&g->crossings[c]);
                         }
@@ -851,15 +935,12 @@ void Mesher::ComputeGeometry(const Grid& grid, int leaf)
         }
     }
     // the cubes, from the largest merged blocks
-    for (int c = 0; c < CellCount; c++) {
-        g->cubeOf[c] = 0xFFFF;
-    }
     for (int level = 3; level >= 0; level--) {
         const int m = 1 << level, count = Cells / m;
         for (int z = 0; z < count; z++) {
             for (int y = 0; y < count; y++) {
                 for (int x = 0; x < count; x++) {
-                    if (!merged[level][z][y][x] || g->cubeOf[CellIndex(x * m, y * m, z * m)] != 0xFFFF) {
+                    if (!merged[level][z][y][x] || cubeOf[CellIndex(x * m, y * m, z * m)] != 0xFFFF) {
                         continue;
                     }
                     const uint16_t index = (uint16_t)g->cubes.size();
@@ -872,7 +953,7 @@ void Mesher::ComputeGeometry(const Grid& grid, int leaf)
                     for (int cz = z * m; cz < z * m + m; cz++) {
                         for (int cy = y * m; cy < y * m + m; cy++) {
                             for (int cx = x * m; cx < x * m + m; cx++) {
-                                g->cubeOf[CellIndex(cx, cy, cz)] = index;
+                                cubeOf[CellIndex(cx, cy, cz)] = index;
                             }
                         }
                     }
@@ -934,7 +1015,7 @@ void Mesher::ComputeGeometry(const Grid& grid, int leaf)
                                 const double units = (c.p[k] - L.Origin()[k]) / L.Unit() - lf.lo[k];
                                 cell[k] = std::clamp((int)std::floor(units / lf.cell), 0, Cells - 1);
                             }
-                            extra[g->cubeOf[CellIndex(cell[0], cell[1], cell[2])]].push_back(c);
+                            extra[cubeOf[CellIndex(cell[0], cell[1], cell[2])]].push_back(c);
                         }
                     }
                 }
@@ -994,6 +1075,13 @@ void Mesher::ComputeGeometry(const Grid& grid, int leaf)
                 }
             }
         }
+    }
+    std::sort(g->edges.begin(), g->edges.end());
+    g->edges.shrink_to_fit();
+    g->crossings.shrink_to_fit();
+    g->cubes.shrink_to_fit();
+    if (g->cubes.size() > 1) {
+        g->cubeOf.assign(cubeOf.begin(), cubeOf.end());
     }
     mGeometry[leaf] = std::move(g);
 }
@@ -1060,7 +1148,7 @@ void Mesher::BuildUnit(const Grid& grid, int unit, UnitMesh& out) const
                         // the fine edge with the change of inside, if the ends differ
                         int crossing = -1, changes = 0;
                         for (int t = s[a]; t < s[a] + m; t++) {
-                            const int c = g->crossingOf[EdgeIndex(a, s[u], s[v], t)];
+                            const int c = g->CrossingOf(EdgeIndex(a, s[u], s[v], t));
                             if (c >= 0) {
                                 changes++;
                                 if (crossing < 0) {
@@ -1098,7 +1186,7 @@ void Mesher::BuildUnit(const Grid& grid, int unit, UnitMesh& out) const
                             }
                             const Geometry* ng = mGeometry[nl].get();
                             leaves[quad] = nl;
-                            cubes[quad] = ng->cubeOf[CellIndex(nc[0], nc[1], nc[2])];
+                            cubes[quad] = ng->CubeOf(CellIndex(nc[0], nc[1], nc[2]));
                             sizes[quad] = ng->cubes[cubes[quad]].size * L.GetLeaf(nl).cell;
                         }
                         if (missing) {
@@ -1147,7 +1235,22 @@ void Mesher::BuildUnit(const Grid& grid, int unit, UnitMesh& out) const
                             }
                         }
                         if (nu == 4) {
-                            list.insert(list.end(), {idx[0], idx[1], idx[2], idx[0], idx[2], idx[3]});
+                            // the diagonal whose triangles pass nearest to the surface point of
+                            // the edge, like the one along a sharp edge rather than across it
+                            auto at = [&](uint32_t i) {
+                                const MeshVertex& w = out.vertices[i];
+                                return std::array<double, 3> {w.x, w.y, w.z};
+                            };
+                            const std::array<double, 3> p[4] = {at(idx[0]), at(idx[1]), at(idx[2]), at(idx[3])};
+                            const double c[3] = {cr.p[0], cr.p[1], cr.p[2]};
+                            const double d02 = std::min(TriangleDistance(c, p[0], p[1], p[2]), TriangleDistance(c, p[0], p[2], p[3]));
+                            const double d13 = std::min(TriangleDistance(c, p[1], p[2], p[3]), TriangleDistance(c, p[1], p[3], p[0]));
+                            if (d02 <= d13) {
+                                list.insert(list.end(), {idx[0], idx[1], idx[2], idx[0], idx[2], idx[3]});
+                            }
+                            else {
+                                list.insert(list.end(), {idx[1], idx[2], idx[3], idx[1], idx[3], idx[0]});
+                            }
                         }
                         else if (nu == 3) {
                             list.insert(list.end(), {uniq[0], uniq[1], uniq[2]});
