@@ -235,20 +235,49 @@ void SolveQef(const std::vector<const Crossing*>& points, const double lo[3], co
     for (int k = 0; k < 3; k++) {
         mass[k] /= (double)points.size();
     }
+    // every plane counts the same, however many points it has: the points by groups of their
+    // normals, weighted by the size of their group
+    thread_local std::vector<int> groupOf;
+    float groups[16][3];
+    int groupSize[16] = {};
+    int ngroups = 0;
+    groupOf.assign(points.size(), -1);
+    for (size_t i = 0; i < points.size(); i++) {
+        const Crossing* c = points[i];
+        if (!c->hasNormal) {
+            continue;
+        }
+        int g = 0;
+        while (g < ngroups && c->n[0] * groups[g][0] + c->n[1] * groups[g][1] + c->n[2] * groups[g][2] < 0.9986f) {
+            g++;
+        }
+        if (g == ngroups) {
+            if (ngroups == 16) {
+                g = 15;
+            }
+            else {
+                std::copy(c->n, c->n + 3, groups[ngroups++]);
+            }
+        }
+        groupOf[i] = g;
+        groupSize[g]++;
+    }
     double A[3][3] = {}, b[3] = {};
     int withNormal = 0;
-    for (const Crossing* c : points) {
+    for (size_t i = 0; i < points.size(); i++) {
+        const Crossing* c = points[i];
         if (!c->hasNormal) {
             continue;
         }
         withNormal++;
+        const double w = 1.0 / groupSize[groupOf[i]];
         const double d = c->n[0] * (c->p[0] - mass[0]) + c->n[1] * (c->p[1] - mass[1])
             + c->n[2] * (c->p[2] - mass[2]);
         for (int r = 0; r < 3; r++) {
             for (int k = 0; k < 3; k++) {
-                A[r][k] += (double)c->n[r] * c->n[k];
+                A[r][k] += w * c->n[r] * c->n[k];
             }
-            b[r] += c->n[r] * d;
+            b[r] += w * c->n[r] * d;
         }
     }
     double x[3] = {0, 0, 0};
@@ -310,6 +339,145 @@ void SolveQef(const std::vector<const Crossing*>& points, const double lo[3], co
     for (int k = 0; k < 3; k++) {
         out[k] = (float)std::clamp(mass[k] + x[k], lo[k], hi[k]);
     }
+}
+
+// Vertex of a sharp edge or corner: if the normals of the points form 2 or 3 tight groups far
+// apart, the point of their planes nearest to the mass point of the points. False otherwise, or if
+// it is outside the bounds.
+bool SharpVertex(const std::vector<const Crossing*>& points, const double lo[3], const double hi[3], float out[3])
+{
+    double n[3][3] = {}, d[3] = {};
+    int count[3] = {};
+    int groups = 0;
+    double mass[3] = {0, 0, 0};
+    for (const Crossing* c : points) {
+        if (!c->hasNormal) {
+            return false;
+        }
+        int g = 0;
+        while (g < groups) {
+            const double len = std::sqrt(n[g][0] * n[g][0] + n[g][1] * n[g][1] + n[g][2] * n[g][2]);
+            if ((c->n[0] * n[g][0] + c->n[1] * n[g][1] + c->n[2] * n[g][2]) / len >= 0.9986) {
+                break;
+            }
+            g++;
+        }
+        if (g == groups) {
+            if (groups == 3) {
+                return false;
+            }
+            groups++;
+        }
+        for (int k = 0; k < 3; k++) {
+            n[g][k] += c->n[k];
+            mass[k] += c->p[k];
+        }
+        d[g] += c->n[0] * c->p[0] + c->n[1] * c->p[1] + c->n[2] * c->p[2];
+        count[g]++;
+    }
+    if (groups < 2) {
+        return false;
+    }
+    for (int k = 0; k < 3; k++) {
+        mass[k] /= (double)points.size();
+    }
+    // the planes: mean normals and offsets
+    for (int g = 0; g < groups; g++) {
+        const double len = std::sqrt(n[g][0] * n[g][0] + n[g][1] * n[g][1] + n[g][2] * n[g][2]);
+        for (int k = 0; k < 3; k++) {
+            n[g][k] /= len;
+        }
+        d[g] = d[g] / count[g] / len;
+    }
+    for (int a = 0; a < groups; a++) {
+        for (int b = a + 1; b < groups; b++) {
+            if (n[a][0] * n[b][0] + n[a][1] * n[b][1] + n[a][2] * n[b][2] > SharpCos) {
+                return false;
+            }
+        }
+    }
+    // x = mass + sum l_g n_g with n_g . x = d_g: the Gram system N l = d - n . mass
+    double N[3][3], r[3];
+    for (int a = 0; a < groups; a++) {
+        for (int b = 0; b < groups; b++) {
+            N[a][b] = n[a][0] * n[b][0] + n[a][1] * n[b][1] + n[a][2] * n[b][2];
+        }
+        r[a] = d[a] - (n[a][0] * mass[0] + n[a][1] * mass[1] + n[a][2] * mass[2]);
+    }
+    double l[3] = {0, 0, 0};
+    if (groups == 2) {
+        const double det = N[0][0] * N[1][1] - N[0][1] * N[1][0];
+        if (std::abs(det) < 1e-9) {
+            return false;
+        }
+        l[0] = (r[0] * N[1][1] - r[1] * N[0][1]) / det;
+        l[1] = (N[0][0] * r[1] - N[1][0] * r[0]) / det;
+    }
+    else {
+        const double det = N[0][0] * (N[1][1] * N[2][2] - N[1][2] * N[2][1])
+            - N[0][1] * (N[1][0] * N[2][2] - N[1][2] * N[2][0])
+            + N[0][2] * (N[1][0] * N[2][1] - N[1][1] * N[2][0]);
+        if (std::abs(det) < 1e-9) {
+            return false;
+        }
+        for (int c = 0; c < 3; c++) {
+            double M[3][3];
+            for (int a = 0; a < 3; a++) {
+                for (int b = 0; b < 3; b++) {
+                    M[a][b] = b == c ? r[a] : N[a][b];
+                }
+            }
+            l[c] = (M[0][0] * (M[1][1] * M[2][2] - M[1][2] * M[2][1])
+                    - M[0][1] * (M[1][0] * M[2][2] - M[1][2] * M[2][0])
+                    + M[0][2] * (M[1][0] * M[2][1] - M[1][1] * M[2][0]))
+                / det;
+        }
+    }
+    double x[3];
+    for (int k = 0; k < 3; k++) {
+        x[k] = mass[k];
+        for (int g = 0; g < groups; g++) {
+            x[k] += l[g] * n[g][k];
+        }
+    }
+    if (groups == 2) {
+        // an edge: its point in the bounds nearest to the mass point, along its line
+        const double dir[3] = {
+            n[0][1] * n[1][2] - n[0][2] * n[1][1],
+            n[0][2] * n[1][0] - n[0][0] * n[1][2],
+            n[0][0] * n[1][1] - n[0][1] * n[1][0],
+        };
+        double t0 = -1e30, t1 = 1e30;
+        for (int k = 0; k < 3; k++) {
+            if (std::abs(dir[k]) < 1e-12) {
+                if (x[k] < lo[k] || x[k] > hi[k]) {
+                    return false;
+                }
+                continue;
+            }
+            double a = (lo[k] - x[k]) / dir[k], b = (hi[k] - x[k]) / dir[k];
+            if (a > b) {
+                std::swap(a, b);
+            }
+            t0 = std::max(t0, a);
+            t1 = std::min(t1, b);
+        }
+        if (t0 > t1) {
+            return false;
+        }
+        const double t = std::clamp(0.0, t0, t1);
+        for (int k = 0; k < 3; k++) {
+            x[k] += t * dir[k];
+        }
+    }
+    for (int k = 0; k < 3; k++) {
+        const double margin = 1e-6 * (hi[k] - lo[k]);
+        if (x[k] < lo[k] - margin || x[k] > hi[k] + margin) {
+            return false;
+        }
+        out[k] = (float)std::clamp(x[k], lo[k], hi[k]);
+    }
+    return true;
 }
 
 }  // namespace
@@ -491,6 +659,164 @@ void Mesher::ComputeGeometry(const Grid& grid, int leaf)
         return hi - lo <= 0.2 * cellWorld;
     };
 
+    // One sheet of surface in a block: the grid points inside and outside are connected, in the
+    // block and on each of its faces, and every edge of the block changes inside at most once
+    auto oneSheet = [&](int x0, int y0, int z0, int m) {
+        const int n = m + 1;
+        auto at = [&](int i, int j, int k) { return inside[z0 + k][y0 + j][x0 + i]; };
+        // components of the points of one kind in a box of the block, 6-connected
+        auto components = [&](int i0, int j0, int k0, int ni, int nj, int nk, bool kind) {
+            bool seen[Cells + 1][Cells + 1][Cells + 1] = {};
+            int count = 0;
+            int stack[(Cells + 1) * (Cells + 1) * (Cells + 1)][3];
+            for (int k = k0; k < k0 + nk; k++) {
+                for (int j = j0; j < j0 + nj; j++) {
+                    for (int i = i0; i < i0 + ni; i++) {
+                        if (seen[k][j][i] || at(i, j, k) != kind) {
+                            continue;
+                        }
+                        if (++count > 1) {
+                            return count;
+                        }
+                        int top = 0;
+                        stack[top][0] = i;
+                        stack[top][1] = j;
+                        stack[top][2] = k;
+                        top++;
+                        seen[k][j][i] = true;
+                        while (top > 0) {
+                            top--;
+                            const int ci = stack[top][0], cj = stack[top][1], ck = stack[top][2];
+                            const int nb[6][3] = {
+                                {ci - 1, cj, ck},
+                                {ci + 1, cj, ck},
+                                {ci, cj - 1, ck},
+                                {ci, cj + 1, ck},
+                                {ci, cj, ck - 1},
+                                {ci, cj, ck + 1},
+                            };
+                            for (const auto& q : nb) {
+                                if (q[0] < i0 || q[0] >= i0 + ni || q[1] < j0 || q[1] >= j0 + nj
+                                    || q[2] < k0 || q[2] >= k0 + nk) {
+                                    continue;
+                                }
+                                if (seen[q[2]][q[1]][q[0]] || at(q[0], q[1], q[2]) != kind) {
+                                    continue;
+                                }
+                                seen[q[2]][q[1]][q[0]] = true;
+                                stack[top][0] = q[0];
+                                stack[top][1] = q[1];
+                                stack[top][2] = q[2];
+                                top++;
+                            }
+                        }
+                    }
+                }
+            }
+            return count;
+        };
+        for (bool kind : {false, true}) {
+            if (components(0, 0, 0, n, n, n, kind) > 1) {
+                return false;
+            }
+            for (int side = 0; side < 2; side++) {
+                const int f = side * m;
+                if (components(f, 0, 0, 1, n, n, kind) > 1 || components(0, f, 0, n, 1, n, kind) > 1
+                    || components(0, 0, f, n, n, 1, kind) > 1) {
+                    return false;
+                }
+            }
+        }
+        // the edges of the block
+        for (int a = 0; a < 3; a++) {
+            const int u = AxisU(a), v = AxisV(a);
+            for (int dv = 0; dv <= 1; dv++) {
+                for (int du = 0; du <= 1; du++) {
+                    int p[3], changes = 0;
+                    p[u] = du * m;
+                    p[v] = dv * m;
+                    for (p[a] = 0; p[a] < m; p[a]++) {
+                        int q[3] = {p[0], p[1], p[2]};
+                        q[a]++;
+                        changes += at(p[0], p[1], p[2]) != at(q[0], q[1], q[2]);
+                    }
+                    if (changes > 1) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    };
+    // A sharp edge or corner of planes: the normals of the points form 2 or 3 tight groups far
+    // apart, and the planes meet in the block, within a tenth of a cell of all points
+    auto sharpFeature = [&](int x0, int y0, int z0, int m, const std::vector<const Crossing*>& points) {
+        float groups[4][3];
+        int count = 0;
+        for (const Crossing* c : points) {
+            if (!c->hasNormal) {
+                return false;
+            }
+            int g = 0;
+            while (g < count
+                   && c->n[0] * groups[g][0] + c->n[1] * groups[g][1] + c->n[2] * groups[g][2] < 0.9986f) {
+                g++;
+            }
+            if (g == count) {
+                if (count == 3) {
+                    return false;
+                }
+                std::copy(c->n, c->n + 3, groups[count++]);
+            }
+        }
+        if (count < 2) {
+            return false;
+        }
+        for (int a = 0; a < count; a++) {
+            for (int b = a + 1; b < count; b++) {
+                if (groups[a][0] * groups[b][0] + groups[a][1] * groups[b][1] + groups[a][2] * groups[b][2]
+                    > SharpCos) {
+                    return false;
+                }
+            }
+        }
+        double lo[3], hi[3];
+        const int b[3] = {x0, y0, z0};
+        for (int k = 0; k < 3; k++) {
+            lo[k] = L.Coord(k, lf.lo[k] + b[k] * lf.cell);
+            hi[k] = L.Coord(k, lf.lo[k] + (b[k] + m) * lf.cell);
+        }
+        // the vertex the cube gets
+        float vertex[3];
+        if (!SharpVertex(points, lo, hi, vertex)) {
+            SolveQef(points, lo, hi, vertex);
+        }
+        // on all planes, and on the faces of all of them: each has points next to the vertex,
+        // not only its plane (like the walls and the floor of a slot, whose planes meet beyond
+        // the walls)
+        double nearest[3] = {1e30, 1e30, 1e30};
+        for (const Crossing* c : points) {
+            const double d = c->n[0] * (vertex[0] - c->p[0]) + c->n[1] * (vertex[1] - c->p[1])
+                + c->n[2] * (vertex[2] - c->p[2]);
+            if (std::abs(d) > 0.1 * cellWorld) {
+                return false;
+            }
+            int g = 0;
+            while (g < count - 1
+                   && c->n[0] * groups[g][0] + c->n[1] * groups[g][1] + c->n[2] * groups[g][2] < 0.9986f) {
+                g++;
+            }
+            const double dx = vertex[0] - c->p[0], dy = vertex[1] - c->p[1], dz = vertex[2] - c->p[2];
+            nearest[g] = std::min(nearest[g], std::sqrt(dx * dx + dy * dy + dz * dz));
+        }
+        for (int g = 0; g < count; g++) {
+            if (nearest[g] > 1.5 * cellWorld) {
+                return false;
+            }
+        }
+        return true;
+    };
+
     // merge bottom up: blocks of 2, 4 and 8 cells, if their parts merged and they are flat
     bool merged[4][Cells][Cells][Cells] = {};
     for (int z = 0; z < Cells; z++) {
@@ -513,7 +839,11 @@ void Mesher::ComputeGeometry(const Grid& grid, int leaf)
                     if (ok) {
                         points.clear();
                         gather(x * m, y * m, z * m, m, points);
-                        ok = flat(points);
+                        // flat, or a sharp edge or corner of up to 4 cells with one sheet
+                        if (!points.empty() && !flat(points)) {
+                            ok = m <= 4 && sharpFeature(x * m, y * m, z * m, m, points)
+                                && oneSheet(x * m, y * m, z * m, m);
+                        }
                     }
                     merged[level][z][y][x] = ok;
                 }
@@ -632,7 +962,9 @@ void Mesher::ComputeGeometry(const Grid& grid, int leaf)
             cube.hasNormal = false;
             continue;
         }
-        SolveQef(points, lo, hi, cube.p);
+        if (!SharpVertex(points, lo, hi, cube.p)) {
+            SolveQef(points, lo, hi, cube.p);
+        }
         double n[3] = {0, 0, 0};
         int withNormal = 0, tagVotes[64] = {};
         int cut = 0;

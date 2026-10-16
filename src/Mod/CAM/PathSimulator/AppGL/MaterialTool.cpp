@@ -1187,6 +1187,18 @@ bool Sweep::FrustumLine(const Piece& p, const Prim& f, int axis, const double o[
     if (lo > hi) {
         return false;
     }
+    // A cap moving in its plane sweeps a face of that plane, also where the line leaves it at
+    // the rim
+    if (std::abs(Z.b) <= 1e-9 * scale) {
+        for (int* kind : {&loKind, &hiKind}) {
+            if (*kind == Rim0) {
+                *kind = CapBottom;
+            }
+            else if (*kind == Rim1) {
+                *kind = CapTop;
+            }
+        }
+    }
     const double base = o[axis];
     out.lo = {base + lo, 0, 0, loKind, loT};
     out.hi = {base + hi, 0, 0, hiKind, hiT};

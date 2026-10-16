@@ -346,6 +346,17 @@ void Simulation::Plan(const std::vector<float>& xyz, float quality)
                 seg.PositionAt(m.t1, m.motion.p1);
                 seg.AxisAt(m.t0, m.motion.a0);
                 seg.AxisAt(m.t1, m.motion.a1);
+                // axes of work planes along the axes of the stock, computed from angles, are
+                // off by rounding: exactly along them, the cuts get the exact faces of the tool
+                for (double* a : {m.motion.a0, m.motion.a1}) {
+                    for (int k = 0; k < 3; k++) {
+                        if (std::abs(a[k]) > 1 - 1e-12) {
+                            const double sign = a[k] > 0 ? 1 : -1;
+                            a[0] = a[1] = a[2] = 0;
+                            a[k] = sign;
+                        }
+                    }
+                }
                 m.motion.cutHeight = CuttingHeight(m.motion, mStockLo, mStockHi);
                 m.motion.tolerance = tolerance;
                 mMotions.push_back(m);
