@@ -51,8 +51,8 @@ void CAMSettings::applySettings()
     OnChange(*hGrp, "DefaultNormalPathColor");
     OnChange(*hGrp, "DefaultRapidPathColor");
     OnChange(*hGrp, "SimulatorStencilRendering");
-    OnChange(*hGrp, "SimulatorColorByOperation");
-    OnChange(*hGrp, "SimulatorThinWalls");
+    OnChange(*hGrp, "SimulatorColorMode");
+    OnChange(*hGrp, "SimulatorStockVisible");
     OnChange(*hGrp, "SimulatorStockOpacity");
 }
 
@@ -81,19 +81,25 @@ void CAMSettings::OnChange(ParameterGrp::SubjectType& rCaller, ParameterGrp::Mes
     else if (Reason == "SimulatorStencilRendering"sv) {
         mDlg.setStencilRendering(hGrp->GetBool("SimulatorStencilRendering", false));
     }
-    else if (Reason == "SimulatorColorByOperation"sv) {
-        mDlg.setColorByOperation(hGrp->GetBool("SimulatorColorByOperation", false));
+    else if (
+        Reason == "SimulatorColorMode"sv || Reason == "SimulatorThinWallThreshold"sv
+        || Reason == "SimulatorDeviationTolerance"sv
+    ) {
+        // the colors of the stock: plain, by operation, thin walls or by the distance from the
+        // model, see SimulatorColorMode in the README
+        const long mode = hGrp->GetInt("SimulatorColorMode", 1);
+        mDlg.setColorByOperation(mode == 1);
+        mDlg.setThinWalls(mode == 2, (float)hGrp->GetFloat("SimulatorThinWallThreshold", 0.5));
+        mDlg.setDeviation(mode == 3, (float)hGrp->GetFloat("SimulatorDeviationTolerance", 0.05));
+    }
+    else if (Reason == "SimulatorStockVisible"sv || Reason == "SimulatorModelVisible"sv) {
+        mDlg.setStockVisible(hGrp->GetBool("SimulatorStockVisible", true));
+        mDlg.setBaseVisible(hGrp->GetBool("SimulatorModelVisible", false));
     }
     else if (Reason == "SimulatorStockOpacity"sv || Reason == "SimulatorModelOpacity"sv) {
         mDlg.setOpacity(
             (float)hGrp->GetFloat("SimulatorStockOpacity", 1.0),
             (float)hGrp->GetFloat("SimulatorModelOpacity", 1.0)
-        );
-    }
-    else if (Reason == "SimulatorThinWalls"sv || Reason == "SimulatorThinWallThreshold"sv) {
-        mDlg.setThinWalls(
-            hGrp->GetBool("SimulatorThinWalls", false),
-            (float)hGrp->GetFloat("SimulatorThinWallThreshold", 0.5)
         );
     }
 }

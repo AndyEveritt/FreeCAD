@@ -25,6 +25,7 @@
 #pragma once
 
 #include "MaterialGrid.h"
+#include "MaterialModel.h"
 
 #include <cstdint>
 #include <memory>
@@ -54,8 +55,12 @@ inline float DecodeThickness(uint16_t code)
     return code == NoThicknessCode ? NoThickness : code * (MaxThickness / 65534);
 }
 
+// Distance of vertices from the model that was not measured
+constexpr float NoDeviation = 1e30f;
+
 // Vertex of the stock mesh: position, normal, the tag of the operation that cut its face (0 for
-// none) and the thickness of the material behind it (EncodeThickness)
+// none), the thickness of the material behind it (EncodeThickness) and its signed distance from
+// the model (see ModelDistance)
 struct MeshVertex
 {
     float x, y, z;
@@ -63,8 +68,9 @@ struct MeshVertex
     uint8_t reserved;
     uint16_t tag;
     uint16_t thickness;
+    float deviation;
 };
-static_assert(sizeof(MeshVertex) == 20);
+static_assert(sizeof(MeshVertex) == 24);
 
 // Triangles of a mesh unit: faces of the original stock and cut faces
 struct UnitMesh
@@ -102,6 +108,12 @@ public:
     {
         return mThickness;
     }
+    // Measure the distance of the vertices from the model, if any; a change rebuilds all units
+    void SetDeviation(std::shared_ptr<const ModelDistance> model);
+    const std::shared_ptr<const ModelDistance>& Deviation() const
+    {
+        return mModel;
+    }
     // Update the meshes depending on the changed leaves of the grid, returns the rebuilt units
     std::vector<int> Update(const Grid& grid, const std::vector<int>& changed, ThreadPool& pool);
     // All units are rebuilt by the next update
@@ -134,7 +146,9 @@ private:
     std::vector<std::unique_ptr<Geometry>> mGeometry;
     std::vector<UnitMesh> mMeshes;
     bool mThickness = false;
+    std::shared_ptr<const ModelDistance> mModel;
     bool mAll = true;
+    bool mAllUnits = false;  // all units, from the geometry kept
 };
 
 }  // namespace CAMSimulator::Material

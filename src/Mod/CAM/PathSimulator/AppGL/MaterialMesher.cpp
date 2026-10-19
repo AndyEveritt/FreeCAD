@@ -900,6 +900,14 @@ void Mesher::SetMeasureThickness(bool b)
     }
 }
 
+void Mesher::SetDeviation(std::shared_ptr<const ModelDistance> model)
+{
+    if (model != mModel) {
+        mModel = std::move(model);
+        mAllUnits = true;
+    }
+}
+
 void Mesher::InvalidateAll()
 {
     mAll = true;
@@ -1394,6 +1402,7 @@ void Mesher::BuildUnit(const Grid& grid, int unit, UnitMesh& out) const
         v.reserved = 0;
         v.tag = smooth ? q.tag : c.tag;
         v.thickness = EncodeThickness(thickness);
+        v.deviation = mModel ? mModel->SignedDistance(q.p) : NoDeviation;
         const uint32_t index = (uint32_t)out.vertices.size();
         out.vertices.push_back(v);
         if (smooth) {
@@ -1602,10 +1611,30 @@ std::vector<int> Mesher::Update(const Grid& grid, const std::vector<int>& change
     std::vector<uint8_t> mark(leaves, 0);
     if (mAll) {
         mAll = false;
+        mAllUnits = false;
         geometry.resize(leaves);
         for (int i = 0; i < leaves; i++) {
             geometry[i] = i;
         }
+        units.resize(L.UnitCount());
+        for (int i = 0; i < L.UnitCount(); i++) {
+            units[i] = i;
+        }
+    }
+    else if (mAllUnits) {
+        // the geometry of the changed leaves, all units
+        mAllUnits = false;
+        for (int leaf : changed) {
+            geometry.push_back(leaf);
+            const int level = L.GetLeaf(leaf).level;
+            for (int n = mNeighborStart[leaf]; n < mNeighborStart[leaf + 1]; n++) {
+                if (L.GetLeaf(mNeighbors[n]).level < level) {
+                    geometry.push_back(mNeighbors[n]);
+                }
+            }
+        }
+        std::sort(geometry.begin(), geometry.end());
+        geometry.erase(std::unique(geometry.begin(), geometry.end()), geometry.end());
         units.resize(L.UnitCount());
         for (int i = 0; i < L.UnitCount(); i++) {
             units[i] = i;

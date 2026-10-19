@@ -14,8 +14,8 @@ FreeCAD.
 - `run_benchmark.py`: launcher. Starts FreeCAD, prints a summary, compares with a baseline and
   reports a verdict.
 - `reference/`: correctness reference images: `mixed` at sizes `small` (quick mode) and `medium`,
-  `five_axis` at size `small` (quick mode), and `manifold_block` at `--quality 6`, each with the
-  default display options and with both turned off.
+  `five_axis` at size `small` (quick mode), and `manifold_block` at `--quality 6`, each colored by
+  operation (the default) and plain.
 
 ## Running
 
@@ -39,11 +39,10 @@ python3 $B --freecad build/bin/FreeCAD --jobs manifold_block --quality 5
 python3 $B --freecad build/bin/FreeCAD --jobs manifold_block --accuracy
 ```
 
-`--quality` (1 low to 10 high, default 10) is the Accuracy slider of the simulator task panel. The
-stock is colored by operation and thin walls are shown, the display options of the simulator view;
-`--no-color-by-operation` and `--no-thin-walls` turn them off. Showing thin walls measures the
-thickness of the stock, which takes time. Only compare runs made with the same quality and display
-options, `--compare` warns about a difference.
+`--quality` (1 low to 10 high, default 10) is the Accuracy slider of the simulator task panel.
+`--color-mode` is its Colors: `operation` (default), `plain`, `thin-walls` or `distance` (from the
+model). Thin walls and the distance are measured while they are shown, which takes time. Only
+compare runs made with the same quality and colors, `--compare` warns about a difference.
 
 Result files are machine specific and must not be committed; `*.json` in this directory is
 ignored by git. `run_benchmark.py --help` lists all options.
@@ -157,7 +156,7 @@ paths are the ones a user triggers.
 | `scrub_forward`, `scrub_backward`, `scrub_random` | dragging the stage slider forward, backward and to random positions, then releasing it |
 | `rotate_mid`, `rotate_end` | continuous view rotation with half or all of the job simulated (`rotate_mid` in full mode only) |
 | `zoom_pan` | zooming in and out, and panning with the mouse |
-| `toggles` | toggling path display, ambient occlusion, stock/model display, color by operation and thin walls |
+| `toggles` | toggling path display and ambient occlusion, showing the model, every color mode |
 | `correctness` | image checks, see below |
 
 ### Measurements
@@ -190,13 +189,14 @@ is at most `--max-image-diff` (default 1%). A missing reference image is reporte
 but does not fail the run. The correctness checks always run completely, the timeout does not
 apply.
 
-The reference images depend on the window size, view, quality, display options and job. Their
-names have the options that are not the defaults: `_qualityN` for another quality than 10,
-`_nocolors` and `_nothin` without the display options, like `mixed_small_nocolors_nothin_50.png`.
+The reference images depend on the window size, view, quality, colors and job. Their names have
+the options that are not the defaults: `_qualityN` for another quality than 10, `_nocolors_nothin`
+for plain colors, `_thinwalls` and `_distance` for the other colors, like
+`mixed_small_nocolors_nothin_50.png`.
 
-The `mixed` references without the display options (`_nocolors_nothin`) were rendered by the
-original stencil based simulator at rest, in quick mode on Xvfb, an independent check of the
-material simulation: run with `--no-color-by-operation --no-thin-walls` to check against them. All
+The plain `mixed` references (`_nocolors_nothin`) were rendered by the original stencil based
+simulator at rest, in quick mode on Xvfb, an independent check of the material simulation: run
+with `--color-mode plain` to check against them. All
 other references were rendered by the material simulation itself, they only detect changes: the
 original simulator can't simulate 5 axis toolpaths or show the display options. To replace them after an
 intended visual change, run with `--update-reference` and commit the new images.

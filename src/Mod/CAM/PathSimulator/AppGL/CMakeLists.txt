@@ -44,6 +44,8 @@ SET(CAMSimulator_SRCS_Core
     MaterialLayout.h
     MaterialMesher.cpp
     MaterialMesher.h
+    MaterialModel.cpp
+    MaterialModel.h
     MaterialRenderer.cpp
     MaterialRenderer.h
     MaterialSimulation.cpp

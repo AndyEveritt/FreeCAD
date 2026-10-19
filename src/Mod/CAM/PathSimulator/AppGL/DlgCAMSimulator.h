@@ -30,6 +30,7 @@
 
 #include <queue>
 #include <functional>
+#include <future>
 #include <chrono>
 #include <cstdint>
 #include <map>
@@ -62,6 +63,10 @@ namespace CAMSimulator
 class MillSimulation;
 struct MillSimulationState;
 struct Vertex;
+namespace Material
+{
+class ModelDistance;
+}
 class ViewCAMSimulator;
 class GuiDisplay;
 class Dummy3DViewer;
@@ -131,6 +136,8 @@ public:
     void setStencilRendering(bool b);
     void setColorByOperation(bool b);
     void setThinWalls(bool enabled, float threshold);
+    // color the stock by its distance from the model, within the tolerance green
+    void setDeviation(bool enabled, float tolerance);
     // opacity of the stock and the model, from 0 to 1
     void setOpacity(float stock, float model);
 
@@ -190,8 +197,6 @@ private:
         float color[3];
     };
     std::vector<Operation> mOperations;
-    bool mColorByOperation = false;
-    bool mThinWalls = false;
     std::size_t mLastOperation = 0;
 
     std::vector<SimTool> mTools;
@@ -199,6 +204,14 @@ private:
     const SoCamera* mCamera = nullptr;
     SimShape mStock;
     SimShape mBase;
+    // the model finely tessellated for the distance of the stock from it, made in another thread
+    // while the distance is shown
+    Part::TopoShape mBaseShape;
+    bool mDeviation = false;
+    std::future<std::shared_ptr<const Material::ModelDistance>> mDeviationModel;
+    int mDeviationGeneration = 0;
+    int mDeviationModelGeneration = -1;
+    void startDeviationModel();
 
     std::unique_ptr<MillSimulationState> mState;
     clock::time_point mLastProcessSim = clock::time_point::min();

@@ -8,6 +8,7 @@ add_library(CAMSimulatorAccuracy STATIC
     ${CAMSimulatorEngine_DIR}/MaterialJob.cpp
     ${CAMSimulatorEngine_DIR}/MaterialLayout.cpp
     ${CAMSimulatorEngine_DIR}/MaterialMesher.cpp
+    ${CAMSimulatorEngine_DIR}/MaterialModel.cpp
     ${CAMSimulatorEngine_DIR}/MaterialSimulation.cpp
     ${CAMSimulatorEngine_DIR}/MaterialTool.cpp
     ${CAMSimulatorEngine_DIR}/ThreadPool.cpp

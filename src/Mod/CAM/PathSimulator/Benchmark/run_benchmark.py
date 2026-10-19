@@ -54,6 +54,8 @@ SCENARIOS = [
 # diagnostics, run only when asked for with --scenarios
 EXTRA_SCENARIOS = ["flashes"]
 SCRUBS = ("scrub_forward", "scrub_backward", "scrub_random")
+# the colors of the stock: the option, and its value of SimulatorColorMode
+COLOR_MODES = {"plain": 0, "operation": 1, "thin-walls": 2, "distance": 3}
 
 QUICK = {
     "jobs": "mixed,five_axis",
@@ -105,8 +107,7 @@ def run_process(args, runs, workdir, name):
     config = {
         "runs": runs,
         "quality": args.quality,
-        "color_by_operation": args.color_by_operation,
-        "thin_walls": args.thin_walls,
+        "color_mode": args.color_mode,
         "window": args.window,
         "view": args.view,
         "scenarios": args.scenarios,
@@ -345,13 +346,17 @@ def cell(sc, key="frame_ms"):
 
 
 def display_options(data):
-    """The display options of a run. Results from before they were options had them off."""
+    """The display options of a run. Results from before they were options were plain."""
     config = data["config"]
-    on = {
-        "colors": config.get("color_by_operation", False),
-        "thin walls": config.get("thin_walls", False),
-    }
-    return "display: " + (", ".join(k for k, v in on.items() if v) or "plain")
+    if "color_mode" in config:
+        return "colors: " + config["color_mode"]
+    # results from before the color modes
+    on = [
+        k
+        for k, key in (("operation", "color_by_operation"), ("thin walls", "thin_walls"))
+        if config.get(key)
+    ]
+    return "colors: " + (" and ".join(on) or "plain")
 
 
 def print_summary(data, file=sys.stdout):
@@ -501,16 +506,10 @@ def main():
     parser.add_argument("--window", help="main window size WxH")
     parser.add_argument("--quality", type=int, default=10, help="simulator accuracy 1..10")
     parser.add_argument(
-        "--color-by-operation",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="color the stock by operation (default: on)",
-    )
-    parser.add_argument(
-        "--thin-walls",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="show thin walls, below the default threshold of 0.5 mm (default: on)",
+        "--color-mode",
+        choices=list(COLOR_MODES),
+        default="operation",
+        help="the colors of the stock, the Colors of the task panel (default: %(default)s)",
     )
     parser.add_argument("--view", default="ViewAxo", help="initial view, e.g. ViewAxo, ViewTop")
     parser.add_argument(

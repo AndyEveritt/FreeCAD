@@ -48,6 +48,10 @@ struct StockColoring
     // faces in front of material thinner than this in the thin color, 0 for none
     float thinThreshold = 0;
     vec3 thinColor = {0.9f, 0.08f, 0.08f};
+    // faces by their distance from the model (instead of the colors above): within the tolerance
+    // green, material left blue, cut into the model red, darker up to 10 tolerances away
+    bool deviation = false;
+    float tolerance = 0.05f;
 };
 
 // The object at a position of the view, see SimDisplay::RequestPick

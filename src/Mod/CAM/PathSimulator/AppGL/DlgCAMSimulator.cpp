@@ -27,11 +27,13 @@
 
 #include "Dummy3DViewer.h"
 #include "GuiDisplay.h"
+#include "MaterialModel.h"
 #include "MillSimulation.h"
 #include "ViewCAMSimulator.h"
 #include <App/Application.h>
 #include <Gui/View3DInventorViewer.h>
 #include <Inventor/nodes/SoCamera.h>
+#include <BRepBuilderAPI_Copy.hxx>
 #include <QSurfaceFormat>
 #include <deque>
 #include <limits>
@@ -182,16 +184,6 @@ void DlgCAMSimulator::connectTo(GuiDisplay& gui, Dummy3DViewer& dv)
         mMillSimulator->EnableSsao(b);
     });
 
-    // display options are preferences, applied by CAMSettings when they change
-    connect(&gui, &GuiDisplay::colorByOperationChanged, this, [](bool b) {
-        CAMPreferences()->SetBool("SimulatorColorByOperation", b);
-    });
-    connect(&gui, &GuiDisplay::thinWallsChanged, this, [](bool b) {
-        CAMPreferences()->SetBool("SimulatorThinWalls", b);
-    });
-
-    connect(&gui, &GuiDisplay::stockVisibleChanged, this, &DlgCAMSimulator::setStockVisible);
-    connect(&gui, &GuiDisplay::baseVisibleChanged, this, &DlgCAMSimulator::setBaseVisible);
 
     // connect to dummy viewer
 
@@ -232,13 +224,8 @@ void DlgCAMSimulator::updateGui()
         (int)operations.size()
     );
 
-    mGui->setStockVisible(state.mViewItems & VIEWITEM_SIMULATION);
-    mGui->setBaseVisible(state.mViewItems & VIEWITEM_BASE_SHAPE);
-
     mGui->setPathVisible(state.mViewPath);
     mGui->setSsaoEnabled(state.mViewSSAO);
-    mGui->setColorByOperation(mColorByOperation);
-    mGui->setThinWalls(mThinWalls);
 
     if (mDummyViewer && !mDummyViewer->isAnimating()) {
         mGui->setRotateEnabled(false);
@@ -418,6 +405,12 @@ void DlgCAMSimulator::setStockVisible(bool b)
 void DlgCAMSimulator::setBaseShape(const Part::TopoShape& shape, float resolution)
 {
     mBase = getMeshData(shape, resolution);
+    mBaseShape = shape;
+    mDeviationGeneration++;
+    mMillSimulator->SetDeviationModel(nullptr);
+    if (mDeviation) {
+        startDeviationModel();
+    }
 
     if (mDummyViewer) {
         mDummyViewer->setBaseShape(shape);
@@ -494,7 +487,6 @@ void DlgCAMSimulator::setStencilRendering(bool b)
 
 void DlgCAMSimulator::setColorByOperation(bool b)
 {
-    mColorByOperation = b;
     mMillSimulator->SetColorByOperation(b);
     updateGui();
     update();
@@ -506,9 +498,68 @@ void DlgCAMSimulator::setOpacity(float stock, float model)
     update();
 }
 
+void DlgCAMSimulator::setDeviation(bool enabled, float tolerance)
+{
+    mDeviation = enabled;
+    mMillSimulator->SetDeviation(enabled, tolerance);
+    if (enabled && mDeviationModelGeneration != mDeviationGeneration) {
+        startDeviationModel();
+    }
+    update();
+}
+
+// The model tessellated within 2 um, on a copy so its own tessellation stays, and its triangles
+// sorted for the distance queries, in another thread
+void DlgCAMSimulator::startDeviationModel()
+{
+    if (mBaseShape.isNull() || mDeviationModel.valid()) {
+        return;
+    }
+    const int generation = mDeviationGeneration;
+    mDeviationModelGeneration = generation;
+    const TopoDS_Shape copy = BRepBuilderAPI_Copy(mBaseShape.getShape()).Shape();
+    mDeviationModel = std::async(std::launch::async, [copy]() {
+        std::vector<Base::Vector3d> points;
+        std::vector<Data::ComplexGeoData::Facet> facets;
+        Part::TopoShape(copy).getFaces(points, facets, 0.002);
+        std::vector<float> xyz;
+        std::vector<uint32_t> triangles;
+        xyz.reserve(3 * points.size());
+        for (const Base::Vector3d& p : points) {
+            xyz.insert(xyz.end(), {(float)p.x, (float)p.y, (float)p.z});
+        }
+        triangles.reserve(3 * facets.size());
+        for (const auto& f : facets) {
+            triangles.insert(triangles.end(), {f.I1, f.I2, f.I3});
+        }
+        return std::shared_ptr<const Material::ModelDistance>(
+            std::make_shared<Material::ModelDistance>(xyz, triangles, 1.0f)
+        );
+    });
+    // look for the result until it is there
+    auto poll = std::make_shared<std::function<void()>>();
+    *poll = [this, poll, generation]() {
+        if (!mDeviationModel.valid()) {
+            return;
+        }
+        if (mDeviationModel.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+            QTimer::singleShot(100, this, *poll);
+            return;
+        }
+        auto model = mDeviationModel.get();
+        if (generation == mDeviationGeneration) {
+            mMillSimulator->SetDeviationModel(model);
+            update();
+        }
+        else if (mDeviation) {
+            startDeviationModel();
+        }
+    };
+    QTimer::singleShot(100, this, *poll);
+}
+
 void DlgCAMSimulator::setThinWalls(bool enabled, float threshold)
 {
-    mThinWalls = enabled;
     mMillSimulator->SetThinWalls(enabled, threshold);
     updateGui();
     update();

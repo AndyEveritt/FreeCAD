@@ -541,12 +541,14 @@ const char* VertShaderStock = R"(
     layout(location = 1) attribute vec3 aNormal;
     layout(location = 2) attribute float aOperation;
     layout(location = 3) attribute float aThickness;
+    layout(location = 4) attribute float aDeviation;
 
     varying vec3 Position;
     varying vec3 Normal;
     varying vec3 Color;
     varying float Thickness;
     varying float Tag;
+    varying float Deviation;
 
     uniform mat4 model;
     uniform mat4 view;
@@ -570,6 +572,7 @@ const char* VertShaderStock = R"(
             : objectColor;
         // the fraction of 10 mm in 16 bits, all bits set for none
         Thickness = aThickness > 0.99999 ? 1e30 : aThickness * (65535.0 / 65534.0) * 10.0;
+        Deviation = aDeviation;
         gl_Position = projection * viewPos;
     }
 )";
@@ -582,10 +585,28 @@ const char* FragShaderStock = R"(
     varying vec3 Color;
     varying float Thickness;
     varying float Tag;
+    varying float Deviation;
 
     uniform float thinThreshold;
     uniform vec3 thinColor;
     uniform float opacity;
+    // the distance from the model: within the tolerance green, material left blue, cut into the
+    // model red, darker up to 10 tolerances away
+    uniform bool deviationMode;
+    uniform float tolerance;
+
+    vec3 deviationColor(float d)
+    {
+        if (d > 1e29) {
+            return vec3(0.6, 0.6, 0.6);
+        }
+        if (abs(d) <= tolerance) {
+            return vec3(0.25, 0.8, 0.3);
+        }
+        float f = clamp((abs(d) - tolerance) / (9.0 * tolerance), 0.0, 1.0);
+        return d > 0.0 ? mix(vec3(0.45, 0.7, 1.0), vec3(0.05, 0.15, 0.6), f)
+                       : mix(vec3(1.0, 0.6, 0.2), vec3(0.75, 0.0, 0.05), f);
+    }
     // transparent layers: the surfaces behind those of the layer before, both sides of the faces
     uniform bool peel;
     uniform sampler2D peelDepth;
@@ -596,7 +617,8 @@ const char* FragShaderStock = R"(
         if (peel && gl_FragCoord.z <= texture2D(peelDepth, gl_FragCoord.xy / screenSize).r) {
             discard;
         }
-        vec3 color = Thickness < thinThreshold ? thinColor : Color;
+        vec3 color = deviationMode ? deviationColor(Deviation)
+            : (Thickness < thinThreshold ? thinColor : Color);
         vec3 normal = normalize(Normal);
         gl_FragData[0] = vec4(color, opacity);
         // the stock and the operation of the face, for picking

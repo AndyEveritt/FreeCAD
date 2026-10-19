@@ -14,6 +14,7 @@
 #include <Mod/CAM/PathSimulator/AppGL/MaterialGrid.h>
 #include <Mod/CAM/PathSimulator/AppGL/MaterialLayout.h>
 #include <Mod/CAM/PathSimulator/AppGL/MaterialMesher.h>
+#include <Mod/CAM/PathSimulator/AppGL/MaterialModel.h>
 #include <Mod/CAM/PathSimulator/AppGL/MaterialSimulation.h>
 #include <Mod/CAM/PathSimulator/AppGL/MaterialTool.h>
 #include <Mod/CAM/PathSimulator/AppGL/ThreadPool.h>
@@ -792,6 +793,36 @@ TEST(MaterialMesher, normalsAndCreasesFollowTheFaces)
     EXPECT_GE(bottomBySlice.size(), 10u);
     for (const auto& [slice, z] : bottomBySlice) {
         EXPECT_NEAR(z, -0.8, 0.05) << "at slice " << slice;
+    }
+}
+
+// Signed distance from a model: a box, outside positive, inside negative, at its faces, edges and
+// corners, and points beyond the range by their side
+TEST(MaterialModel, signedDistanceFromABox)
+{
+    const double lo[3] = {0, 0, 0}, hi[3] = {10, 6, 4};
+    std::vector<float> xyz;
+    std::vector<uint32_t> triangles;
+    MakeBox(lo, hi, xyz, triangles);
+    const ModelDistance model(xyz, triangles, 1.0f);
+    struct Case
+    {
+        float p[3];
+        float distance;
+    };
+    const Case cases[] = {
+        {{5, 3, 4.2f}, 0.2f},                           // above the top
+        {{5, 3, 3.7f}, -0.3f},                          // below it, inside
+        {{-0.25f, 3, 2}, 0.25f},                        // beside a side
+        {{10.3f, 6.4f, 2}, 0.5f},                       // beside an edge
+        {{9.9f, 5.8f, 2}, -0.1f},                       // inside near an edge
+        {{10.2f, 6.2f, 4.2f}, std::sqrt(3.0f) * 0.2f},  // beyond a corner
+        {{5, 3, 6}, 1.0f},                              // above, beyond the range
+        {{5, 3, 2}, -1.0f},                             // deep inside, beyond the range
+    };
+    for (const Case& c : cases) {
+        EXPECT_NEAR(model.SignedDistance(c.p), c.distance, 1e-4)
+            << c.p[0] << " " << c.p[1] << " " << c.p[2];
     }
 }
 

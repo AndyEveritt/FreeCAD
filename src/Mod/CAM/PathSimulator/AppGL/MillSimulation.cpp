@@ -911,6 +911,27 @@ void MillSimulation::SetThinWalls(bool enabled, float threshold)
     simDisplay.updateDisplay = true;
 }
 
+void MillSimulation::SetDeviation(bool enabled, float tolerance)
+{
+    mDeviation = enabled;
+    mColoring.deviation = enabled;
+    mColoring.tolerance = tolerance;
+    // the distance is only measured while it is shown, it costs time
+    if (mMaterial) {
+        mMaterial->SetDeviation(mDeviation ? mDeviationModel : nullptr);
+    }
+    simDisplay.updateDisplay = true;
+}
+
+void MillSimulation::SetDeviationModel(std::shared_ptr<const Material::ModelDistance> model)
+{
+    mDeviationModel = std::move(model);
+    if (mMaterial) {
+        mMaterial->SetDeviation(mDeviation ? mDeviationModel : nullptr);
+    }
+    simDisplay.updateDisplay = true;
+}
+
 int MillSimulation::OperationAt(int step) const
 {
     // the last operation started at the step, empty operations have no steps
@@ -1084,6 +1105,7 @@ void MillSimulation::StartMaterialSimulation()
         mMaterial = std::make_unique<Material::View>();
     }
     mMaterial->SetMeasureThickness(mThinWalls);
+    mMaterial->SetDeviation(mDeviation ? mDeviationModel : nullptr);
     mMaterial->Start(std::move(tools), std::move(job.segments), mStockXyz, mStockTriangles, mQuality);
     mTargetStep = 0;
 }

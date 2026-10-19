@@ -123,11 +123,25 @@ void View::SetMeasureThickness(bool b)
     mWake.notify_all();
 }
 
+void View::SetDeviation(std::shared_ptr<const ModelDistance> model)
+{
+    {
+        std::lock_guard<std::mutex> lock(mMutex);
+        if (mModel == model) {
+            return;
+        }
+        mModel = std::move(model);
+        mWork = true;
+    }
+    mWake.notify_all();
+}
+
 void View::MesherLoop()
 {
     ThreadPool::LowerCurrentThreadPriority();
     std::shared_ptr<const Layout> layout;
     bool thickness = false;
+    std::shared_ptr<const ModelDistance> model;
     std::vector<int> changed;
     while (!mStop) {
         {
@@ -139,6 +153,7 @@ void View::MesherLoop()
             mWork = false;
             mBusy = true;
             thickness = mThickness;
+            model = mModel;
         }
         if (!layout) {
             layout = mSimulation.GetLayout();
@@ -153,6 +168,7 @@ void View::MesherLoop()
             if (thickness != mMesher.MeasuresThickness()) {
                 mMesher.SetMeasureThickness(thickness);
             }
+            mMesher.SetDeviation(model);
             const std::vector<int> units = mMesher.Update(mGrid, changed, *mPool);
             std::map<int, UnitMesh> meshes;
             for (int u : units) {
@@ -295,12 +311,22 @@ void View::Draw(const Chunk& chunk, bool cut) const
         sizeof(MeshVertex),
         (void*)offsetof(MeshVertex, thickness)
     );
+    glEnableVertexAttribArray(4);
+    glVertexAttribPointer(
+        4,
+        1,
+        GL_FLOAT,
+        GL_FALSE,
+        sizeof(MeshVertex),
+        (void*)offsetof(MeshVertex, deviation)
+    );
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, chunk.ibo);
     const size_t offset = cut ? chunk.stockCount * sizeof(uint32_t) : 0;
     glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT, (void*)offset);
     // other meshes only have positions and normals
     glDisableVertexAttribArray(2);
     glDisableVertexAttribArray(3);
+    glDisableVertexAttribArray(4);
 }
 
 void View::Render(

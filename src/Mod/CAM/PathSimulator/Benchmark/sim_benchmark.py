@@ -140,10 +140,10 @@ class Limit:
 def reference_options():
     """The part of the name of reference images for the options that are not the defaults."""
     name = "" if CONFIG["quality"] == 10 else f"_quality{CONFIG['quality']}"
-    if not CONFIG["color_by_operation"]:
-        name += "_nocolors"
-    if not CONFIG["thin_walls"]:
-        name += "_nothin"
+    # plain as the references of the stencil renderer were named, without colors and thin walls
+    name += {"operation": "", "plain": "_nocolors_nothin"}.get(
+        CONFIG["color_mode"], "_" + CONFIG["color_mode"].replace("-", "")
+    )
     return name
 
 
@@ -649,16 +649,20 @@ class JobBench:
         self.move_to(self.slider.maximum())
         limit.restart()
         actions = []
-        for name in (
-            "pathButton",
-            "ssaoButton",
-            "stockModelButton",
-            "colorByOperationButton",
-            "thinWallsButton",
-        ):
+        for name in ("pathButton", "ssaoButton"):
             if name in self.buttons:
                 # each toggle twice, to restore the original state
                 actions += [self.buttons[name].click, self.buttons[name].click]
+        # the display options of the task panel are preferences: the model shown and hidden, every
+        # color mode, back to the one of the run
+        cam = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/CAM")
+        actions += [
+            lambda: cam.SetBool("SimulatorModelVisible", True),
+            lambda: cam.SetBool("SimulatorModelVisible", False),
+        ]
+        mode = cam.GetInt("SimulatorColorMode", 1)
+        for other in [m for m in range(4) if m != mode] + [mode]:
+            actions.append(lambda m=other: cam.SetInt("SimulatorColorMode", m))
         return self.summarize(self.action_samples(actions, limit))
 
     def scenario_correctness(self, limit):
@@ -764,8 +768,10 @@ def main():
         )
         # the display options of the simulator
         cam = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/CAM")
-        cam.SetBool("SimulatorColorByOperation", CONFIG["color_by_operation"])
-        cam.SetBool("SimulatorThinWalls", CONFIG["thin_walls"])
+        modes = {"plain": 0, "operation": 1, "thin-walls": 2, "distance": 3}
+        cam.SetInt("SimulatorColorMode", modes[CONFIG["color_mode"]])
+        cam.SetBool("SimulatorStockVisible", True)
+        cam.SetBool("SimulatorModelVisible", False)
         setup_window()
         for run in CONFIG["runs"]:
             try:

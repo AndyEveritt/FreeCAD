@@ -147,16 +147,50 @@
      </property>
      <layout class="QGridLayout" name="gridDisplay">
       <item row="0" column="0">
+       <widget class="QLabel" name="labelColorMode">
+        <property name="text">
+         <string>Colors</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QComboBox" name="colorMode">
+        <property name="toolTip">
+         <string>The colors of the simulated stock</string>
+        </property>
+        <item>
+         <property name="text">
+          <string>Plain</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>By operation</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Thin walls</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Distance from the model</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item row="1" column="0">
        <widget class="QLabel" name="labelThinWallThreshold">
         <property name="text">
          <string>Thin wall threshold</string>
         </property>
        </widget>
       </item>
-      <item row="0" column="1">
+      <item row="1" column="1">
        <widget class="Gui::QuantitySpinBox" name="thinWallThreshold">
         <property name="toolTip">
-         <string>Material thinner than this is shown in red when thin walls are shown in the simulator view</string>
+         <string>Material thinner than this is shown in red when the colors show thin walls</string>
         </property>
         <property name="unit" stdset="0">
          <string notr="true">mm</string>
@@ -175,14 +209,52 @@
         </property>
        </widget>
       </item>
-      <item row="1" column="0">
-       <widget class="QLabel" name="labelStockOpacity">
+      <item row="2" column="0">
+       <widget class="QLabel" name="labelDeviationTolerance">
         <property name="text">
-         <string>Stock opacity</string>
+         <string>Model tolerance</string>
         </property>
        </widget>
       </item>
-      <item row="1" column="1">
+      <item row="2" column="1">
+       <widget class="Gui::QuantitySpinBox" name="deviationTolerance">
+        <property name="toolTip">
+         <string>When the colors show the distance from the model: green within this distance, blue where more material is left, red where the stock is cut deeper into the model</string>
+        </property>
+        <property name="unit" stdset="0">
+         <string notr="true">mm</string>
+        </property>
+        <property name="decimals">
+         <number>3</number>
+        </property>
+        <property name="minimum">
+         <double>0.001000000000000</double>
+        </property>
+        <property name="maximum">
+         <double>1.000000000000000</double>
+        </property>
+        <property name="singleStep">
+         <double>0.010000000000000</double>
+        </property>
+        <property name="value">
+         <double>0.050000000000000</double>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="0">
+       <widget class="QCheckBox" name="stockVisible">
+        <property name="toolTip">
+         <string>Show the simulated stock</string>
+        </property>
+        <property name="text">
+         <string>Stock</string>
+        </property>
+        <property name="checked">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="1">
        <widget class="QSlider" name="stockOpacity">
         <property name="toolTip">
          <string>Opacity of the simulated stock, the model and the tool show through a transparent stock</string>
@@ -198,14 +270,17 @@
         </property>
        </widget>
       </item>
-      <item row="2" column="0">
-       <widget class="QLabel" name="labelModelOpacity">
+      <item row="4" column="0">
+       <widget class="QCheckBox" name="modelVisible">
+        <property name="toolTip">
+         <string>Show the model of the job</string>
+        </property>
         <property name="text">
-         <string>Model opacity</string>
+         <string>Model</string>
         </property>
        </widget>
       </item>
-      <item row="2" column="1">
+      <item row="4" column="1">
        <widget class="QSlider" name="modelOpacity">
         <property name="toolTip">
          <string>Opacity of the model of the job</string>

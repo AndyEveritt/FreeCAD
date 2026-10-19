@@ -96,6 +96,8 @@ public:
         const StockColoring& coloring
     );
     void SetMeasureThickness(bool b);
+    // Measure the distance of the stock from the model, none if null
+    void SetDeviation(std::shared_ptr<const ModelDistance> model);
     void FreeResources();
     long TriangleCount() const;
 
@@ -126,6 +128,7 @@ private:
     bool mWork = false;  // the simulation published, or the thickness option changed
     bool mBusy = false;  // meshing
     bool mThickness = false;
+    std::shared_ptr<const ModelDistance> mModel;
     std::map<int, UnitMesh> mReady;  // finished meshes by unit
     long mReadyStep = -1;
     long mTarget = 0;

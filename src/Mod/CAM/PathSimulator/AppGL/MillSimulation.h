@@ -144,6 +144,10 @@ public:
     void SetColorByOperation(bool b);
     // Faces in front of material thinner than the threshold in red
     void SetThinWalls(bool enabled, float threshold);
+    // Faces by their distance from the model, within the tolerance green, see StockColoring
+    void SetDeviation(bool enabled, float tolerance);
+    // The model to measure the distance from, null for none
+    void SetDeviationModel(std::shared_ptr<const Material::ModelDistance> model);
     // Opacity of the stock and of the base shape (the model), from 0 to 1. The stock of the
     // stencil renderer is always opaque.
     void SetOpacity(float stock, float base);
@@ -215,6 +219,8 @@ protected:
     std::vector<SimOperation> mOperations;
     StockColoring mColoring;
     bool mThinWalls = false;
+    bool mDeviation = false;
+    std::shared_ptr<const Material::ModelDistance> mDeviationModel;
     float mStockOpacity = 1;
     float mBaseOpacity = 1;
     float mThinThreshold = 0.5f;

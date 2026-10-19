@@ -44,13 +44,9 @@ public:
     // the operation in progress, index -1 for none
     void setOperation(const QString& name, int index, int count);
 
-    void setStockVisible(bool b);
-    void setBaseVisible(bool b);
     void setRotateEnabled(bool b);
     void setPathVisible(bool b);
     void setSsaoEnabled(bool b);
-    void setColorByOperation(bool b);
-    void setThinWalls(bool b);
 
 Q_SIGNALS:
     void play(bool b);
@@ -64,13 +60,9 @@ Q_SIGNALS:
     void scrubbing(bool b);
 
     void viewAll();
-    void stockVisibleChanged(bool b);
-    void baseVisibleChanged(bool b);
     void rotateEnableChanged(bool b);
     void pathVisibleChanged(bool b);
     void ssaoEnableChanged(bool b);
-    void colorByOperationChanged(bool b);
-    void thinWallsChanged(bool b);
 
 protected:
     void resizeEvent(QResizeEvent* event) override;
@@ -84,16 +76,12 @@ private Q_SLOTS:
     void onSlowerFasterButtonClicked();
     void on_stageSlider_sliderMoved(int value);
 
-    void on_stockModelButton_clicked();
 
 private:
     Ui_GuiDisplay* ui;
 
     bool playing = true;
     int speed = 1;
-
-    bool stockVisible = true;
-    bool baseVisible = false;
 };
 
 }  // namespace CAMSimulator

@@ -279,6 +279,16 @@ class CAMSimulation:
         threshold = prefs.GetFloat("SimulatorThinWallThreshold", 0.5)
         form.thinWallThreshold.setProperty("rawValue", threshold)
         form.thinWallThreshold.valueChanged.connect(self.onThinWallThresholdChange)
+        tolerance = prefs.GetFloat("SimulatorDeviationTolerance", 0.05)
+        form.deviationTolerance.setProperty("rawValue", tolerance)
+        form.deviationTolerance.valueChanged.connect(self.onDeviationToleranceChange)
+        form.colorMode.setCurrentIndex(prefs.GetInt("SimulatorColorMode", 1))
+        form.colorMode.currentIndexChanged.connect(self.onColorModeChange)
+        self.onColorModeChange()
+        form.stockVisible.setChecked(prefs.GetBool("SimulatorStockVisible", True))
+        form.modelVisible.setChecked(prefs.GetBool("SimulatorModelVisible", False))
+        form.stockVisible.toggled.connect(self.onVisibilityChange)
+        form.modelVisible.toggled.connect(self.onVisibilityChange)
         form.stockOpacity.setValue(round(100 * prefs.GetFloat("SimulatorStockOpacity", 1.0)))
         form.modelOpacity.setValue(round(100 * prefs.GetFloat("SimulatorModelOpacity", 1.0)))
         form.stockOpacity.valueChanged.connect(self.onOpacityChange)
@@ -413,6 +423,30 @@ class CAMSimulation:
         prefs = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/CAM")
         prefs.SetFloat("SimulatorThinWallThreshold", threshold)
 
+    def onColorModeChange(self, *_args):
+        """The colors of the stock: plain, by operation, thin walls, or by the distance from the model"""
+        form = self.taskForm.form
+        mode = form.colorMode.currentIndex()
+        form.thinWallThreshold.setEnabled(mode == 2)
+        form.labelThinWallThreshold.setEnabled(mode == 2)
+        form.deviationTolerance.setEnabled(mode == 3)
+        form.labelDeviationTolerance.setEnabled(mode == 3)
+        prefs = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/CAM")
+        prefs.SetInt("SimulatorColorMode", mode)
+
+    def onVisibilityChange(self, *_args):
+        """Show the stock and the model in the simulator"""
+        form = self.taskForm.form
+        prefs = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/CAM")
+        prefs.SetBool("SimulatorStockVisible", form.stockVisible.isChecked())
+        prefs.SetBool("SimulatorModelVisible", form.modelVisible.isChecked())
+
+    def onDeviationToleranceChange(self, *_args):
+        """Faces within the tolerance of the model are green when colored by their distance"""
+        tolerance = float(self.taskForm.form.deviationTolerance.property("rawValue"))
+        prefs = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/CAM")
+        prefs.SetFloat("SimulatorDeviationTolerance", tolerance)
+
     def onOpacityChange(self, *_args):
         """Opacity of the stock and the model in the simulator"""
         form = self.taskForm.form
@@ -453,12 +487,14 @@ class CAMSimulation:
             self.millSim.GoToOperation(self.activeOps.index(op))
 
     def onOperationPicked(self, index):
-        """A face of the stock was clicked in the simulator: select the operation that cut it"""
+        """A face of the stock was clicked in the simulator: select the operation that cut it and
+        go to its start, like a click on it in the list"""
         listOperations = self.taskForm.form.listOperations
         if 0 <= index < len(self.activeOps) and self.activeOps[index] in self.operations:
             row = self.operations.index(self.activeOps[index])
             listOperations.setCurrentRow(row)
             listOperations.scrollToItem(listOperations.item(row))
+            self.millSim.GoToOperation(index)
         else:
             listOperations.clearSelection()
             listOperations.setCurrentItem(None)

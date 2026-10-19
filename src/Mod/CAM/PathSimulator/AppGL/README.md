@@ -78,26 +78,27 @@ from angles, are snapped to them.
 
 ## Display
 
-- `MaterialMesher`: dual contouring. Grid points are inside the material if the Z dexel through
-  them is, its ends included (like the material a tool only touches); the edges between grid points lie on dexels, which have the exact points of the surface
-  on them and its normals. Cells of a brick are merged into cubes of 2, 4 or 8 cells where the
-  surface is flat (normals within about 8 degrees, points within a tenth of a cell of a plane), or
-  into cubes of up to 4 cells holding one sharp edge or corner of planes, or a ridge between
-  curved faces (like between passes of a ball end), with one sheet of surface. Every cube with a
-  surface gets a vertex: on the edge or corner of the planes of its points at sharp features
-  (not of planes facing almost opposite ways, like the faces of a thin wall, where they meet
-  depends too much on their normals), else where the planes of its points meet (every plane
-  counting the same) nearest to their mass point, or to the points without a normal if they are on
-  the planes (made by a sharp edge of a tool, on the crease it cut, like the tip of a V groove
-  narrower than a cell), moved onto curved surfaces by a quadric fit. Every edge of the cubes with a change of inside gets a quad of the vertices of
-  the 4 cubes around it, from the smallest cubes around it, so bricks of different levels connect
-  without cracks, split along the diagonal passing nearest to the surface point of the edge.
-  Vertices on smooth surfaces share their normal, at sharp edges (normals far apart, or in two
-  groups, like a face and a chamfer) every quad gets the normal of its own surface point, or of its
-  own plane where the point has none. Faces get the operation that cut them, and while thin walls are shown, the
-  thickness of the material behind them: the length of the material along the dexel of their
-  edge, followed into the bricks ahead, times the component of their normal along it (exact for
-  walls with flat faces, up to 10 mm). The cubes of every brick are kept until it changes.
+- `MaterialMesher`: dual contouring. Grid points are inside the material if the Z dexel through them
+  is, its ends included (like the material a tool only touches); the edges between grid points lie
+  on dexels, which have the exact points of the surface on them and its normals. Cells of a brick
+  are merged into cubes of 2, 4 or 8 cells where the surface is flat (normals within about 8
+  degrees, points within a tenth of a cell of a plane), or into cubes of up to 4 cells holding one
+  sharp edge or corner of planes, or a ridge between curved faces (like between passes of a ball
+  end), with one sheet of surface. Every cube with a surface gets a vertex: on the edge or corner of
+  the planes of its points at sharp features (not of planes facing almost opposite ways, like the
+  faces of a thin wall, where they meet depends too much on their normals), else where the planes of
+  its points meet (every plane counting the same) nearest to their mass point, or to the points
+  without a normal if they are on the planes (made by a sharp edge of a tool, on the crease it cut,
+  like the tip of a V groove narrower than a cell), moved onto curved surfaces by a quadric fit.
+  Every edge of the cubes with a change of inside gets a quad of the vertices of the 4 cubes around
+  it, from the smallest cubes around it, so bricks of different levels connect without cracks, split
+  along the diagonal passing nearest to the surface point of the edge. Vertices on smooth surfaces
+  share their normal, at sharp edges (normals far apart, or in two groups, like a face and a
+  chamfer) every quad gets the normal of its own surface point, or of its own plane where the point
+  has none. Faces get the operation that cut them, and while thin walls are shown, the thickness of
+  the material behind them: the length of the material along the dexel of their edge, followed into
+  the bricks ahead, times the component of their normal along it (exact for walls with flat faces,
+  up to 10 mm). The cubes of every brick are kept until it changes.
 - `MaterialRenderer` (`Material::View`): the simulation, a mesher thread and the GPU buffers. The
   mesher builds the meshes of the stock the simulation publishes, for the mesh units (up to 8
   bricks) depending on its changed bricks; the GUI thread only uploads them, all units of a stock
@@ -124,16 +125,23 @@ while the shown stock is behind the tool. The view is only rendered when somethi
 The task panel (`Path/Main/Gui/SimulatorGL.py`) passes the operations to the simulator
 (`CAMSim.AddOperation`) with their colors. The view shows the operation in progress, with buttons
 to go to the start and the end, and to the start of the next or the current or previous operation.
-A click on an operation in the task panel goes to its start (`CAMSim.GoToOperation`). A click on
-the stock in the view (not a drag) selects the operation that cut the face there in the task
-panel (`CAMSim.SetOperationPickedCallback`): the stock shader writes the operation tag of its
-faces with their position in the G-buffer, read at the pixel after the next frame
-(`SimDisplay::RequestPick`), from the front-most transparent layer with the stock, else the opaque
-objects. Beside the slider, a button shows the stock, the model or both.
-Toggles color the stock by operation (the path color of an operation where it has been set,
-otherwise a color of a palette, shown in the task panel) and show thin walls; the task panel sets
-the thin wall threshold and the opacities. These display options are the parameters below, the
-simulator follows their changes (`CAMSettings`).
+A click on an operation in the task panel, or on a face of the stock in the view (not a drag),
+goes to the start of the operation (`CAMSim.GoToOperation`) and selects it in the task panel: for
+a face, the operation that cut it (`CAMSim.SetOperationPickedCallback`). The stock shader writes the
+operation tag of its faces with their position in the G-buffer, read at the pixel after the next
+frame (`SimDisplay::RequestPick`), from the front-most transparent layer with the stock, else the
+opaque objects.
+
+The display options of the task panel are the parameters below, the simulator follows their
+changes (`CAMSettings`): the colors of the stock, the thin wall threshold and the model tolerance,
+and the stock and the model shown, with their opacities. The colors are plain, by operation (the
+path color of an operation where it has been set, otherwise a color of a palette, shown in the task
+panel), thin walls in red, or the distance from the model: within the tolerance green, where
+material is left blue, where the stock is cut into the model red, darker up to 10 tolerances away.
+The distance of every vertex of the mesh is measured in the mesher thread while it is shown, from
+the model tessellated within 2 um in another thread (`MaterialModel`, `ModelDistance`: its
+triangles in a grid of the range of 1 mm, the sign by the normals of the nearest triangles, by the
+parity of a ray beyond the range).
 
 ## 5 axis toolpaths
 
@@ -150,9 +158,12 @@ around Z. This is the place to add machine specific kinematics. Arcs are in the 
   tool sweeps from the stock in screen space with the stencil buffer, instead of the simulations.
   It supports 3 axis toolpaths only, and every change of the view renders all cuts, so it gets slow
   on long toolpaths.
-- `SimulatorColorByOperation` (bool, default false): cut faces in the color of their operation.
-- `SimulatorThinWalls` (bool, default false): faces in front of material thinner than
-  `SimulatorThinWallThreshold` (float, mm, default 0.5) in red.
+- `SimulatorColorMode` (int, default 1): the colors of the stock: 0 plain, 1 by operation, 2 thin
+  walls, faces in front of material thinner than `SimulatorThinWallThreshold` (float, mm, default
+  0.5) in red, 3 the distance from the model, within `SimulatorDeviationTolerance` (float, mm,
+  default 0.05) green.
+- `SimulatorStockVisible` (bool, default true), `SimulatorModelVisible` (bool, default false): the
+  stock and the model shown.
 - `SimulatorStockOpacity`, `SimulatorModelOpacity` (float, 0 to 1, default 1): opacity of the
   stock (not with the stencil renderer) and of the model.
 
