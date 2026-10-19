@@ -235,6 +235,12 @@ class JobBench:
         self.sim.SetFrameTiming(True)
         memory_before = memory_mb()
 
+        # the simulator writes its input to a file for the accuracy validation, when it starts
+        if CONFIG.get("dump_dir"):
+            path = os.path.join(CONFIG["dump_dir"], f"{self.job}_{self.size}.job")
+            os.environ["CAM_SIM_DUMP"] = path
+            self.result["job_file"] = path
+
         # time from starting the simulation until the first frame shows it
         self.sim.TakeFrameTimes()
         t0 = time.perf_counter()
@@ -502,15 +508,27 @@ class JobBench:
             empty = numpy.abs(b - background).max(axis=2) < 20
             pixels_flashing = int((changed & stable & empty).sum())
             if pixels_flashing > 20:
-                flashes.append({"grab": count, "pixels": pixels_flashing, "step": self.slider.value()})
+                flashes.append(
+                    {"grab": count, "pixels": pixels_flashing, "step": self.slider.value()}
+                )
                 if CONFIG.get("images_dir") and len(flashes) <= 3:
                     for k, (img, _) in enumerate(grabs):
-                        img.save(os.path.join(CONFIG["images_dir"], f"{self.job}_{self.size}_flash{len(flashes)}_{k}.png"))
+                        img.save(
+                            os.path.join(
+                                CONFIG["images_dir"],
+                                f"{self.job}_{self.size}_flash{len(flashes)}_{k}.png",
+                            )
+                        )
         if self.slider.value() < total:
             self.toggle_play()
         self.set_speed(1)
         self.settle()
-        return {"grabs": count, "flashes": len(flashes), "worst": max((f["pixels"] for f in flashes), default=0), "details": flashes[:10]}
+        return {
+            "grabs": count,
+            "flashes": len(flashes),
+            "worst": max((f["pixels"] for f in flashes), default=0),
+            "details": flashes[:10],
+        }
 
     def scrub(self, positions, limit):
         """Drag the slider through the positions, waiting for the view at each."""
@@ -758,6 +776,7 @@ def main():
                     {"job": run["job"], "size": run["size"], "errors": [traceback.format_exc()]}
                 )
                 log(traceback.format_exc())
+            os.environ.pop("CAM_SIM_DUMP", None)
             save()
             # each job in its own document and simulator view
             for name in list(FreeCAD.listDocuments()):

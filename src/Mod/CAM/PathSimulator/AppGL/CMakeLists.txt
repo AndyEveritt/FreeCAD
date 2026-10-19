@@ -49,6 +49,8 @@ SET(CAMSimulator_SRCS_Core
     GuiDisplay.h
     linmath.h
     MaterialGrid.cpp
+    MaterialJob.cpp
+    MaterialJob.h
     MaterialGrid.h
     MaterialLayout.cpp
     MaterialLayout.h

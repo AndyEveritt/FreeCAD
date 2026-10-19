@@ -7,8 +7,12 @@ The default quick mode runs one complex job in a single FreeCAD process. --full 
 size in its own FreeCAD process, with more samples and repeats. Every run checks the simulator
 images against the reference images in the reference directory. See README.md for details.
 
+With --accuracy, every job is also simulated outside of the GUI by CAM_simulator_accuracy (built
+with the tests) and the stock is measured against the exact material of the job.
+
 The last output line is a machine readable verdict, and the exit code is 0 when the run passed:
-no errors, no timeouts, images match the references and, with --baseline, no scenario got slower.
+no errors, no timeouts, images match the references and, with --baseline, no scenario got slower
+and no accuracy got worse.
 
 Examples:
     run_benchmark.py --freecad build/bin/FreeCAD -o baseline.json
@@ -114,6 +118,7 @@ def run_process(args, runs, workdir, name):
         "correctness_stages": [0.5, 1.0],
         "max_image_diff": args.max_image_diff,
         "jobs_module": os.path.join(HERE, "jobs.py"),
+        "dump_dir": args.dump_dir,
         "images_dir": args.images,
         "reference_dir": args.reference,
         "save_reference_dir": args.save_reference,
@@ -216,6 +221,53 @@ def metrics(run):
     return out
 
 
+# accuracy values compared between runs, and the differences that are never a regression
+ACCURACY_NOISE = {"p99 um": 1.0, "p999 um": 2.0, "max um": 20.0, "gross mm3": 0.5, "missed": 2}
+
+
+def accuracy_metrics(run):
+    """The accuracy values compared between runs: {name: value}."""
+    acc = run.get("accuracy")
+    if not acc or "surface" not in acc:
+        return {}
+    surface, volume = acc["surface"], acc["volume"]
+    return {
+        "p99 um": surface["p99"] * 1000,
+        "p999 um": surface["p999"] * 1000,
+        "max um": surface["max"] * 1000,
+        "gross mm3": volume["gross_mm3"],
+        "missed": surface["missed"],
+    }
+
+
+def run_accuracy(args, data):
+    """Measure the accuracy of every job the GUI wrote, once per job and size."""
+    done = set()
+    for run in data["runs"]:
+        key = (run["job"], str(run["size"]))
+        path = run.get("job_file")
+        if key in done or not path:
+            continue
+        done.add(key)
+        if not os.path.exists(path):
+            run["accuracy"] = {"error": "the simulator wrote no job file"}
+            continue
+        print(f"accuracy of {run['job']} {run['size']} ...", flush=True)
+        out = os.path.join(args.dump_dir, f"{run['job']}_{run['size']}.accuracy.json")
+        cmd = [args.accuracy_tool, path, "--quality", str(args.quality), "--json", out]
+        if args.legacy_engine:
+            cmd += ["--engine", "legacy"]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+            if proc.returncode != 0 or not os.path.exists(out):
+                run["accuracy"] = {"error": (proc.stdout + proc.stderr)[-2000:]}
+            else:
+                with open(out) as f:
+                    run["accuracy"] = json.load(f)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            run["accuracy"] = {"error": str(e)}
+
+
 def evaluate(data, base=None, fail_above=1.25, noise_ms=2.0):
     """Verdict of a run, optionally compared with a baseline run."""
     verdict = {"status": "pass", "failures": [], "regressed": {}, "improved": {}}
@@ -232,6 +284,9 @@ def evaluate(data, base=None, fail_above=1.25, noise_ms=2.0):
             verdict["failures"].append(
                 f"{key} {flashes['flashes']} flashes, up to {flashes.get('worst')} pixels"
             )
+        if run.get("accuracy", {}).get("error"):
+            error = run["accuracy"]["error"].strip().splitlines() or ["failed"]
+            verdict["failures"].append(f"{key} accuracy: {error[-1]}")
         corr = run.get("scenarios", {}).get("correctness")
         if corr and corr.get("passed") is False:
             verdict["failures"].append(
@@ -256,6 +311,16 @@ def evaluate(data, base=None, fail_above=1.25, noise_ms=2.0):
                     verdict["regressed"][f"{key} {name}"] = round(ratio, 3)
                 elif ratio < 1 / fail_above and old - value > noise_ms:
                     verdict["improved"][f"{key} {name}"] = round(ratio, 3)
+            new_acc, base_acc = accuracy_metrics(run), accuracy_metrics(b)
+            for name, value in new_acc.items():
+                old = base_acc.get(name)
+                if old is None:
+                    continue
+                noise = ACCURACY_NOISE[name]
+                if value > old * fail_above and value - old > noise:
+                    verdict["regressed"][f"{key} accuracy {name}"] = round(value, 3)
+                elif value < old / fail_above and old - value > noise:
+                    verdict["improved"][f"{key} accuracy {name}"] = round(value, 3)
 
     if verdict["failures"] or verdict["regressed"]:
         verdict["status"] = "fail"
@@ -341,6 +406,26 @@ def print_summary(data, file=sys.stdout):
             line += f" {'-':>7s}"
         print(line, file=file)
 
+    accuracy = [r for r in merge_repeats(data["runs"]) if r.get("accuracy")]
+    if accuracy:
+        print(
+            f"\n{'job':12s} {'size':7s} {'p50 um':>7s} {'p99 um':>7s} {'p999 um':>8s}"
+            f" {'max um':>7s} {'bias um':>8s} {'missed':>6s} {'wrong mm3':>10s} {'gross mm3':>10s}"
+            f" {'triangles':>10s}",
+            file=file,
+        )
+        for run in accuracy:
+            acc = run["accuracy"]
+            line = f"{run['job']:12s} {str(run['size']):7s}"
+            if "surface" not in acc:
+                print(line + " error", file=file)
+                continue
+            s, v = acc["surface"], acc["volume"]
+            line += f" {s['p50'] * 1000:7.1f} {s['p99'] * 1000:7.1f} {s['p999'] * 1000:8.1f}"
+            line += f" {s['max'] * 1000:7.0f} {s['bias'] * 1000:+8.1f} {s['missed']:6d}"
+            line += f" {v['misclassified_mm3']:10.2f} {v['gross_mm3']:10.2f} {acc['triangles']:10d}"
+            print(line, file=file)
+
     print(
         "\nframe times in ms as median/max, * = timed out."
         "\njump: time until the view shows a far slider position right after loading, first/max."
@@ -349,6 +434,14 @@ def print_summary(data, file=sys.stdout):
         "\nimage: largest fraction of differing pixels in the correctness checks, o=ok f=FAIL",
         file=file,
     )
+    if accuracy:
+        print(
+            "accuracy: surface error along the normals of the stock mesh against the exact"
+            "\nmaterial (percentiles, max, bias: + = too much removed), missed = samples without"
+            "\nthe true surface within 0.5 mm, wrong = volume shown wrongly, gross = farther than"
+            "\n0.05 mm from the mesh. See README.md.",
+            file=file,
+        )
 
 
 def print_comparison(base, new, file=sys.stdout):
@@ -379,6 +472,11 @@ def print_comparison(base, new, file=sys.stdout):
                     f"  {name:28s} {old:10.1f} -> {value:10.1f}  ({value / max(old, 1e-9):.3f})",
                     file=file,
                 )
+        new_acc, base_acc = accuracy_metrics(run), accuracy_metrics(b)
+        for name in sorted(set(new_acc) & set(base_acc)):
+            print(
+                f"  accuracy {name:19s} {base_acc[name]:10.2f} -> {new_acc[name]:10.2f}", file=file
+            )
 
 
 def finish(verdict):
@@ -450,6 +548,19 @@ def main():
         default=0.01,
         help="max fraction of differing pixels for the correctness check (default: %(default)s)",
     )
+    parser.add_argument(
+        "--accuracy",
+        action="store_true",
+        help="measure the accuracy of every job against its exact material (CAM_simulator_accuracy)",
+    )
+    parser.add_argument(
+        "--accuracy-tool",
+        help="CAM_simulator_accuracy executable (default: from the tests next to --freecad)",
+    )
+    parser.add_argument(
+        "--jobs-dir",
+        help="directory to keep the jobs the simulator writes (CAM_simulator_accuracy input)",
+    )
     parser.add_argument("--baseline", help="result file to compare this run against")
     parser.add_argument(
         "--fail-above",
@@ -501,6 +612,18 @@ def main():
     if args.images:
         args.images = os.path.abspath(args.images)
         os.makedirs(args.images, exist_ok=True)
+    if args.accuracy and not args.accuracy_tool:
+        build = os.path.dirname(os.path.dirname(args.freecad))
+        name = "CAM_simulator_accuracy" + (".exe" if os.name == "nt" else "")
+        candidates = [os.path.join(build, d, name) for d in ("tests", "bin")]
+        args.accuracy_tool = next((c for c in candidates if os.path.exists(c)), None)
+        if not args.accuracy_tool:
+            parser.error(
+                f"{name} not found in {build}/tests, build the tests or use --accuracy-tool"
+            )
+    if args.jobs_dir:
+        args.jobs_dir = os.path.abspath(args.jobs_dir)
+        os.makedirs(args.jobs_dir, exist_ok=True)
     baseline = json.load(open(args.baseline)) if args.baseline else None
 
     # a document job has one size, its own
@@ -524,6 +647,7 @@ def main():
 
     start = time.perf_counter()
     with tempfile.TemporaryDirectory(prefix="camsim-bench-") as workdir:
+        args.dump_dir = args.jobs_dir or (workdir if args.accuracy else None)
         for repeat in range(args.repeats):
             # quick mode runs everything in one process, full mode isolates every job
             batches = [[r] for r in runs] if args.full else [runs]
@@ -537,6 +661,12 @@ def main():
                 if args.output:
                     with open(args.output, "w") as f:
                         json.dump(data, f, indent=1)
+        if args.accuracy:
+            run_accuracy(args, data)
+            data["wall_s"] = time.perf_counter() - start
+            if args.output:
+                with open(args.output, "w") as f:
+                    json.dump(data, f, indent=1)
 
     print_summary(data)
     if baseline:

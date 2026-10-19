@@ -25,6 +25,7 @@
 #include "MillSimulation.h"
 
 #include "GlUtils.h"
+#include "MaterialJob.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -1049,6 +1050,9 @@ void MillSimulation::StartDexelSimulation()
         mMaterial.reset();
         return;
     }
+    if (const char* dumpPath = std::getenv("CAM_SIM_DUMP")) {
+        Material::SaveJob(dumpPath, MaterialJob());
+    }
     if (UsesMaterial()) {
         StartMaterialSimulation();
         return;
@@ -1066,10 +1070,6 @@ void MillSimulation::StartDexelSimulation()
         const int id = MillPathSegments[i]->endmill->toolId;
         segments[i].tool = (int)(std::find(toolIds.begin(), toolIds.end(), id) - toolIds.begin());
     }
-
-    if (const char* dumpPath = std::getenv("CAM_SIM_DUMP")) {
-        DumpJob(dumpPath, segments);
-    }
     if (!mDexel) {
         mDexel = std::make_unique<DexelSimulation>();
     }
@@ -1078,60 +1078,20 @@ void MillSimulation::StartDexelSimulation()
     mShownStep = mTargetStep = 0;
 }
 
-// Write the input of the simulation to a file, to replay it outside of the GUI (developer aid, set
-// the environment variable CAM_SIM_DUMP to the file name)
-void MillSimulation::DumpJob(const char* path, const std::vector<CutSegment>& segments) const
+// The input of the material simulation: tools by their id, segments refer to them by index
+Material::Job MillSimulation::MaterialJob() const
 {
-    FILE* f = std::fopen(path, "wb");
-    if (!f) {
-        return;
-    }
-    auto u32 = [f](uint32_t v) { std::fwrite(&v, 4, 1, f); };
-    auto i32 = [f](int v) { std::fwrite(&v, 4, 1, f); };
-    auto flt = [f](const float* v, size_t n) { std::fwrite(v, 4, n, f); };
-    std::fwrite("CAMJOB1", 1, 8, f);
-    flt(&mQuality, 1);
-    u32((uint32_t)mToolTable.size());
-    for (EndMill* tool : mToolTable) {
-        u32((uint32_t)tool->rawProfile.size());
-        flt(tool->rawProfile.data(), tool->rawProfile.size());
-    }
-    u32((uint32_t)segments.size());
-    for (const CutSegment& s : segments) {
-        i32(s.tool);
-        i32(s.arc ? 1 : 0);
-        flt(s.start, 3);
-        flt(s.end, 3);
-        flt(s.center, 2);
-        flt(&s.radius, 1);
-        flt(&s.startAngle, 1);
-        flt(&s.sweep, 1);
-        flt(s.axis0, 3);
-        flt(s.axis1, 3);
-        i32(s.steps);
-        i32(s.sweepSteps);
-        i32(s.operation);
-    }
-    u32((uint32_t)mStockXyz.size());
-    flt(mStockXyz.data(), mStockXyz.size());
-    u32((uint32_t)mStockTriangles.size());
-    std::fwrite(mStockTriangles.data(), 4, mStockTriangles.size(), f);
-    std::fclose(f);
-}
-
-void MillSimulation::StartMaterialSimulation()
-{
-    // tools by their id, segments refer to them by index
-    std::vector<std::shared_ptr<const Material::Tool>> tools;
+    Material::Job job;
+    job.quality = mQuality;
     std::vector<int> toolIds;
     for (EndMill* tool : mToolTable) {
-        tools.push_back(std::make_shared<Material::Tool>(tool->rawProfile));
+        job.profiles.push_back(tool->rawProfile);
         toolIds.push_back(tool->toolId);
     }
-    std::vector<Material::Segment> segments(mCutSegments.size());
-    for (size_t i = 0; i < segments.size(); i++) {
+    job.segments.resize(mCutSegments.size());
+    for (size_t i = 0; i < job.segments.size(); i++) {
         const CutSegment& c = mCutSegments[i];
-        Material::Segment& m = segments[i];
+        Material::Segment& m = job.segments[i];
         const int id = MillPathSegments[i]->endmill->toolId;
         m.tool = (int)(std::find(toolIds.begin(), toolIds.end(), id) - toolIds.begin());
         m.arc = c.arc;
@@ -1150,11 +1110,23 @@ void MillSimulation::StartMaterialSimulation()
         m.sweepSteps = c.sweepSteps;
         m.operation = c.operation;
     }
+    job.stockXyz = mStockXyz;
+    job.stockTriangles = mStockTriangles;
+    return job;
+}
+
+void MillSimulation::StartMaterialSimulation()
+{
+    Material::Job job = MaterialJob();
+    std::vector<std::shared_ptr<const Material::Tool>> tools;
+    for (const auto& profile : job.profiles) {
+        tools.push_back(std::make_shared<Material::Tool>(profile));
+    }
     if (!mMaterial) {
         mMaterial = std::make_unique<Material::View>();
     }
     mMaterial->SetMeasureThickness(mThinWalls);
-    mMaterial->Start(std::move(tools), std::move(segments), mStockXyz, mStockTriangles, mQuality);
+    mMaterial->Start(std::move(tools), std::move(job.segments), mStockXyz, mStockTriangles, mQuality);
     mDexel.reset();
     mDexelRenderer.FreeResources();
     mShownStep = mTargetStep = 0;

@@ -1,7 +1,8 @@
 # CAM simulator benchmark
 
 Measures how responsive the CAM simulator (`CAMSimulator`, the OpenGL simulator) is on synthetic
-jobs of increasing complexity, and checks that it still shows the right result. It is meant to be
+jobs of increasing complexity, and checks that it still shows the right result: by images, and
+with `--accuracy` against the exact material of every job. It is meant to be
 run often during development, by developers and AI agents, and in CI. It is not installed with
 FreeCAD.
 
@@ -33,6 +34,9 @@ python3 $B --summary after.json
 
 # the job of the demo part, at a medium accuracy
 python3 $B --freecad build/bin/FreeCAD --jobs manifold_block --quality 5
+
+# also measure the accuracy of the stock against the exact material (needs the tests built)
+python3 $B --freecad build/bin/FreeCAD --jobs manifold_block --accuracy
 ```
 
 `--legacy-engine` simulates with the previous dexel simulation (`SimulatorLegacyEngine`), to
@@ -51,9 +55,11 @@ ignored by git. `run_benchmark.py --help` lists all options.
 The last line of the output is `VERDICT {...}`, a JSON object with:
 
 - `status`: `pass` or `fail`, also given by the exit code (0 or 1)
-- `failures`: errors, scenarios that timed out, failed correctness checks
+- `failures`: errors, scenarios that timed out, failed correctness checks, failed accuracy runs
 - `regressed`, `improved`: metrics that changed by more than `--fail-above` (default 1.25×) and
-  more than `--noise-ms` (default 2 ms) compared with `--baseline`, with their ratio new/base
+  more than `--noise-ms` (default 2 ms) compared with `--baseline`, with their ratio new/base;
+  accuracy values that changed by more than `--fail-above` and more than 1 µm (p99), 2 µm (p999),
+  20 µm (max), 0.5 mm³ (gross) or 2 (missed), with their new value
 
 A run fails on any failure or regression. Improvements are reported but never fail a run.
 
@@ -196,6 +202,50 @@ simulation: run with `--no-color-by-operation --no-thin-walls` to check against 
 references were rendered by the dexel simulation itself, they only detect changes: the original
 simulator can't simulate 5 axis toolpaths or show the display options. To replace them after an
 intended visual change, run with `--update-reference` and commit the new images.
+
+### Accuracy
+
+The images only show that the simulator did not change. `--accuracy` measures how close the stock it
+shows is to the material the toolpath really leaves:
+
+1. The simulator writes every job to a file when it starts simulating it (`CAM_SIM_DUMP`,
+   `Material::SaveJob`): the tool profiles, the toolpath as the simulator reads it and the stock
+   mesh. `--jobs-dir` keeps these files, they are in a temporary directory otherwise.
+2. After the GUI runs, `CAM_simulator_accuracy` (built with the tests, in `build/tests`) simulates
+   every job again outside of the GUI, with the same engine and quality, and measures its stock
+   mesh against an oracle of the exact material (`tests/src/Mod/CAM/App/SimulatorAccuracy.h`).
+
+The oracle decides for any point whether it holds material: inside the stock mesh and outside every
+tool swept along the path. It shares no code with the simulation engines except the spheres the
+material simulation fits to the arcs of profiles (as FreeCAD gives a ball end as a few edges);
+motions are divided into pieces within 0.1 µm of the exact sweep, turning motions too.
+
+The accuracy table of the summary has:
+
+- surface error: 20000 points sampled on the mesh, the distance along the mesh normal to the true
+  surface, as percentiles and the largest, in µm, and the bias (mean signed error, + where the mesh
+  is inside the material: it shows too much removed). `missed`: samples without the true surface
+  within 0.5 mm, like a piece of surface where there is none.
+- volume error: 1 million points in the stock box, classified by the oracle and by the mesh.
+  `wrong` is the volume shown wrongly, `gross` the part of it farther than 0.05 mm from the mesh,
+  like missing or misplaced surface. Small cells and thin features account for most of `wrong`.
+- `triangles`: of the stock mesh.
+
+`CAM_simulator_accuracy` also runs on its own, on a job file written by the simulator (set
+`CAM_SIM_DUMP` to a file name before starting FreeCAD and open the simulator):
+
+```sh
+build/tests/CAM_simulator_accuracy manifold_block.job --quality 10
+build/tests/CAM_simulator_accuracy manifold_block.job --engine legacy --gross gross.txt
+```
+
+`--step N` measures the stock at a step of the timeline, `--max-p99`, `--max-p999`, `--max-gross`
+and `--max-missed` make it fail (exit code 1) beyond limits, `--json` writes the results and
+`--gross` the points of gross errors, to find them in the view. `--help` lists all options.
+
+The unit tests `MaterialAccuracy.*` (`CAM_tests_run`) run the same measurement on small jobs with
+all tool shapes, 3 and 5 axis, with fixed limits, and check the oracle against cuts known in
+closed form.
 
 ## Results
 

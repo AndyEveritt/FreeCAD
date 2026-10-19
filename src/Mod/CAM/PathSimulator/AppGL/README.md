@@ -161,9 +161,13 @@ around Z. This is the place to add machine specific kinematics. Arcs are in the 
 - Unit tests (`CAM_tests_run`): of the material simulation in
   `tests/src/Mod/CAM/App/MaterialSimulator.cpp` (sweeps of all tool shapes, fixed, turning and
   along arcs, against sampled tools; exact cuts; seeks against simulating from the start; a closed
-  mesh), of the previous dexel simulation in `tests/src/Mod/CAM/App/Simulator.cpp`.
-- Performance and image regression benchmark: `../Benchmark/README.md`.
-- Developer aid: with the environment variable `CAM_SIM_DUMP` set to a file name, the previous
-  dexel simulation writes its input there (tools, segments, stock), to replay jobs outside of the
-  GUI. With `CAM_SIM_LOG` set to a file name, the material simulation appends the times of its
-  plan, stock and simulation there when it reaches the end of the path.
+  mesh), its accuracy against the exact material of small jobs in `MaterialAccuracy.cpp`, and of the
+  previous dexel simulation in `tests/src/Mod/CAM/App/Simulator.cpp`.
+- Accuracy validation: `tests/src/Mod/CAM/App/SimulatorAccuracy.h`, an oracle of the exact material
+  of a job and the measurement of a stock mesh against it, and the tool `CAM_simulator_accuracy`
+  that runs it on jobs written by the simulator. See `../Benchmark/README.md`.
+- Performance, image regression and accuracy benchmark: `../Benchmark/README.md`.
+- With the environment variable `CAM_SIM_DUMP` set to a file name, the simulator writes its input
+  there when it starts simulating (`MaterialJob`: tools, toolpath, stock), with either engine, to
+  replay the job outside of the GUI. With `CAM_SIM_LOG` set to a file name, the material simulation
+  appends the times of its plan, stock and simulation there when it reaches the end of the path.
