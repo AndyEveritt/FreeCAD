@@ -90,6 +90,7 @@ void CAMSettings::OnChange(ParameterGrp::SubjectType& rCaller, ParameterGrp::Mes
     else if (
         Reason == "SimulatorColorMode"sv || Reason == "SimulatorThinWallThreshold"sv
         || Reason == "SimulatorDeviationTolerance"sv || Reason == "SimulatorDeviationShow"sv
+        || Reason == "SimulatorDeviationFaint"sv
     ) {
         // the colors of the stock: plain, by operation, thin walls or by the distance from the
         // model, see SimulatorColorMode in the README
@@ -99,7 +100,8 @@ void CAMSettings::OnChange(ParameterGrp::SubjectType& rCaller, ParameterGrp::Mes
         mDlg.setDeviation(
             mode == 3,
             (float)hGrp->GetFloat("SimulatorDeviationTolerance", 0.05),
-            (int)hGrp->GetInt("SimulatorDeviationShow", 0)
+            (int)hGrp->GetInt("SimulatorDeviationShow", 0),
+            hGrp->GetBool("SimulatorDeviationFaint", true)
         );
     }
     else if (Reason == "SimulatorOutlines"sv) {

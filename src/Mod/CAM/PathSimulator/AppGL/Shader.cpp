@@ -604,6 +604,9 @@ const char* FragShaderStock = R"(
     // the faces shown by their distance: 0 all, 1 beyond the tolerance, 2 cut into the model
     // beyond it. Faces without a distance stay, the stock is not hidden without a model.
     uniform int deviationShow;
+    // the faces not shown drawn with this opacity instead, 0 to hide them; only those
+    uniform float restOpacity;
+    uniform bool restOnly;
 
     bool deviationShown(float d)
     {
@@ -637,7 +640,14 @@ const char* FragShaderStock = R"(
         if (peel && gl_FragCoord.z <= texture2D(peelDepth, gl_FragCoord.xy / screenSize).r) {
             discard;
         }
+        float alpha = opacity;
         if (deviationMode && !deviationShown(Deviation)) {
+            if (restOpacity <= 0.0) {
+                discard;
+            }
+            alpha = min(opacity, restOpacity);
+        }
+        else if (restOnly) {
             discard;
         }
         vec3 color = deviationMode ? deviationColor(Deviation)
@@ -646,7 +656,7 @@ const char* FragShaderStock = R"(
             discard;
         }
         vec3 normal = normalize(Normal);
-        gl_FragData[0] = vec4(color, opacity);
+        gl_FragData[0] = vec4(color, alpha);
         // the stock and the operation of the face, for picking
         gl_FragData[1] = vec4(Position, 1.0 + floor(Tag + 0.5));
         gl_FragData[2] = vec4(twoSided && !gl_FrontFacing ? -normal : normal, 0.0f);

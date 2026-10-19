@@ -311,7 +311,9 @@ around Z. This is the place to add machine specific kinematics.
   stock shown: 0 all, 1 beyond the tolerance (material left or cut into the model), 2 cut into the
   model beyond the tolerance. The others are discarded by the stock shader, by the distance
   interpolated across the triangles, so the borders follow the tolerance; the stock is then not
-  closed and its section has no cap.
+  closed and its section has no cap. With `SimulatorDeviationFaint` (bool, default true) the faces
+  not shown are drawn faint instead (`MillSimulation::FaintOpacity`), in the transparent layers
+  after the opaque faces shown, for the shape of the part around them.
 - `SimulatorStockVisible` (bool, default true), `SimulatorModelVisible` (bool, default false): the
   stock and the model shown.
 - `SimulatorOutlines` (bool, default true): dark lines at the edges of the opaque objects.

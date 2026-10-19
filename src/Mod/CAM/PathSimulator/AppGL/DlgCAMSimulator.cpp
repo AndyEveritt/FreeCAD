@@ -718,10 +718,10 @@ void DlgCAMSimulator::setOpacity(float stock, float model)
     update();
 }
 
-void DlgCAMSimulator::setDeviation(bool enabled, float tolerance, int show)
+void DlgCAMSimulator::setDeviation(bool enabled, float tolerance, int show, bool faint)
 {
     mDeviation = enabled;
-    mMillSimulator->SetDeviation(enabled, tolerance, show);
+    mMillSimulator->SetDeviation(enabled, tolerance, show, faint);
     if (mGui) {
         mGui->setDeviationScale(enabled, tolerance, show);
     }

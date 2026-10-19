@@ -763,6 +763,9 @@ void SimDisplay::StartStockGeometryPass(const vec3& objColor, const StockColorin
     glUniform1i(glGetUniformLocation(id, "deviationMode"), coloring.deviation ? 1 : 0);
     glUniform1f(glGetUniformLocation(id, "tolerance"), std::max(coloring.tolerance, 1e-4f));
     glUniform1i(glGetUniformLocation(id, "deviationShow"), coloring.deviation ? coloring.show : 0);
+    // the faces hidden are only drawn in the transparent layers
+    glUniform1f(glGetUniformLocation(id, "restOpacity"), mLayer >= 0 ? coloring.restOpacity : 0.0f);
+    glUniform1i(glGetUniformLocation(id, "restOnly"), coloring.restOnly ? 1 : 0);
     SetPeelState(id);
     glDisable(GL_BLEND);
 }

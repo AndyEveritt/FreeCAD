@@ -211,8 +211,9 @@ public:
     // Dark lines at the edges of the stock and the other opaque objects
     void SetOutlines(bool enabled);
     // Faces by their distance from the model, within the tolerance green, see StockColoring
-    // show: the faces shown, see StockColoring::show
-    void SetDeviation(bool enabled, float tolerance, int show);
+    // show: the faces shown, see StockColoring::show; faint: the others with FaintOpacity
+    void SetDeviation(bool enabled, float tolerance, int show, bool faint);
+    static constexpr float FaintOpacity = 0.15f;
     // The model to measure the distance from, null for none
     void SetDeviationModel(std::shared_ptr<const Material::ModelDistance> model);
     // Lines over the stock to inspect it, see Material::View::Inspect: 0 none, 1 the mesh, 2 the

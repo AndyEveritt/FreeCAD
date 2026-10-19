@@ -873,6 +873,9 @@ void MillSimulation::Render()
         // opaque objects first, then the transparent ones over them
         const bool transparentStock = !mStencilRendering && mStockOpacity < 1;
         const bool transparentBase = mBaseOpacity < 1;
+        // the faces of the opaque stock hidden by their distance, faint around those shown
+        const bool faintStock = !mStencilRendering && !transparentStock && mStockOpacity > 0
+            && mColoring.Filtered() && mColoring.restOpacity > 0;
         if (mStencilRendering) {
             RenderSimulation();
         }
@@ -893,11 +896,16 @@ void MillSimulation::Render()
         RenderOrigin();
         RenderMeasure();
         simDisplay.ClearTransparentLayer();
-        if (transparentStock || transparentBase) {
+        if (transparentStock || transparentBase || faintStock) {
             for (int layer = 0; simDisplay.StartTransparentLayer(layer); layer++) {
                 if (transparentStock && mStockOpacity > 0) {
                     simDisplay.SetOpacity(mStockOpacity);
                     RenderMaterialStock();
+                }
+                if (faintStock) {
+                    mColoring.restOnly = true;
+                    RenderMaterialStock();
+                    mColoring.restOnly = false;
                 }
                 if (transparentBase && mBaseOpacity > 0) {
                     simDisplay.SetOpacity(mBaseOpacity);
@@ -1232,12 +1240,13 @@ void MillSimulation::SetOutlines(bool enabled)
     simDisplay.updateDisplay = true;
 }
 
-void MillSimulation::SetDeviation(bool enabled, float tolerance, int show)
+void MillSimulation::SetDeviation(bool enabled, float tolerance, int show, bool faint)
 {
     mDeviation = enabled;
     mColoring.deviation = enabled;
     mColoring.tolerance = tolerance;
     mColoring.show = std::clamp(show, 0, 2);
+    mColoring.restOpacity = faint ? FaintOpacity : 0.0f;
     // the distance is only measured while it is shown, it costs time
     if (mMaterial) {
         mMaterial->SetDeviation(mDeviation ? mDeviationModel : nullptr);

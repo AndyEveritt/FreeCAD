@@ -164,8 +164,9 @@ public:
     void setColorByOperation(bool b);
     void setThinWalls(bool enabled, float threshold);
     // color the stock by its distance from the model, within the tolerance green
-    // show: all of it, only beyond the tolerance or only cut into the model, see StockColoring
-    void setDeviation(bool enabled, float tolerance, int show);
+    // show: all of it, only beyond the tolerance or only cut into the model, see StockColoring;
+    // faint: the rest faint, else hidden
+    void setDeviation(bool enabled, float tolerance, int show, bool faint);
     // dark lines at the edges of the objects
     void setOutlines(bool enabled);
     // the origin of the job and its axes

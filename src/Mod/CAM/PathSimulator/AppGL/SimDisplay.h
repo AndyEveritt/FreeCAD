@@ -55,6 +55,10 @@ struct StockColoring
     // with the deviation, the faces shown: 0 all, 1 beyond the tolerance (material left or cut
     // into the model), 2 cut into the model beyond the tolerance; the others are hidden
     int show = 0;
+    // the faces hidden by show drawn with this opacity in the transparent layers, 0 for none, and
+    // only those (the others are opaque, drawn before)
+    float restOpacity = 0;
+    bool restOnly = false;
     bool Filtered() const
     {
         return deviation && show != 0;
