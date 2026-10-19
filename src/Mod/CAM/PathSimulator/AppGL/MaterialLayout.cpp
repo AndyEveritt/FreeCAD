@@ -62,7 +62,8 @@ double BoxSegmentDistance(const double c[3], double half, const double a[3], con
         w[k] = c[k] - a[k];
     }
     const double dd = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
-    const double t = dd > 0 ? std::clamp((w[0] * d[0] + w[1] * d[1] + w[2] * d[2]) / dd, 0.0, 1.0) : 0;
+    const double t = dd > 0 ? std::clamp((w[0] * d[0] + w[1] * d[1] + w[2] * d[2]) / dd, 0.0, 1.0)
+                            : 0;
     double dist = 0;
     for (int k = 0; k < 3; k++) {
         const double e = w[k] - t * d[k];
@@ -271,8 +272,10 @@ std::shared_ptr<Layout> Layout::Builder::Build(ThreadPool& pool)
             stack.pop_back();
             const Node parent = L.mNodes[node];
             const int size = L.Size(parent.level);
-            if (parent.level >= levels
-                || !isSplit(parent.level, parent.lo[0] / size, parent.lo[1] / size, parent.lo[2] / size)) {
+            if (
+                parent.level >= levels
+                || !isSplit(parent.level, parent.lo[0] / size, parent.lo[1] / size, parent.lo[2] / size)
+            ) {
                 continue;
             }
             const int first = (int)L.mNodes.size();

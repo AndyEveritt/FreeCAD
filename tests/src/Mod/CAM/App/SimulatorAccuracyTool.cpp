@@ -21,9 +21,8 @@ const char* Usage = R"(usage: CAM_simulator_accuracy JOB [options]
 
 Simulates the job outside of the GUI and measures the stock shown against the exact material.
 
-  --engine material|legacy  simulation engine (default material)
   --quality Q               simulator accuracy 1..10 (default: the quality of the job)
-  --step N                  timeline step to measure (material engine, default: the end)
+  --step N                  timeline step to measure (default: the end)
   --samples N               surface samples (default 20000)
   --points N                volume points (default 1000000)
   --polyline-tools          tools as their profiles, arcs not fitted
@@ -41,7 +40,7 @@ Exit status: 0 within the limits, 1 beyond them, 2 for errors.
 
 int main(int argc, char** argv)
 {
-    std::string jobPath, engine = "material", jsonPath, grossPath;
+    std::string jobPath, jsonPath, grossPath;
     double quality = -1, maxP99 = -1, maxP999 = -1, maxGross = -1;
     long step = -1, maxMissed = -1;
     bool polyline = false;
@@ -58,9 +57,6 @@ int main(int argc, char** argv)
         if (a == "-h" || a == "--help") {
             std::fputs(Usage, stdout);
             return 0;
-        }
-        else if (a == "--engine") {
-            engine = value();
         }
         else if (a == "--quality") {
             quality = std::atof(value());
@@ -103,7 +99,7 @@ int main(int argc, char** argv)
             return 2;
         }
     }
-    if (jobPath.empty() || (engine != "material" && engine != "legacy")) {
+    if (jobPath.empty()) {
         std::fputs(Usage, stderr);
         return 2;
     }
@@ -117,25 +113,18 @@ int main(int argc, char** argv)
     for (const auto& s : job.segments) {
         steps += s.steps;
     }
-    if (engine == "legacy" && step >= 0) {
-        std::fprintf(stderr, "--step is for the material engine only\n");
-        return 2;
-    }
     std::printf(
-        "job %s: %zu tools, %zu segments, %ld steps, %s engine, quality %.0f\n",
+        "job %s: %zu tools, %zu segments, %ld steps, quality %.0f\n",
         jobPath.c_str(),
         job.profiles.size(),
         job.segments.size(),
         steps,
-        engine.c_str(),
         q
     );
     std::fflush(stdout);
 
     Accuracy::RunStats stats;
-    const Accuracy::Mesh mesh = engine == "legacy"
-        ? Accuracy::SimulateLegacy(job, q, &stats)
-        : Accuracy::SimulateMaterial(job, q, step, &stats);
+    const Accuracy::Mesh mesh = Accuracy::SimulateMaterial(job, q, step, &stats);
     std::printf(
         "simulation %.0f ms, mesh %.0f ms, %ld triangles\n",
         stats.simulateMs,
@@ -164,7 +153,7 @@ int main(int argc, char** argv)
         }
         std::fprintf(
             f,
-            "{\"engine\": \"%s\", \"quality\": %g, \"step\": %ld, \"simulate_ms\": %.1f, "
+            "{\"quality\": %g, \"step\": %ld, \"simulate_ms\": %.1f, "
             "\"mesh_ms\": %.1f, "
             "\"triangles\": %ld, \"surface\": {\"samples\": %d, \"mean\": %.6f, \"p50\": %.6f, "
             "\"p90\": %.6f, "
@@ -172,7 +161,6 @@ int main(int argc, char** argv)
             "\"volume\": {\"points\": %ld, \"material_mm3\": %.3f, \"misclassified_mm3\": %.3f, "
             "\"gross\": %ld, "
             "\"gross_mm3\": %.3f}}\n",
-            engine.c_str(),
             q,
             step,
             stats.simulateMs,

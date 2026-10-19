@@ -457,12 +457,6 @@ void DlgCAMSimulator::setStencilRendering(bool b)
     update();
 }
 
-void DlgCAMSimulator::setLegacyEngine(bool b)
-{
-    mMillSimulator->SetLegacyEngine(b);
-    update();
-}
-
 void DlgCAMSimulator::setColorByOperation(bool b)
 {
     mColorByOperation = b;
@@ -521,7 +515,8 @@ void DlgCAMSimulator::updateResources()
     // update gcode
 
     auto beginOperations = [this](std::size_t line) {
-        while (mLastOperation < mOperations.size() && mOperations[mLastOperation].firstCommand <= line) {
+        while (mLastOperation < mOperations.size()
+               && mOperations[mLastOperation].firstCommand <= line) {
             const Operation& op = mOperations[mLastOperation];
             mMillSimulator->BeginOperation(op.name, op.hasColor ? op.color : nullptr);
             mLastOperation++;

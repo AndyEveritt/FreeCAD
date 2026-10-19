@@ -39,9 +39,7 @@ python3 $B --freecad build/bin/FreeCAD --jobs manifold_block --quality 5
 python3 $B --freecad build/bin/FreeCAD --jobs manifold_block --accuracy
 ```
 
-`--legacy-engine` simulates with the previous dexel simulation (`SimulatorLegacyEngine`), to
-compare it with the material simulation, the default. `--quality` (1 low to 10 high, default 10)
-is the Accuracy slider of the simulator task panel. The
+`--quality` (1 low to 10 high, default 10) is the Accuracy slider of the simulator task panel. The
 stock is colored by operation and thin walls are shown, the display options of the simulator view;
 `--no-color-by-operation` and `--no-thin-walls` turn them off. Showing thin walls measures the
 thickness of the stock, which takes time. Only compare runs made with the same quality and display
@@ -197,10 +195,10 @@ names have the options that are not the defaults: `_qualityN` for another qualit
 `_nocolors` and `_nothin` without the display options, like `mixed_small_nocolors_nothin_50.png`.
 
 The `mixed` references without the display options (`_nocolors_nothin`) were rendered by the
-original stencil based simulator at rest, in quick mode on Xvfb, an independent check of the dexel
-simulation: run with `--no-color-by-operation --no-thin-walls` to check against them. All other
-references were rendered by the dexel simulation itself, they only detect changes: the original
-simulator can't simulate 5 axis toolpaths or show the display options. To replace them after an
+original stencil based simulator at rest, in quick mode on Xvfb, an independent check of the
+material simulation: run with `--no-color-by-operation --no-thin-walls` to check against them. All
+other references were rendered by the material simulation itself, they only detect changes: the
+original simulator can't simulate 5 axis toolpaths or show the display options. To replace them after an
 intended visual change, run with `--update-reference` and commit the new images.
 
 ### Accuracy
@@ -212,11 +210,11 @@ shows is to the material the toolpath really leaves:
    `Material::SaveJob`): the tool profiles, the toolpath as the simulator reads it and the stock
    mesh. `--jobs-dir` keeps these files, they are in a temporary directory otherwise.
 2. After the GUI runs, `CAM_simulator_accuracy` (built with the tests, in `build/tests`) simulates
-   every job again outside of the GUI, with the same engine and quality, and measures its stock
-   mesh against an oracle of the exact material (`tests/src/Mod/CAM/App/SimulatorAccuracy.h`).
+   every job again outside of the GUI, at the same quality, and measures its stock mesh against
+   an oracle of the exact material (`tests/src/Mod/CAM/App/SimulatorAccuracy.h`).
 
 The oracle decides for any point whether it holds material: inside the stock mesh and outside every
-tool swept along the path. It shares no code with the simulation engines except the spheres the
+tool swept along the path. It shares no code with the material simulation except the spheres the
 material simulation fits to the arcs of profiles (as FreeCAD gives a ball end as a few edges);
 motions are divided into pieces within 0.1 µm of the exact sweep, turning motions too.
 
@@ -236,7 +234,7 @@ The accuracy table of the summary has:
 
 ```sh
 build/tests/CAM_simulator_accuracy manifold_block.job --quality 10
-build/tests/CAM_simulator_accuracy manifold_block.job --engine legacy --gross gross.txt
+build/tests/CAM_simulator_accuracy manifold_block.job --step 50000 --gross gross.txt
 ```
 
 `--step N` measures the stock at a step of the timeline, `--max-p99`, `--max-p999`, `--max-gross`

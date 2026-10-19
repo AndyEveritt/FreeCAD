@@ -242,7 +242,8 @@ void Grid::SetMesh(const std::vector<float>& xyz, const std::vector<uint32_t>& t
             const int ci = (int)std::floor((pu - g.lo[0]) / g.cell[0]);
             const int cj = (int)std::floor((pv - g.lo[1]) / g.cell[1]);
             hits.clear();
-            if (ci >= 0 && cj >= 0 && ci < g.n[0] && cj < g.n[1] && pu <= hi[ax[0]] && pv <= hi[ax[1]]) {
+            if (ci >= 0 && cj >= 0 && ci < g.n[0] && cj < g.n[1] && pu <= hi[ax[0]]
+                && pv <= hi[ax[1]]) {
                 for (uint32_t t : g.cells[(size_t)cj * g.n[0] + ci]) {
                     const float* p[3] = {
                         &xyz[3 * triangles[3 * t]],
@@ -311,7 +312,9 @@ void Grid::SetMesh(const std::vector<float>& xyz, const std::vector<uint32_t>& t
                         e1[0] * e2[1] - e1[1] * e2[0],
                     };
                     const double len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
-                    hits.push_back({s, {(float)(n[0] / len), (float)(n[1] / len), (float)(n[2] / len)}});
+                    hits.push_back(
+                        {s, {(float)(n[0] / len), (float)(n[1] / len), (float)(n[2] / len)}}
+                    );
                 }
             }
             std::sort(hits.begin(), hits.end(), [](const Hit& x, const Hit& y) { return x.s < y.s; });
@@ -509,9 +512,11 @@ long Grid::CutLeaf(
         for (int a = 0; a < 3; a++) {
             const int au = AxisU(a), av = AxisV(a);
             const int i0 = std::max(0, (int)std::ceil((sw.BoxLo()[au] - corner[au]) / cell - 1e-9));
-            const int i1 = std::min(Cells, (int)std::floor((sw.BoxHi()[au] - corner[au]) / cell + 1e-9));
+            const int i1
+                = std::min(Cells, (int)std::floor((sw.BoxHi()[au] - corner[au]) / cell + 1e-9));
             const int j0 = std::max(0, (int)std::ceil((sw.BoxLo()[av] - corner[av]) / cell - 1e-9));
-            const int j1 = std::min(Cells, (int)std::floor((sw.BoxHi()[av] - corner[av]) / cell + 1e-9));
+            const int j1
+                = std::min(Cells, (int)std::floor((sw.BoxHi()[av] - corner[av]) / cell + 1e-9));
             double origin[3];
             origin[a] = corner[a];
             for (int j = j0; j <= j1; j++) {
@@ -545,7 +550,9 @@ long Grid::CutLeaf(
                             if (m.lo.s > cur.lo + 1e-6) {
                                 // material before the removal remains, ending at its start
                                 pending.push_back({si, m.lo});
-                                next.push_back({cur.lo, m.lo.s, cur.nlo, 0, cur.plo, (int)pending.size() - 1});
+                                next.push_back(
+                                    {cur.lo, m.lo.s, cur.nlo, 0, cur.plo, (int)pending.size() - 1}
+                                );
                             }
                             if (m.hi.s < cur.hi) {
                                 pending.push_back({si, m.hi});
@@ -583,7 +590,8 @@ long Grid::CutLeaf(
         double origin[3];
         LineOrigin(leaf, line, origin);
         float nrm[3];
-        uint32_t packed = sw.Normal(line / AxisLines, origin, e.end, nrm) ? PackNormal(nrm) : NoNormal;
+        uint32_t packed = sw.Normal(line / AxisLines, origin, e.end, nrm) ? PackNormal(nrm)
+                                                                          : NoNormal;
         return packed | CutFlag | ((uint32_t)sw.GetMotion().tag << TagShift);
     };
     for (int line = 0; line < BrickLines; line++) {

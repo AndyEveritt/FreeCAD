@@ -13,8 +13,6 @@
 #include <random>
 #include <thread>
 
-#include <Mod/CAM/PathSimulator/AppGL/DexelMesher.h>
-#include <Mod/CAM/PathSimulator/AppGL/DexelSimulation.h>
 #include <Mod/CAM/PathSimulator/AppGL/MaterialMesher.h>
 #include <Mod/CAM/PathSimulator/AppGL/MaterialSimulation.h>
 #include <Mod/CAM/PathSimulator/AppGL/MaterialTool.h>
@@ -970,84 +968,6 @@ Mesh SimulateMaterial(const Material::Job& job, float quality, long step, RunSta
         for (const auto* list : {&unit.stock, &unit.cut}) {
             for (uint32_t i : *list) {
                 out.indices.push_back(base + i);
-            }
-        }
-    }
-    if (stats) {
-        stats->simulateMs = simulateMs;
-        stats->meshMs = Ms(meshStart);
-        stats->triangles = (long)(out.indices.size() / 3);
-    }
-    sim.Stop();
-    return out;
-}
-
-Mesh SimulateLegacy(const Material::Job& job, float quality, RunStats* stats)
-{
-    using clock = std::chrono::steady_clock;
-    std::vector<std::unique_ptr<CutterProfile>> tools;
-    for (const auto& profile : job.profiles) {
-        tools.push_back(std::make_unique<CutterProfile>(profile));
-    }
-    std::vector<CutSegment> segments(job.segments.size());
-    for (size_t i = 0; i < segments.size(); i++) {
-        const Material::Segment& m = job.segments[i];
-        CutSegment& c = segments[i];
-        c.tool = m.tool;
-        c.arc = m.arc;
-        for (int k = 0; k < 3; k++) {
-            c.start[k] = m.start[k];
-            c.end[k] = m.end[k];
-            c.axis0[k] = m.axis0[k];
-            c.axis1[k] = m.axis1[k];
-        }
-        c.center[0] = m.center[0];
-        c.center[1] = m.center[1];
-        c.radius = m.radius;
-        c.startAngle = m.startAngle;
-        c.sweep = m.sweep;
-        c.steps = m.steps;
-        c.sweepSteps = m.sweepSteps;
-        c.operation = m.operation;
-    }
-    DexelSimulation sim;
-    const auto start = clock::now();
-    sim.Start(std::move(tools), segments, job.stockXyz, job.stockTriangles, quality);
-    sim.SetTarget(sim.TotalSteps());
-    while (sim.Pending()) {
-        sim.Update(1e9);
-    }
-    const double simulateMs = Ms(start);
-
-    const auto meshStart = clock::now();
-    DexelMeshUnits units;
-    units.Reset(sim.Stock());
-    do {
-        units.Update(sim.Stock(), sim.Pool(), 1e9);
-    } while (units.Pending());
-    Mesh out;
-    for (int u = 0; u < sim.Stock().Layout().UnitCount(); u++) {
-        const DexelMesh& m = units.Mesh(u);
-        const auto base = (uint32_t)(out.xyz.size() / 3);
-        for (const auto& v : m.vertices) {
-            out.xyz.insert(out.xyz.end(), {v.x, v.y, v.z});
-        }
-        // its triangles are not oriented: outward by the vertex normals
-        for (const auto* list : {&m.stockIndices, &m.cutIndices}) {
-            for (size_t i = 0; i + 2 < list->size(); i += 3) {
-                uint32_t a = (*list)[i], b = (*list)[i + 1], c = (*list)[i + 2];
-                const DexelVertex &va = m.vertices[a], &vb = m.vertices[b], &vc = m.vertices[c];
-                const V3 e1 = {vb.x - va.x, vb.y - va.y, vb.z - va.z};
-                const V3 e2 = {vc.x - va.x, vc.y - va.y, vc.z - va.z};
-                const V3 n = {
-                    (double)va.nx + vb.nx + vc.nx,
-                    (double)va.ny + vb.ny + vc.ny,
-                    (double)va.nz + vb.nz + vc.nz
-                };
-                if (Dot(Cross(e1, e2), n) < 0) {
-                    std::swap(b, c);
-                }
-                out.indices.insert(out.indices.end(), {base + a, base + b, base + c});
             }
         }
     }

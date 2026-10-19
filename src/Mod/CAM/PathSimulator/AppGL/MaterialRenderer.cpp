@@ -278,9 +278,23 @@ void View::Draw(const Chunk& chunk, bool cut) const
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 3, GL_BYTE, GL_TRUE, sizeof(MeshVertex), (void*)offsetof(MeshVertex, nx));
     glEnableVertexAttribArray(2);
-    glVertexAttribPointer(2, 1, GL_UNSIGNED_BYTE, GL_FALSE, sizeof(MeshVertex), (void*)offsetof(MeshVertex, tag));
+    glVertexAttribPointer(
+        2,
+        1,
+        GL_UNSIGNED_BYTE,
+        GL_FALSE,
+        sizeof(MeshVertex),
+        (void*)offsetof(MeshVertex, tag)
+    );
     glEnableVertexAttribArray(3);
-    glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void*)offsetof(MeshVertex, thickness));
+    glVertexAttribPointer(
+        3,
+        1,
+        GL_FLOAT,
+        GL_FALSE,
+        sizeof(MeshVertex),
+        (void*)offsetof(MeshVertex, thickness)
+    );
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, chunk.ibo);
     const size_t offset = cut ? chunk.stockCount * sizeof(uint32_t) : 0;
     glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT, (void*)offset);
@@ -293,7 +307,7 @@ void View::Render(
     SimDisplay& display,
     const float stockColor[3],
     const float cutColor[3],
-    const DexelColoring& coloring
+    const StockColoring& coloring
 )
 {
     const vec3 colors[2] = {
@@ -301,7 +315,7 @@ void View::Render(
         {cutColor[0], cutColor[1], cutColor[2]},
     };
     for (int pass = 0; pass < 2; pass++) {
-        display.StartDexelGeometryPass(colors[pass], coloring);
+        display.StartStockGeometryPass(colors[pass], coloring);
         CurrentShader->UpdateModelMat(identityMat, identityMat);
         for (const Chunk& chunk : mChunks) {
             Draw(chunk, pass == 1);

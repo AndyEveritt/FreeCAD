@@ -151,9 +151,9 @@ private:
     };
     struct Checkpoint
     {
-        long motion;  // motions done
+        long motion;               // motions done
         std::vector<int> changed;  // leaves changed since the previous live checkpoint
-        bool live = true;  // dropped checkpoints are not restored to
+        bool live = true;          // dropped checkpoints are not restored to
     };
 
     void Plan(const std::vector<float>& xyz, float quality);
@@ -180,7 +180,7 @@ private:
 
     std::vector<std::shared_ptr<const Tool>> mTools;
     std::vector<Segment> mSegments;
-    std::vector<long> mBase;  // timeline step of the start of each segment, and the total
+    std::vector<long> mBase;           // timeline step of the start of each segment, and the total
     std::vector<long> mSegmentMotion;  // first motion of each segment, and the total
     std::vector<Motion2> mMotions;
     std::shared_ptr<const Layout> mLayout;

@@ -374,7 +374,8 @@ void Simulation::Plan(const std::vector<float>& xyz, float quality)
     mSegmentMotion.assign(1, 0);
     for (size_t si = 0; si < mSegments.size(); si++) {
         const Segment& seg = mSegments[si];
-        const Tool* tool = seg.tool >= 0 && seg.tool < (int)mTools.size() ? mTools[seg.tool].get() : nullptr;
+        const Tool* tool = seg.tool >= 0 && seg.tool < (int)mTools.size() ? mTools[seg.tool].get()
+                                                                          : nullptr;
         if (tool && tool->Cuts()) {
             int pieces = 1;
             const double tolerance = tolerances[seg.tool];
@@ -488,7 +489,8 @@ void Simulation::Plan(const std::vector<float>& xyz, float quality)
             const double R = tool.Radius();
             const double au = m.p0[hm.u], av = m.p0[hm.v], bu = m.p1[hm.u], bv = m.p1[hm.v];
             // the box of the path in the map
-            double plo[2] = {std::min(au, bu), std::min(av, bv)}, phi[2] = {std::max(au, bu), std::max(av, bv)};
+            double plo[2] = {std::min(au, bu), std::min(av, bv)},
+                   phi[2] = {std::max(au, bu), std::max(av, bv)};
             if (m.arc) {
                 // arcs are along Z: u is X, v is Y; the box of their circle, enough
                 plo[0] = std::min(plo[0], m.center[0] - m.radius);
@@ -530,8 +532,10 @@ void Simulation::Plan(const std::vector<float>& xyz, float quality)
                     xlo = std::min(xlo, std::min(au, bu) - reachCell);
                     xhi = std::max(xhi, std::max(au, bu) + reachCell);
                 }
-                const int ri0 = m.arc ? i0 : std::max(i0, (int)std::floor((xlo - hm.lo[0]) / hm.cell));
-                const int ri1 = m.arc ? i1 : std::min(i1, (int)std::floor((xhi - hm.lo[0]) / hm.cell));
+                const int ri0 = m.arc ? i0
+                                      : std::max(i0, (int)std::floor((xlo - hm.lo[0]) / hm.cell));
+                const int ri1 = m.arc ? i1
+                                      : std::min(i1, (int)std::floor((xhi - hm.lo[0]) / hm.cell));
                 for (int i = ri0; i <= ri1; i++) {
                     const double cu = hm.lo[0] + (i + 0.5) * hm.cell;
                     const double dist = m.arc ? arc.Distance(cu, cv)
@@ -673,7 +677,8 @@ void Simulation::Plan(const std::vector<float>& xyz, float quality)
                                         if (other == (int)pi) {
                                             continue;
                                         }
-                                        const double d = SegmentDistance(p.a, p.b, paths[other].a, paths[other].b);
+                                        const double d
+                                            = SegmentDistance(p.a, p.b, paths[other].a, paths[other].b);
                                         if (d > 0.1 * R && d < nearest) {
                                             nearest = d;
                                         }
@@ -683,7 +688,8 @@ void Simulation::Plan(const std::vector<float>& xyz, float quality)
                         }
                         // ridges steeper than 10 degrees, higher than a tenth of the cells of
                         // the tool
-                        const double ridge = R - std::sqrt(std::max(0.0, R * R - nearest * nearest / 4));
+                        const double ridge = R
+                            - std::sqrt(std::max(0.0, R * R - nearest * nearest / 4));
                         if (nearest >= 2 * R || 2 * std::asin(nearest / (2 * R)) < 10 * M_PI / 180
                             || ridge < 0.1 * toolCell) {
                             continue;
@@ -1072,7 +1078,8 @@ void Simulation::Worker()
                     FILE* f = std::fopen(log, "a");
                     std::fprintf(
                         f ? f : stderr,
-                        "CAM simulation: plan %.0f ms, stock %.0f ms, done after %.0f ms, %ld motions, "
+                        "CAM simulation: plan %.0f ms, stock %.0f ms, done after %.0f ms, %ld "
+                        "motions, "
                         "%d leaves, %zu checkpoints, %.0f MB\n",
                         mStats.planMs,
                         mStats.stockMs,

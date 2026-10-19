@@ -766,7 +766,6 @@ def main():
         cam = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/CAM")
         cam.SetBool("SimulatorColorByOperation", CONFIG["color_by_operation"])
         cam.SetBool("SimulatorThinWalls", CONFIG["thin_walls"])
-        cam.SetBool("SimulatorLegacyEngine", CONFIG.get("legacy_engine", False))
         setup_window()
         for run in CONFIG["runs"]:
             try:

@@ -55,8 +55,8 @@ public:
     {
         double z0, z1;  // z0 < z1
         double r0, r1;
-        double n0r, n0z;  // normal at z0
-        double n1r, n1z;  // normal at z1
+        double n0r, n0z;      // normal at z0
+        double n1r, n1z;      // normal at z1
         bool sharp0, sharp1;  // the profile has a sharp corner at z0 / z1
     };
 
@@ -180,9 +180,9 @@ double ArcDistance(const Motion& m, double x, double y, double& t);
 struct ArcGeometry
 {
     double cx = 0, cy = 0, radius = 0;
-    double x0 = 0, y0 = 0, x1 = 0, y1 = 0;  // ends
+    double x0 = 0, y0 = 0, x1 = 0, y1 = 0;      // ends
     double d0x = 0, d0y = 0, d1x = 0, d1y = 0;  // directions of the ends from the center
-    double side = 1;  // 1 for counterclockwise
+    double side = 1;                            // 1 for counterclockwise
     explicit ArcGeometry(const Motion& m);
     ArcGeometry() = default;
     // distance in the plane from a point to the arc
@@ -266,40 +266,14 @@ public:
     {
         return mHi;
     }
-    bool Turning() const
-    {
-        return mTurning;
-    }
     // False if no point within 'margin' of 'p' is in the swept volume (motions with a fixed axis:
     // the swept cylinder around the tool, true for turning motions)
     bool MayTouch(const double p[3], double margin) const;
-    // The swept volume of motions with a fixed axis is within 'radius' of the parallelogram
-    // base + x e1 + y e2, x and y in [0, 1]: the motion and the axis of the tool. False for
-    // turning motions.
-    bool Slab(double base[3], double e1[3], double e2[3], double& radius) const
-    {
-        if (mSlabRadius < 0) {
-            return false;
-        }
-        for (int k = 0; k < 3; k++) {
-            base[k] = mSlabBase[k];
-            e1[k] = mSlabE1[k];
-            e2[k] = mSlabE2[k];
-        }
-        radius = mSlabRadius;
-        return true;
-    }
-    // Estimated cost of a line, relative to a simple tool
-    int Cost() const
-    {
-        return (int)mPrims.size();
-    }
 
     // Material removed along the line through 'origin' along the world axis 'axis', for
     // parameters s in [sMin, sMax] (world coordinate along the axis). Appends the removed
     // intervals, sorted and disjoint, and returns how many.
-    int Line(int axis, const double origin[3], double sMin, double sMax, std::vector<Removal>& out)
-        const;
+    int Line(int axis, const double origin[3], double sMin, double sMax, std::vector<Removal>& out) const;
 
     // Normal of the material surface at an end (pointing out of the material), unit length, or
     // false if unknown (sharp edges of the tool)
@@ -310,8 +284,8 @@ private:
     struct Prim
     {
         bool sphere;
-        int index;  // in the spheres or frustums of the tool
-        int index1;  // frustum at the top of merged frustums
+        int index;              // in the spheres or frustums of the tool
+        int index1;             // frustum at the top of merged frustums
         double z0, z1, r0, r1;  // frustum
         double zc, radius;      // sphere
         double zm, bound;       // the primitive is inside the sphere of this radius around zm
@@ -319,7 +293,7 @@ private:
     struct Piece
     {
         double p0[3];
-        double d[3];  // p1 - p0
+        double d[3];                // p1 - p0
         double e1[3], e2[3], a[3];  // tool frame
     };
     // where a primitive sweeps in a piece: its box, and the segment its center sweeps
@@ -344,11 +318,23 @@ private:
     {
         RemovalEnd lo, hi;
     };
-    void LinePiece(int piece, int axis, const double o[3], double sMin, double sMax, std::vector<Interval>& found)
-        const;
+    void LinePiece(
+        int piece,
+        int axis,
+        const double o[3],
+        double sMin,
+        double sMax,
+        std::vector<Interval>& found
+    ) const;
     // a piece of a primitive of a turning motion
-    void LineEntry(int entry, int axis, const double o[3], double sMin, double sMax, std::vector<Interval>& found)
-        const;
+    void LineEntry(
+        int entry,
+        int axis,
+        const double o[3],
+        double sMin,
+        double sMax,
+        std::vector<Interval>& found
+    ) const;
     static Bound BoundOf(const Piece& p, const Prim& prim);
     // the piece of a primitive at its center from t0 to t1, with the axis of the middle
     Piece PieceOf(const Prim& prim, double t0, double t1) const;

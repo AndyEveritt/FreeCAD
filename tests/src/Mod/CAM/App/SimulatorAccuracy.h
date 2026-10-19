@@ -4,7 +4,7 @@
 // material of its job.
 //
 // The oracle decides for any point whether it holds material after the toolpath: inside the stock
-// mesh and outside every tool swept along the path. It shares no code with the simulation engines:
+// mesh and outside every tool swept along the path. It shares no code with the material simulation:
 // tools are solids of revolution of their profile, every motion is divided into pieces whose paths
 // in the frame of the tool deviate from straight lines by less than 0.1 um, and a point is in the
 // sweep of a piece if the segment between its positions in the tool frame at both ends meets the
@@ -97,7 +97,7 @@ Report Evaluate(const Oracle& oracle, const Mesh& mesh, const Options& options =
 // Summary lines of a report
 std::string Format(const Report& report);
 
-// The stock shown by the engines, simulated outside the GUI
+// The stock shown by the simulation, simulated outside the GUI
 struct RunStats
 {
     double simulateMs = 0;  // start to the requested step shown
@@ -107,7 +107,5 @@ struct RunStats
 
 // The material simulation at a step of the timeline (the end if negative)
 Mesh SimulateMaterial(const Material::Job& job, float quality, long step = -1, RunStats* stats = nullptr);
-// The previous dexel simulation, at the end of the path
-Mesh SimulateLegacy(const Material::Job& job, float quality, RunStats* stats = nullptr);
 
 }  // namespace CAMSimulator::Accuracy

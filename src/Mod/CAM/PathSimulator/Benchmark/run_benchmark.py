@@ -107,7 +107,6 @@ def run_process(args, runs, workdir, name):
         "quality": args.quality,
         "color_by_operation": args.color_by_operation,
         "thin_walls": args.thin_walls,
-        "legacy_engine": args.legacy_engine,
         "window": args.window,
         "view": args.view,
         "scenarios": args.scenarios,
@@ -255,8 +254,6 @@ def run_accuracy(args, data):
         print(f"accuracy of {run['job']} {run['size']} ...", flush=True)
         out = os.path.join(args.dump_dir, f"{run['job']}_{run['size']}.accuracy.json")
         cmd = [args.accuracy_tool, path, "--quality", str(args.quality), "--json", out]
-        if args.legacy_engine:
-            cmd += ["--engine", "legacy"]
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
             if proc.returncode != 0 or not os.path.exists(out):
@@ -354,8 +351,7 @@ def display_options(data):
         "colors": config.get("color_by_operation", False),
         "thin walls": config.get("thin_walls", False),
     }
-    engine = "  engine: legacy" if config.get("legacy_engine") else ""
-    return "display: " + (", ".join(k for k, v in on.items() if v) or "plain") + engine
+    return "display: " + (", ".join(k for k, v in on.items() if v) or "plain")
 
 
 def print_summary(data, file=sys.stdout):
@@ -515,11 +511,6 @@ def main():
         action=argparse.BooleanOptionalAction,
         default=True,
         help="show thin walls, below the default threshold of 0.5 mm (default: on)",
-    )
-    parser.add_argument(
-        "--legacy-engine",
-        action="store_true",
-        help="simulate with the previous dexel engine (SimulatorLegacyEngine), for comparison",
     )
     parser.add_argument("--view", default="ViewAxo", help="initial view, e.g. ViewAxo, ViewTop")
     parser.add_argument(

@@ -38,7 +38,7 @@
 namespace CAMSimulator
 {
 class SimDisplay;
-struct DexelColoring;
+struct StockColoring;
 class ThreadPool;
 }  // namespace CAMSimulator
 
@@ -89,14 +89,15 @@ public:
     {
         return mShownStep;
     }
-    void Render(SimDisplay& display, const float stockColor[3], const float cutColor[3], const DexelColoring& coloring);
+    void Render(
+        SimDisplay& display,
+        const float stockColor[3],
+        const float cutColor[3],
+        const StockColoring& coloring
+    );
     void SetMeasureThickness(bool b);
     void FreeResources();
     long TriangleCount() const;
-    const Simulation& GetSimulation() const
-    {
-        return mSimulation;
-    }
 
 private:
     struct Chunk
@@ -122,8 +123,8 @@ private:
 
     mutable std::mutex mMutex;
     std::condition_variable mWake;
-    bool mWork = false;          // the simulation published, or the thickness option changed
-    bool mBusy = false;          // meshing
+    bool mWork = false;  // the simulation published, or the thickness option changed
+    bool mBusy = false;  // meshing
     bool mThickness = false;
     std::map<int, UnitMesh> mReady;  // finished meshes by unit
     long mReadyStep = -1;

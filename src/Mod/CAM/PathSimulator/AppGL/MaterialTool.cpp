@@ -729,7 +729,9 @@ Sweep::Sweep(const Motion& motion)
         p.z1 = std::min(f.z1, cut);
         p.r1 = f.r0 + (p.z1 - f.z0) * (f.r1 - f.r0) / (f.z1 - f.z0);
         p.zm = 0.5 * (p.z0 + p.z1);
-        p.bound = std::sqrt(std::max(p.r0, p.r1) * std::max(p.r0, p.r1) + 0.25 * (p.z1 - p.z0) * (p.z1 - p.z0));
+        p.bound = std::sqrt(
+            std::max(p.r0, p.r1) * std::max(p.r0, p.r1) + 0.25 * (p.z1 - p.z0) * (p.z1 - p.z0)
+        );
         mPrims.push_back(p);
     }
     // merge frustums continuing each other in a straight line, like a shank over the flutes
@@ -1070,7 +1072,8 @@ int Sweep::BuildNode(int first, int count)
         PoseAt(t0, unused, a0);
         PoseAt(t1, unused, a1);
         const double angle = std::acos(std::clamp(Dot(a0, a1), -1.0, 1.0));
-        n.grow = (prim.sphere ? 0 : prim.bound * angle / 2) + std::abs(prim.zm) * angle * angle / 8 + 1e-6;
+        n.grow = (prim.sphere ? 0 : prim.bound * angle / 2) + std::abs(prim.zm) * angle * angle / 8
+            + 1e-6;
     }
     if (count <= 4) {
         n.first = first;
@@ -1411,8 +1414,14 @@ void Sweep::ArcDiskLine(int axis, const double o[3], double r, int prim, std::ve
     }
 }
 
-void Sweep::LineEntry(int e, int axis, const double o[3], double sMin, double sMax, std::vector<Interval>& found)
-    const
+void Sweep::LineEntry(
+    int e,
+    int axis,
+    const double o[3],
+    double sMin,
+    double sMax,
+    std::vector<Interval>& found
+) const
 {
     const int u = (axis + 1) % 3, v = (axis + 2) % 3;
     const Bound& b = mBounds[e];
@@ -1432,7 +1441,8 @@ void Sweep::LineEntry(int e, int axis, const double o[3], double sMin, double sM
     }
     Interval iv;
     const Piece& p = mPieces[e];
-    const bool hit = prim.sphere ? SphereLine(p, prim, axis, o, iv) : FrustumLine(p, prim, axis, o, iv);
+    const bool hit = prim.sphere ? SphereLine(p, prim, axis, o, iv)
+                                 : FrustumLine(p, prim, axis, o, iv);
     if (!hit || iv.hi.s < sMin || iv.lo.s > sMax) {
         return;
     }
@@ -1441,8 +1451,14 @@ void Sweep::LineEntry(int e, int axis, const double o[3], double sMin, double sM
     found.push_back(iv);
 }
 
-void Sweep::LinePiece(int pi, int axis, const double o[3], double sMin, double sMax, std::vector<Interval>& found)
-    const
+void Sweep::LinePiece(
+    int pi,
+    int axis,
+    const double o[3],
+    double sMin,
+    double sMax,
+    std::vector<Interval>& found
+) const
 {
     const int u = (axis + 1) % 3, v = (axis + 2) % 3;
     const Piece& p = mPieces[pi];
@@ -1632,8 +1648,8 @@ void Sweep::LinePiece(int pi, int axis, const double o[3], double sMin, double s
             continue;
         }
         const Bound& b = mBounds[(size_t)pi * np + j];
-        if (o[u] < b.lo[u] || o[u] > b.hi[u] || o[v] < b.lo[v] || o[v] > b.hi[v] || b.hi[axis] < sMin
-            || b.lo[axis] > sMax) {
+        if (o[u] < b.lo[u] || o[u] > b.hi[u] || o[v] < b.lo[v] || o[v] > b.hi[v]
+            || b.hi[axis] < sMin || b.lo[axis] > sMax) {
             continue;
         }
         // distance from the line to the segment of the center of the primitive, in the plane
@@ -1647,7 +1663,8 @@ void Sweep::LinePiece(int pi, int axis, const double o[3], double sMin, double s
             continue;
         }
         Interval iv;
-        const bool hit = prim.sphere ? SphereLine(p, prim, axis, o, iv) : FrustumLine(p, prim, axis, o, iv);
+        const bool hit = prim.sphere ? SphereLine(p, prim, axis, o, iv)
+                                     : FrustumLine(p, prim, axis, o, iv);
         if (!hit || iv.hi.s < sMin || iv.lo.s > sMax) {
             continue;
         }
@@ -1691,8 +1708,7 @@ void Sweep::LinePiece(int pi, int axis, const double o[3], double sMin, double s
     }
 }
 
-int Sweep::Line(int axis, const double origin[3], double sMin, double sMax, std::vector<Removal>& out)
-    const
+int Sweep::Line(int axis, const double origin[3], double sMin, double sMax, std::vector<Removal>& out) const
 {
     const int u = (axis + 1) % 3, v = (axis + 2) % 3;
     // removals that only touch the material don't change it

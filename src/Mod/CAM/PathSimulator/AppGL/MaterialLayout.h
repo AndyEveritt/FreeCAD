@@ -105,10 +105,6 @@ public:
     {
         return mOrigin[axis] + (double)units * mUnit;
     }
-    const int* RootCount() const
-    {
-        return mRoots;
-    }
     // Size of the covered box in units
     const int* Extent() const
     {
@@ -130,8 +126,7 @@ public:
 
     // Leaves in a box for which mayTouch(center, halfDiagonal) of their nodes holds, appended
     template<class F>
-    void LeavesWhere(const double lo[3], const double hi[3], const F& mayTouch, std::vector<int>& out)
-        const
+    void LeavesWhere(const double lo[3], const double hi[3], const F& mayTouch, std::vector<int>& out) const
     {
         int ilo[3], ihi[3];
         if (!UnitRange(lo, hi, ilo, ihi)) {

@@ -24,8 +24,6 @@
 
 #pragma once
 
-#include "DexelRenderer.h"
-#include "DexelSimulation.h"
 #include "GCodeParser.h"
 #include "MaterialJob.h"
 #include "MaterialRenderer.h"
@@ -149,11 +147,9 @@ public:
     void SetBackgroundColor(const vec3& c);
     void SetPathColor(const vec3& normal, const vec3& rapid);
 
-    // Use the original stencil based renderer instead of the dexel simulation. It only supports
-    // 3 axis toolpaths and gets slow on large toolpaths.
+    // Use the original stencil based renderer instead of the material simulation. It only
+    // supports 3 axis toolpaths and gets slow on large toolpaths.
     void SetStencilRendering(bool b);
-    // Use the previous dexel simulation instead of the material simulation, for comparison
-    void SetLegacyEngine(bool b);
 
 protected:
     void InitDisplay(float quality);
@@ -172,16 +168,10 @@ protected:
     void CalcSegmentPositions();
     EndMill* GetTool(int tool);
     void RemoveTool(int toolId);
-    void StartDexelSimulation();
     void StartMaterialSimulation();
     Material::Job MaterialJob() const;
     void UpdateMaterialSimulation();
-    bool UsesMaterial() const
-    {
-        return !mStencilRendering && !mLegacyEngine;
-    }
-    void UpdateDexelSimulation();
-    void RenderDexelStock();
+    void RenderMaterialStock();
 
 protected:
     bool simulationInitiated = false;
@@ -206,26 +196,17 @@ protected:
     // true while the user drags the simulation stage slider
     bool mScrubbing = false;
 
-    // dexel simulation, used unless mStencilRendering
+    // material simulation, used unless mStencilRendering
     bool mStencilRendering = false;
-    // the previous dexel simulation instead of the material simulation
-    bool mLegacyEngine = false;
     std::unique_ptr<Material::View> mMaterial;
-    std::unique_ptr<DexelSimulation> mDexel;
-    DexelRenderer mDexelRenderer;
-    bool mDexelNeedsStart = false;
-    bool mMeshPending = false;
-    long mShownStep = 0;  // step of the dexel simulation the mesh shows completely
-    std::chrono::steady_clock::time_point mCatchUpStart;
-    long mTargetStep = 0;     // step of the dexel simulation at the tool
-    double mBudgetScale = 1;  // of the time per frame for simulating and meshing
-    std::chrono::steady_clock::time_point mLastFrameStart;
+    bool mMaterialNeedsStart = false;
+    long mTargetStep = 0;  // step of the material simulation at the tool
     float mQuality = 10;
     std::vector<float> mStockXyz;
     std::vector<uint32_t> mStockTriangles;
-    std::vector<CutSegment> mCutSegments;  // one per MillPathSegment
+    std::vector<Material::Segment> mSegments;  // one per MillPathSegment, tools by id
     std::vector<SimOperation> mOperations;
-    DexelColoring mDexelColoring;
+    StockColoring mColoring;
     bool mThinWalls = false;
     float mStockOpacity = 1;
     float mBaseOpacity = 1;

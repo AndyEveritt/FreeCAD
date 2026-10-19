@@ -524,9 +524,9 @@ const char* FragShaderGeom = R"(
     }
 )";
 
-// Geometry of the dexel stock: the color of the faces by the operation that cut them, and faces
+// Geometry of the simulated stock: the color of the faces by the operation that cut them, and faces
 // in front of thin material in the thin color
-const char* VertShaderDexel = R"(
+const char* VertShaderStock = R"(
     #version 120
 
     layout(location = 0) attribute vec3 aPosition;
@@ -559,7 +559,7 @@ const char* VertShaderDexel = R"(
     }
 )";
 
-const char* FragShaderDexel = R"(
+const char* FragShaderStock = R"(
     #version 120
 
     varying vec3 Position;

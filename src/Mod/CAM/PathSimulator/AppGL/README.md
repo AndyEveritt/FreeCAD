@@ -3,9 +3,8 @@
 OpenGL simulator of the CAM workbench (`CAM_SimulatorGL`). It removes material from the stock
 along the toolpath and shows the result in its own 3D view.
 
-There are two simulation engines: the material simulation (`Material*`, the default) and the
-previous dexel simulation (`Dexel*`, with `SimulatorLegacyEngine`, kept for comparison). The
-original stencil renderer is still there too (`SimulatorStencilRendering`).
+The material simulation (`Material*`) does it by default. The original stencil renderer is still
+there too (`SimulatorStencilRendering`).
 
 ## Material removal
 
@@ -80,7 +79,7 @@ from angles, are snapped to them.
 ## Display
 
 - `MaterialMesher`: dual contouring. Grid points are inside the material if the Z dexel through
-  them is; the edges between grid points lie on dexels, which have the exact points of the surface
+  them is, its ends included (like the material a tool only touches); the edges between grid points lie on dexels, which have the exact points of the surface
   on them and its normals. Cells of a brick are merged into cubes of 2, 4 or 8 cells where the
   surface is flat (normals within about 8 degrees, points within a tenth of a cell of a plane), or
   into cubes of up to 4 cells holding one sharp edge or corner of planes, or a ridge between
@@ -114,15 +113,6 @@ nothing of the simulation or the meshing runs in the GUI thread, so the view sta
 while simulating. During playback the tool waits for the stock: the timeline doesn't advance
 while the shown stock is behind the tool. The view is only rendered when something changed.
 
-## Previous dexel simulation
-
-With `SimulatorLegacyEngine`: tri-dexels in bricks too (`DexelLayout`, `DexelStock`), tools as
-stacks of frustums (`CutterProfile`), vertical tools cut by pieces of their moves, turning tools by
-instances along their moves, the layout from a toolpath analysis (`DexelSimulation::BuildLayout`),
-simulated within a time budget per frame in the GUI thread while a background thread makes
-snapshots, meshed with dual contouring (`DexelMesher`, `DexelMeshUnits`) and drawn by
-`DexelRenderer`. It is kept to compare with the material simulation and will be removed.
-
 ## Simulator window
 
 The task panel (`Path/Main/Gui/SimulatorGL.py`) passes the operations to the simulator
@@ -144,8 +134,6 @@ around Z. This is the place to add machine specific kinematics. Arcs are in the 
 
 `User parameter:BaseApp/Preferences/Mod/CAM`:
 
-- `SimulatorLegacyEngine` (bool, default false): simulate with the previous dexel simulation
-  instead of the material simulation.
 - `SimulatorStencilRendering` (bool, default false): use the original renderer, which subtracts the
   tool sweeps from the stock in screen space with the stencil buffer, instead of the simulations.
   It supports 3 axis toolpaths only, and every change of the view renders all cuts, so it gets slow
@@ -161,13 +149,13 @@ around Z. This is the place to add machine specific kinematics. Arcs are in the 
 - Unit tests (`CAM_tests_run`): of the material simulation in
   `tests/src/Mod/CAM/App/MaterialSimulator.cpp` (sweeps of all tool shapes, fixed, turning and
   along arcs, against sampled tools; exact cuts; seeks against simulating from the start; a closed
-  mesh), its accuracy against the exact material of small jobs in `MaterialAccuracy.cpp`, and of the
-  previous dexel simulation in `tests/src/Mod/CAM/App/Simulator.cpp`.
+  mesh, also after partial updates; thin walls; the operations of cut faces), and its accuracy
+  against the exact material of small jobs in `MaterialAccuracy.cpp`.
 - Accuracy validation: `tests/src/Mod/CAM/App/SimulatorAccuracy.h`, an oracle of the exact material
   of a job and the measurement of a stock mesh against it, and the tool `CAM_simulator_accuracy`
   that runs it on jobs written by the simulator. See `../Benchmark/README.md`.
 - Performance, image regression and accuracy benchmark: `../Benchmark/README.md`.
 - With the environment variable `CAM_SIM_DUMP` set to a file name, the simulator writes its input
-  there when it starts simulating (`MaterialJob`: tools, toolpath, stock), with either engine, to
-  replay the job outside of the GUI. With `CAM_SIM_LOG` set to a file name, the material simulation
+  there when it starts simulating (`MaterialJob`: tools, toolpath, stock), to replay the job
+  outside of the GUI. With `CAM_SIM_LOG` set to a file name, the material simulation
   appends the times of its plan, stock and simulation there when it reaches the end of the path.

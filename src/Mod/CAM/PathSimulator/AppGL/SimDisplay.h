@@ -39,8 +39,8 @@ class SoPerspectiveCamera;
 namespace CAMSimulator
 {
 
-// Colors of the faces of the dexel stock, see SimDisplay::StartDexelGeometryPass
-struct DexelColoring
+// Colors of the faces of the simulated stock, see SimDisplay::StartStockGeometryPass
+struct StockColoring
 {
     // cut faces in the color of the operation that cut them, by operation tag (see OperationTag)
     bool byOperation = false;
@@ -76,7 +76,7 @@ public:
     void StartDepthPass();
     void StartGeometryPass(const vec3& objColor, bool invertNormals);
     void StartCloserGeometryPass(const vec3& objColor);
-    void StartDexelGeometryPass(const vec3& objColor, const DexelColoring& coloring);
+    void StartStockGeometryPass(const vec3& objColor, const StockColoring& coloring);
 
     // Transparent objects are rendered after the opaque ones, between StartTransparentLayer and
     // EndTransparentLayer, with the opacity of SetOpacity: the front-most of their surfaces in
@@ -155,7 +155,7 @@ protected:
     Shader shader3D, shaderInv3D, shaderFlat, shaderSimFbo;
     Shader shaderGeom, shaderSSAO, shaderSSAOLighting, shaderSSAOBlur;
     Shader shaderGeomCloser;
-    Shader shaderDexel;
+    Shader shaderStock;
     Shader shaderLinePath;
     Shader shaderClearGeom;
 
