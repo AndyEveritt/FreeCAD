@@ -388,7 +388,8 @@ void Simulation::Plan(const std::vector<float>& xyz, float quality)
     for (size_t t = 0; t < mTools.size() && t < mFluteHeights.size(); t++) {
         const Tool* tool = mTools[t].get();
         const double h = mFluteHeights[t];
-        if (tool && tool->Cuts() && h > tool->MinZ() + 1e-6 && h < tool->MaxZ() - 1e-6) {
+        // 0 or less: unknown, though the tool may reach below its origin
+        if (tool && tool->Cuts() && h > 0 && h > tool->MinZ() + 1e-6 && h < tool->MaxZ() - 1e-6) {
             mShanks[t] = std::make_shared<Tool>(tool->ProfileAbove(h, ShankMargin));
         }
     }

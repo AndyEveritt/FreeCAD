@@ -126,7 +126,8 @@ public:
     Simulation();
     ~Simulation();
 
-    // The length of the flutes of the tools (by index, 0 or less for unknown) for the next start:
+    // The height of the end of the flutes of the tools above their origin (the tip of most tools; by
+    // index, 0 or less for unknown) for the next start:
     // the tool above them meets the material, see Event::ShankContact
     void SetFluteHeights(std::vector<double> heights)
     {
