@@ -25,6 +25,8 @@
 
 #include "CAMSim.h"
 
+#include <unordered_map>
+
 #include "DlgCAMSimulator.h"
 #include <string>
 #include <vector>
@@ -58,6 +60,36 @@ void CAMSim::addTool(
 {
     DlgCAMSimulator::instance()
         ->addTool(toolProfilePoints, toolNumber, diameter, resolution, arcs, flutes, rates);
+}
+
+Mesh::MeshObject* CAMSim::GetStockMesh()
+{
+    std::vector<float> xyz;
+    std::vector<uint32_t> triangles;
+    DlgCAMSimulator::instance()->stockTriangles(xyz, triangles);
+    // the vertices of the parts of the mesh at the same place are one
+    std::unordered_map<std::string, uint32_t> indexOf;
+    std::vector<uint32_t> merged(xyz.size() / 3);
+    MeshCore::MeshPointArray points;
+    for (size_t i = 0; i < merged.size(); i++) {
+        const std::string key(reinterpret_cast<const char*>(&xyz[3 * i]), 3 * sizeof(float));
+        const auto [it, added] = indexOf.emplace(key, (uint32_t)points.size());
+        if (added) {
+            points.push_back(MeshCore::MeshPoint(xyz[3 * i], xyz[3 * i + 1], xyz[3 * i + 2]));
+        }
+        merged[i] = it->second;
+    }
+    MeshCore::MeshFacetArray facets;
+    for (size_t i = 0; i + 2 < triangles.size(); i += 3) {
+        const uint32_t a = merged[triangles[i]], b = merged[triangles[i + 1]],
+                       c = merged[triangles[i + 2]];
+        if (a != b && b != c && a != c) {
+            facets.push_back(MeshCore::MeshFacet(a, b, c));
+        }
+    }
+    MeshCore::MeshKernel kernel;
+    kernel.Adopt(points, facets, true);
+    return new Mesh::MeshObject(kernel);
 }
 
 double CAMSim::GetTotalSeconds()

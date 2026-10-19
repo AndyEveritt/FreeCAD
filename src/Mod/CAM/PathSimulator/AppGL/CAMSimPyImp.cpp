@@ -408,6 +408,11 @@ PyObject* CAMSimPy::GetEvents()
     return Py::new_reference_to(list);
 }
 
+PyObject* CAMSimPy::GetStockMesh()
+{
+    return new Mesh::MeshPy(getCAMSimPtr()->GetStockMesh());
+}
+
 PyObject* CAMSimPy::GetTimes()
 {
     Py::Dict d;

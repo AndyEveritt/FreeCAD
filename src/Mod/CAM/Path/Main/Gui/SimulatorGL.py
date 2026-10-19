@@ -249,6 +249,7 @@ class CAMSimulation:
         form.nextCommand.clicked.connect(lambda: self.onStepCommand(1))
         form.listCommands.clicked.connect(self.onCommandClicked)
         form.listEvents.itemClicked.connect(self.onEventClicked)
+        form.exportStock.clicked.connect(self.onExportStock)
         form.groupEvents.hide()
         font = QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.FixedFont)
         form.listCommands.setFont(font)
@@ -530,6 +531,7 @@ class CAMSimulation:
         self.taskForm.form.listEvents.clear()
         self.millSim.SetEventsChangedCallback(self.onEventsChanged)
         self.taskForm.form.cycleTime.setText("")
+        self.taskForm.form.exportStock.setEnabled(True)
         self.showTimes(50)
 
     def onCommandChanged(self, index):
@@ -566,6 +568,25 @@ class CAMSimulation:
             if op in self.operations:
                 item = form.listOperations.item(self.operations.index(op))
                 item.setText("%s  (%s)" % (op.Label, TimeText(seconds)))
+
+    def onExportStock(self):
+        """Add the stock the simulator shows to the document of the job, as a mesh"""
+        if self.millSim is None:
+            return
+        mesh = self.millSim.GetStockMesh()
+        if mesh.CountFacets == 0:
+            TSError(QtCore.QT_TRANSLATE_NOOP("CAM_Simulator", "The simulator shows no stock yet."))
+            return
+        doc = self.job.Document
+        doc.openTransaction("Simulated stock")
+        obj = doc.addObject("Mesh::Feature", "SimulatedStock")
+        obj.Mesh = mesh
+        obj.Label = "%s - %s" % (
+            QtCore.QT_TRANSLATE_NOOP("CAM_Simulator", "Simulated stock"),
+            self.job.Label,
+        )
+        doc.commitTransaction()
+        doc.recompute()
 
     def onEventsChanged(self, count):
         """The simulation found problems on the toolpath: list them"""

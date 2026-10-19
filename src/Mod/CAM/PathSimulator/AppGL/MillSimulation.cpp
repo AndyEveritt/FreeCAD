@@ -1304,6 +1304,13 @@ void MillSimulation::StepCommand(int direction)
     GoToCommand(mSegmentMotions[first - 1].source);
 }
 
+void MillSimulation::StockTriangles(std::vector<float>& xyz, std::vector<uint32_t>& triangles) const
+{
+    if (mMaterial) {
+        mMaterial->Triangles(xyz, triangles);
+    }
+}
+
 std::vector<SimEvent> MillSimulation::GetEvents() const
 {
     std::vector<SimEvent> events;

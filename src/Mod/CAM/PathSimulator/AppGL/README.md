@@ -199,6 +199,11 @@ a click on a command goes to its start (`CAMSim.GoToCommand`), the arrows to the
 that moves the tool or to the start of the command in progress or the previous one
 (`CAMSim.StepCommand`). Motions know the command they come from (`MillMotion::source`).
 
+Stock to document (task panel) adds the stock shown, at the current position of the simulation,
+to the document of the job as a mesh (`CAMSim.GetStockMesh`: the meshes of the mesh units joined
+at their equal vertices, closed): for the stock of a next setup or rest machining, to compare it
+with the model (Mesh Design, Inspection), or a solid from it (Part, Create shape from mesh).
+
 The display options of the task panel are the parameters below, the simulator follows their
 changes (`CAMSettings`): the colors of the stock, the thin wall threshold and the model tolerance,
 and the stock and the model shown, with their opacities. The colors are plain, by operation (the

@@ -136,6 +136,8 @@ public:
     );
     // the rapid rate of tools without one, mm/s
     void setRapidRate(double rate);
+    // the triangles of the stock shown, see MillSimulation::StockTriangles
+    void stockTriangles(std::vector<float>& xyz, std::vector<uint32_t>& triangles) const;
     // the time of the machine in all and of each operation, s
     double totalSeconds() const;
     std::vector<double> operationSeconds() const;

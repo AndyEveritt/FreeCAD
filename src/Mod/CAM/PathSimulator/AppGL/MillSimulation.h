@@ -148,6 +148,8 @@ public:
     // Go to the start of the next command that moves the tool (direction > 0), or of the command
     // in progress, or the previous one if already there (direction < 0)
     void StepCommand(int direction);
+    // The triangles of the stock shown, a closed mesh, nothing before the simulation shows one
+    void StockTriangles(std::vector<float>& xyz, std::vector<uint32_t>& triangles) const;
     // The problems found on the toolpath so far, in the order of the path
     std::vector<SimEvent> GetEvents() const;
     int EventCount() const;

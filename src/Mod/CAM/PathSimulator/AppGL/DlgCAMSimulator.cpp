@@ -484,6 +484,11 @@ void DlgCAMSimulator::setRapidRate(double rate)
     mMillSimulator->SetRapidRate(rate);
 }
 
+void DlgCAMSimulator::stockTriangles(std::vector<float>& xyz, std::vector<uint32_t>& triangles) const
+{
+    mMillSimulator->StockTriangles(xyz, triangles);
+}
+
 double DlgCAMSimulator::totalSeconds() const
 {
     return mMillSimulator->TotalSeconds();

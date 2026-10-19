@@ -141,11 +141,34 @@
     </widget>
    </item>
    <item>
-    <widget class="QLabel" name="cycleTime">
-     <property name="toolTip">
-      <string>The time of the machine for the operations simulated, by their feed rates and the rapid rates of their tool controllers</string>
-     </property>
-    </widget>
+    <layout class="QHBoxLayout" name="layoutResults">
+     <item>
+      <widget class="QLabel" name="cycleTime">
+       <property name="toolTip">
+        <string>The time of the machine for the operations simulated, by their feed rates and the rapid rates of their tool controllers</string>
+       </property>
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+         <horstretch>1</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="exportStock">
+       <property name="toolTip">
+        <string>Add the stock the simulator shows to the document, as a mesh: for the stock of a next setup, to compare it with the model, or to look at it</string>
+       </property>
+       <property name="text">
+        <string>Stock to document</string>
+       </property>
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
+      </widget>
+     </item>
+    </layout>
    </item>
    <item>
     <widget class="QGroupBox" name="groupEvents">

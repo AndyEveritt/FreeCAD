@@ -144,6 +144,14 @@ class CAMSim(BaseClass):
         ...
 
     @no_args
+    def GetStockMesh(self) -> Any:
+        """
+        Return the stock the simulator shows, at the current position of the simulation, as a
+        closed mesh (Mesh.Mesh), empty before it shows one.
+        """
+        ...
+
+    @no_args
     def GetTimes(self) -> dict:
         """
         Return the time of the machine for the toolpath, s, once the simulation started: total,
