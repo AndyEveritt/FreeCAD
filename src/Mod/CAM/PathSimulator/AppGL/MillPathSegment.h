@@ -62,10 +62,6 @@ public:
     {
         return mMotionType == MTCurved;
     }
-    // arcs: angle(t) = startAngle + t * sweep, for t in [0, 1]
-    // position = (center.x - sin(angle) * radius, center.y + cos(angle) * radius)
-    void GetArc(float center[2], float& radius, float& startAngle, float& sweep) const;
-    void GetEndPoints(float start[3], float end[3]) const;
     // steps covering the motion, further steps stay at the end
     int SweepSteps() const
     {

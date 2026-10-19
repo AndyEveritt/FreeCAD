@@ -203,11 +203,11 @@ void Segment::PositionAt(double t, double pos[3]) const
         const double angle = startAngle + t * sweep;
         pos[0] = center[0] - std::sin(angle) * radius;
         pos[1] = center[1] + std::cos(angle) * radius;
-        pos[2] = start[2] + t * ((double)end[2] - start[2]);
+        pos[2] = start[2] + t * (end[2] - start[2]);
         return;
     }
     for (int k = 0; k < 3; k++) {
-        pos[k] = start[k] + t * ((double)end[k] - start[k]);
+        pos[k] = start[k] + t * (end[k] - start[k]);
     }
 }
 
@@ -215,7 +215,7 @@ void Segment::AxisAt(double t, double axis[3]) const
 {
     double len = 0;
     for (int k = 0; k < 3; k++) {
-        axis[k] = axis0[k] + t * ((double)axis1[k] - axis0[k]);
+        axis[k] = axis0[k] + t * (axis1[k] - axis0[k]);
         len += axis[k] * axis[k];
     }
     len = std::sqrt(len);

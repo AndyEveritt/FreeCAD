@@ -56,7 +56,8 @@ class CAMSim(BaseClass):
 
     def AddCommand(self, command: Command, /) -> Any:
         """
-        Add a path command to the simulation.
+        Add a path command to the simulation, in mm, feed rates in mm/s. The commands are
+        numbered in the order they are added, from 0.
         """
         ...
 

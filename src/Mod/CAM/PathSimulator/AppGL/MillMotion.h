@@ -45,37 +45,38 @@ enum eCmdType
     eMoveLiner,
     eRotateCW,
     eRotateCCW,
-    eDril,
     eChangeTool
 };
 
+// A motion of the toolpath to a position: tool tip positions in workpiece coordinates (tool center
+// point programming), in mm
 struct MillMotion
 {
     eCmdType cmd = eNop;
     int tool = -1;
-    float x = 0.0f, y = 0.0f, z = 0.0f;
-    float i = 0.0f, j = 0.0f, k = 0.0f;
-    float r = 0.0f;
+    double x = 0, y = 0, z = 0;
+    double i = 0, j = 0, k = 0;  // arcs: center relative to the start
     // rotary axes in degrees
-    float a = 0.0f, b = 0.0f, c = 0.0f;
-    char retract_mode = '\0';
+    double a = 0, b = 0, c = 0;
+    bool rapid = false;  // G0
+    double feed = 0;     // programmed feed rate in mm/s, 0 if none
     int operation = -1;  // index of the operation the motion belongs to, -1 for none
-    float retract_z = 0;
+    int source = -1;     // index of the toolpath command the motion comes from, -1 for none
 };
 
 // Tool axis (unit vector from the tip towards the shank) in workpiece coordinates. Positions are
 // tool tip positions in workpiece coordinates (tool center point programming), and the rotary
 // axes orient the tool: the vertical axis rotated by A around X, then B around Y, then C around Z.
 // This is the single place to adapt for machine specific kinematics.
-static inline void MotionToolAxis(const MillMotion& motion, float axis[3])
+static inline void MotionToolAxis(const MillMotion& motion, double axis[3])
 {
-    const float deg = 3.14159265358979f / 180.0f;
-    const float a = motion.a * deg, b = motion.b * deg, c = motion.c * deg;
+    const double deg = 3.14159265358979323846 / 180.0;
+    const double a = motion.a * deg, b = motion.b * deg, c = motion.c * deg;
     // Rx(a) * (0, 0, 1)
-    const float x1 = 0, y1 = -std::sin(a), z1 = std::cos(a);
+    const double x1 = 0, y1 = -std::sin(a), z1 = std::cos(a);
     // Ry(b)
-    const float x2 = x1 * std::cos(b) + z1 * std::sin(b), y2 = y1;
-    const float z2 = -x1 * std::sin(b) + z1 * std::cos(b);
+    const double x2 = x1 * std::cos(b) + z1 * std::sin(b), y2 = y1;
+    const double z2 = -x1 * std::sin(b) + z1 * std::cos(b);
     // Rz(c)
     axis[0] = x2 * std::cos(c) - y2 * std::sin(c);
     axis[1] = x2 * std::sin(c) + y2 * std::cos(c);
@@ -84,9 +85,9 @@ static inline void MotionToolAxis(const MillMotion& motion, float axis[3])
 
 static inline void MotionPosToVec(vec3 vec, const MillMotion& motion)
 {
-    vec[0] = motion.x;
-    vec[1] = motion.y;
-    vec[2] = motion.z;
+    vec[0] = (float)motion.x;
+    vec[1] = (float)motion.y;
+    vec[2] = (float)motion.z;
 }
 
 }  // namespace CAMSimulator

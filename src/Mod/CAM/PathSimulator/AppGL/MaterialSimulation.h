@@ -48,16 +48,17 @@ struct Segment
 {
     int tool = 0;  // index into the tools
     bool arc = false;
-    float start[3] = {};  // tool tip at the start and the end
-    float end[3] = {};
+    bool rapid = false;    // a rapid move (G0)
+    double start[3] = {};  // tool tip at the start and the end
+    double end[3] = {};
     // arcs: angle(t) = startAngle + t * sweep,
     // position = (center.x - sin(angle) * radius, center.y + cos(angle) * radius)
-    float center[2] = {};
-    float radius = 0;
-    float startAngle = 0;
-    float sweep = 0;
-    float axis0[3] = {0, 0, 1};  // tool axis at the start and the end
-    float axis1[3] = {0, 0, 1};
+    double center[2] = {};
+    double radius = 0;
+    double startAngle = 0;
+    double sweep = 0;
+    double axis0[3] = {0, 0, 1};  // tool axis at the start and the end
+    double axis1[3] = {0, 0, 1};
     int steps = 1;       // steps on the timeline
     int sweepSteps = 1;  // steps of the motion, the parameter of step k is min(1, k / sweepSteps)
     int operation = -1;  // index of the operation, -1 for none

@@ -67,8 +67,7 @@ void CAMSim::SetBaseShape(const Part::TopoShape& baseShape, float resolution)
 
 void CAMSim::AddCommand(Command* cmd)
 {
-    std::string gline = cmd->toGCode();
-    DlgCAMSimulator::instance()->addGcodeCommand(gline.c_str());
+    DlgCAMSimulator::instance()->addCommand(cmd->Name, cmd->Parameters);
 }
 
 void CAMSim::AddOperation(const std::string& name, const float* color)

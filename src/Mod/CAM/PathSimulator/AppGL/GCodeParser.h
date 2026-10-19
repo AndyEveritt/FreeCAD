@@ -25,29 +25,42 @@
 #pragma once
 
 #include "MillMotion.h"
+
+#include <map>
+#include <string>
 #include <vector>
 
 namespace CAMSimulator
 {
 
-struct GCToken
-{
-    char letter;
-    float fval;
-    int ival;
-};
-
+// Turns a toolpath into motions: commands of a FreeCAD toolpath (AddCommand), or lines of G-code
+// text (AddLine, Parse).
+//
+// Motion modes (G0 to G3, the drill cycles) are modal, like the feed rate (F), the arc plane
+// (G17 to G19), absolute and incremental positions (G90, G91) and the units (G20, G21). Drill
+// cycles (G73, G74, G76, G81 to G89) become the motions of the tool: to the hole at the height it
+// starts from, rapid to R, down to Z and back to the initial height (G98) or R (G99). Arcs are
+// given by their center (I, J, K) or their radius (R); arcs outside the XY plane are divided into
+// lines.
 class GCodeParser
 {
 public:
-    GCodeParser()
-    {}
+    GCodeParser() = default;
     virtual ~GCodeParser();
 
     void Clear();
 
+    // A file of G-code text, false if it can't be read
     bool Parse(const char* filename);
-    bool AddLine(const char* ptr);
+    // A line of G-code text: feed rates in units per minute. Returns true if it moves.
+    bool AddLine(const char* line, int source = -1);
+    // A command of a FreeCAD toolpath: its name ("G1", "G81", "T3") and its words, in mm, feed
+    // rates in mm/s. Returns true if it moves.
+    bool AddCommand(
+        const std::string& name,
+        const std::map<std::string, double>& params,
+        int source = -1
+    );
 
 public:
     std::vector<MillMotion> Operations;
@@ -55,12 +68,37 @@ public:
     // operation of the lines added from now on, see MillMotion::operation
     int currentOperation = -1;
 
-protected:
-    const char* GetNextToken(const char* ptr, GCToken* token);
-    bool IsValidToken(char tok);
-    const char* ParseFloat(const char* ptr, float* retFloat);
-    bool ParseLine(const char* ptr);
-    int lastTool = -1;
+    // Largest distance of the lines of arcs outside the XY plane from the arc, mm
+    static constexpr double ArcTolerance = 0.001;
+
+private:
+    struct Word
+    {
+        char letter;
+        double value;
+    };
+    static void Tokenize(const char* text, std::vector<Word>& words);
+    bool Apply(const std::vector<Word>& words, double feedScale, int source);
+    void AddArc(const MillMotion& end, bool clockwise, double ci, double cj, double ck);
+
+    enum Mode
+    {
+        ModeNone,
+        ModeRapid,
+        ModeLine,
+        ModeArcCW,
+        ModeArcCCW,
+        ModeCycle,
+    };
+    Mode mMode = ModeNone;
+    int mPlane = 17;
+    bool mIncremental = false;
+    double mUnit = 1;  // mm per unit of the positions
+    // drill cycles: the height the tool returns to with G98, R and the depth, modal
+    bool mReturnToR = false;
+    double mCycleInitial = 0;
+    double mCycleR = 0;
+    double mCycleDepth = 0;
 };
 
 }  // namespace CAMSimulator

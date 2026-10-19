@@ -157,12 +157,28 @@ without (made by a sharp edge of a tool), yellow where not cut. While the dexels
 click chooses where, it doesn't go to the operation; a lower stock opacity shows the dexels inside
 the material.
 
+## Toolpath
+
+The task panel gives the simulator the commands of the toolpath (`CAMSim.AddCommand`), as
+`Path/Main/SimulatorFeed.py` prepares them: in world coordinates, the tool direction in A, B, C,
+drill cycles expanded, arcs of tilted work planes divided into lines. The commands reach
+`GCodeParser` as they are, their name and their words in double precision, without going through
+G-code text; G-code text (`AddLine`, `Parse`) is read the same way, with its feed rates per minute.
+The parser makes the motions (`MillMotion`): positions, rapid (G0) or not, the feed rate (F, mm/s,
+modal), the tool, the operation and the index of the command they come from (`source`), numbered in
+the order the commands were added. Motion modes, the arc plane (G17 to G19), absolute and
+incremental positions (G90, G91) and the units (G20, G21) are modal; drill cycles are the moves of
+the tool (to the hole, rapid to R, down to Z, back to the initial height or R); arcs are given by
+their center or their radius (R), arcs outside the XY plane become lines within 1 um; comments in
+parentheses are skipped within a line; home and offset commands (G28, G30, G53, G10, G92) don't
+move.
+
 ## 5 axis toolpaths
 
 `GCodeParser` reads the rotary axes A, B and C. `MotionToolAxis` in `MillMotion.h` turns them into
 the tool axis: positions are tool tip positions in workpiece coordinates (tool center point
 programming), and the tool axis is the Z axis rotated by A around X, then B around Y, then C
-around Z. This is the place to add machine specific kinematics. Arcs are in the XY plane.
+around Z. This is the place to add machine specific kinematics.
 
 ## Parameters
 
@@ -189,8 +205,9 @@ around Z. This is the place to add machine specific kinematics. Arcs are in the 
 - Unit tests (`CAM_tests_run`): of the material simulation in
   `tests/src/Mod/CAM/App/MaterialSimulator.cpp` (sweeps of all tool shapes, fixed, turning and
   along arcs, against sampled tools; exact cuts; seeks against simulating from the start; a closed
-  mesh, also after partial updates; thin walls; the operations of cut faces), and its accuracy
-  against the exact material of small jobs in `MaterialAccuracy.cpp`.
+  mesh, also after partial updates; thin walls; the operations of cut faces), its accuracy
+  against the exact material of small jobs in `MaterialAccuracy.cpp`, and the toolpath read from
+  commands and G-code text in `SimulatorGCode.cpp`.
 - Accuracy validation: `tests/src/Mod/CAM/App/SimulatorAccuracy.h`, an oracle of the exact material
   of a job and the measurement of a stock mesh against it, and the tool `CAM_simulator_accuracy`
   that runs it on jobs written by the simulator. See `../Benchmark/README.md`.

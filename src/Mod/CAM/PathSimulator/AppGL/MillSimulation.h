@@ -34,6 +34,7 @@
 #include "StockObject.h"
 #include "linmath.h"
 #include <chrono>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -94,6 +95,9 @@ public:
 
     bool LoadGCodeFile(const char* fileName);
     bool AddGcodeLine(const char* line);
+    // A command of a FreeCAD toolpath, see GCodeParser::AddCommand. source: its index in the
+    // toolpath, given to its motions
+    bool AddCommand(const std::string& name, const std::map<std::string, double>& params, int source);
     // The G-code lines added from now on belong to a new operation of this name, and of this
     // color if given
     void BeginOperation(const std::string& name, const float* color = nullptr);
@@ -225,6 +229,7 @@ protected:
     std::vector<float> mStockXyz;
     std::vector<uint32_t> mStockTriangles;
     std::vector<Material::Segment> mSegments;  // one per MillPathSegment, tools by id
+    std::vector<MillMotion> mSegmentMotions;   // the motion to the end of each segment
     std::vector<SimOperation> mOperations;
     StockColoring mColoring;
     bool mThinWalls = false;

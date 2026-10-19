@@ -240,23 +240,6 @@ void MillPathSegment::GetHeadPosition(vec3 headPos)
     vec3_dup(headPos, mHeadPos);
 }
 
-void MillPathSegment::GetArc(float center[2], float& radius, float& startAngle, float& sweep) const
-{
-    center[0] = mCenter[PX];
-    center[1] = mCenter[PY];
-    radius = mRadius;
-    startAngle = mStartAngRad;
-    sweep = -mArcDir * mSweepAng;
-}
-
-void MillPathSegment::GetEndPoints(float start[3], float end[3]) const
-{
-    for (int k = 0; k < 3; k++) {
-        start[k] = mStartPos[k];
-        end[k] = mStartPos[k] + mDiff[k];
-    }
-}
-
 float MillPathSegment::SetQuality(float quality, float maxStockDimension)
 {
     mResolution = maxStockDimension * 0.05 / quality;

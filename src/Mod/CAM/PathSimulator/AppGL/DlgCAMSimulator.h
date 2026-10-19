@@ -113,7 +113,9 @@ public:
     void startSimulation(const Part::TopoShape& stock, float quality);
     void resetSimulation();
 
-    void addGcodeCommand(const char* cmd);
+    // A command of the toolpath, see GCodeParser::AddCommand. The commands are numbered in the
+    // order they are added, from 0: the source of their motions.
+    void addCommand(const std::string& name, const std::map<std::string, double>& params);
     // the commands added from now on belong to a new operation of this name, and of this color
     // if given (rgb from 0 to 1)
     void addOperation(const char* name, const float* color = nullptr);
@@ -190,9 +192,17 @@ private:
     std::unique_ptr<MillSimulation> mMillSimulator;
     float mQuality = 10;
 
-    std::vector<std::string> mGCode;
-    std::size_t mLastGCode = 0;
-    // operations: the index of their first command in mGCode, their name and color
+    // the toolpath: commands, and tool changes (source -1)
+    struct Command
+    {
+        std::string name;
+        std::map<std::string, double> params;
+        int source;
+    };
+    std::vector<Command> mCommands;
+    std::size_t mLastCommand = 0;
+    int mSourceCount = 0;
+    // operations: the index of their first command in mCommands, their name and color
     struct Operation
     {
         std::size_t firstCommand;

@@ -35,7 +35,7 @@ namespace CAMSimulator::Material
 namespace
 {
 
-constexpr char Magic[8] = "CAMJOB1";
+constexpr char Magic[8] = "CAMJOB2";
 
 using File = std::unique_ptr<FILE, int (*)(FILE*)>;
 
@@ -67,15 +67,15 @@ bool SaveJob(const std::string& path, const Job& job)
     u32((uint32_t)job.segments.size());
     for (const Segment& s : job.segments) {
         i32(s.tool);
-        i32(s.arc ? 1 : 0);
-        write(s.start, 12);
-        write(s.end, 12);
-        write(s.center, 8);
-        write(&s.radius, 4);
-        write(&s.startAngle, 4);
-        write(&s.sweep, 4);
-        write(s.axis0, 12);
-        write(s.axis1, 12);
+        i32((s.arc ? 1 : 0) | (s.rapid ? 2 : 0));
+        write(s.start, 24);
+        write(s.end, 24);
+        write(s.center, 16);
+        write(&s.radius, 8);
+        write(&s.startAngle, 8);
+        write(&s.sweep, 8);
+        write(s.axis0, 24);
+        write(s.axis1, 24);
         i32(s.steps);
         i32(s.sweepSteps);
         i32(s.operation);
@@ -133,18 +133,20 @@ bool LoadJob(const std::string& path, Job& job)
         p.resize(count(4));
         read(p.data(), 4 * p.size());
     }
-    j.segments.resize(count(88));
+    j.segments.resize(count(156));
     for (Segment& s : j.segments) {
         s.tool = i32();
-        s.arc = i32() != 0;
-        read(s.start, 12);
-        read(s.end, 12);
-        read(s.center, 8);
-        read(&s.radius, 4);
-        read(&s.startAngle, 4);
-        read(&s.sweep, 4);
-        read(s.axis0, 12);
-        read(s.axis1, 12);
+        const int flags = i32();
+        s.arc = (flags & 1) != 0;
+        s.rapid = (flags & 2) != 0;
+        read(s.start, 24);
+        read(s.end, 24);
+        read(s.center, 16);
+        read(&s.radius, 8);
+        read(&s.startAngle, 8);
+        read(&s.sweep, 8);
+        read(s.axis0, 24);
+        read(s.axis1, 24);
         s.steps = i32();
         s.sweepSteps = i32();
         s.operation = i32();

@@ -295,3 +295,29 @@ class TestPathSimulatorFeed(PathTestUtils.PathTestBase):
         empty.Path = None
         self.assertEqual(feed.add(empty), ([], []))
         self.assertEqual(feed.add(_Op("M3 S1000")), ([], []))
+
+    def test11(self):
+        """Feed rates go with the moves that have them, arcs divided into lines and the
+        plunges of drill cycles included."""
+        op = _Op(
+            """
+            G0 X10 Y20 Z5
+            G1 Z-2 F7
+            G2 X30 Y20 I10 J0 F8
+            G81 X40 Y20 Z-5 R2 F9
+            G80
+            """,
+            FRONT,
+        )
+        _, cmds = SimulatorFeed(BOUNDS).add(op, TOOL_LENGTH)
+        self.assertNotIn("F", cmds[0].Parameters)
+        self.assertRoughly(cmds[1].Parameters["F"], 7)
+        chords = [c for c in cmds[2:] if c.Parameters.get("F") == 8]
+        self.assertGreater(len(chords), 10)
+        plunges = [c for c in cmds if c.Parameters.get("F") == 9]
+        self.assertEqual(len(plunges), 1)
+        self.assertEqual(plunges[0].Name, "G1")
+        self.assertFalse([c for c in cmds if c.Name == "G0" and "F" in c.Parameters])
+        # in the Job's XY the arc keeps its feed rate
+        _, cmds = SimulatorFeed(BOUNDS).add(_Op("G0 X0 Y0 Z0\nG3 X10 Y0 I5 J0 F4"), TOOL_LENGTH)
+        self.assertRoughly(cmds[1].Parameters["F"], 4)

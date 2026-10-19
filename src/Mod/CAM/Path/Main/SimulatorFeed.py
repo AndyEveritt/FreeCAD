@@ -28,7 +28,7 @@ An operation on a work plane stores its path in the plane's frame with none of
 that. So each operation is given to the simulator as:
 
   * every move with its full X, Y, Z in the world and the tool direction of
-    the work plane in A, B, C;
+    the work plane in A, B, C, and its feed rate (F) where it has one;
   * drill cycles expanded into the plain moves they make, in the plane's frame;
   * arcs on a tilted plane split into short lines, since they no longer lie
     in the world XY plane.
@@ -195,6 +195,7 @@ class SimulatorFeed:
             target = Vector(
                 params.get("X", local.x), params.get("Y", local.y), params.get("Z", local.z)
             )
+            feed = {"F": params["F"]} if "F" in params else {}
 
             if name in _CYCLES:
                 # the cycle's own moves, along the frame's Z: to the hole at the
@@ -207,7 +208,7 @@ class SimulatorFeed:
                     emit("G0", Vector(local.x, local.y, above))
                 emit("G0", Vector(target.x, target.y, above))
                 emit("G0", Vector(target.x, target.y, r))
-                emit("G1", target)
+                emit("G1", target, feed)
                 emit("G0", Vector(target.x, target.y, back))
                 local = Vector(target.x, target.y, back)
                 continue
@@ -219,14 +220,14 @@ class SimulatorFeed:
                     )
                     if turnedOver:
                         name = {"G2": "G3", "G02": "G03", "G3": "G2", "G03": "G02"}[name]
-                    emit(name, target, {"I": offset.x, "J": offset.y})
+                    emit(name, target, {"I": offset.x, "J": offset.y, **feed})
                 else:
                     for point in self._arcPoints(name, params, local, target):
-                        emit("G1", point)
+                        emit("G1", point, feed)
                 local = target
                 continue
 
-            emit("G0" if name in Path.Geom.CmdMoveRapid else "G1", target)
+            emit("G0" if name in Path.Geom.CmdMoveRapid else "G1", target, feed)
             local = target
 
         return out

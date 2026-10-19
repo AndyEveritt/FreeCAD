@@ -194,12 +194,10 @@ the options that are not the defaults: `_qualityN` for another quality than 10, 
 for plain colors, `_thinwalls` and `_distance` for the other colors, like
 `mixed_small_nocolors_nothin_50.png`.
 
-The plain `mixed` references (`_nocolors_nothin`) were rendered by the original stencil based
-simulator at rest, in quick mode on Xvfb (`--stencil-rendering --color-mode plain`), an independent
-check of the material simulation: run with `--color-mode plain` to check against them. All
-other references were rendered by the material simulation itself, they only detect changes: the
-original simulator can't simulate 5 axis toolpaths or show the display options. To replace them after an
-intended visual change, run with `--update-reference` and commit the new images.
+All references are rendered by the material simulation itself, they only detect changes; the
+stencil renderer is not used for them. To replace them after an intended visual change, run with
+`--update-reference` (and the options of the references, like `--color-mode plain`) and commit the
+new images.
 
 ### Accuracy
 

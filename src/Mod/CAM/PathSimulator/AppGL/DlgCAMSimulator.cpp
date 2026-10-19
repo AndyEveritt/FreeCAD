@@ -240,7 +240,9 @@ void DlgCAMSimulator::cloneFrom(const DlgCAMSimulator& from)
 
     mQuality = from.mQuality;
 
-    mGCode = from.mGCode;
+    mCommands = from.mCommands;
+    mSourceCount = from.mSourceCount;
+    mOperations = from.mOperations;
     mTools = from.mTools;
 
     mStock = from.mStock;
@@ -291,21 +293,22 @@ void DlgCAMSimulator::resetSimulation()
 {
     mNeedsClear = true;
 
-    mGCode.clear();
+    mCommands.clear();
+    mSourceCount = 0;
     mOperations.clear();
     mTools.clear();
     mStock = {};
     mBase = {};
 }
 
-void DlgCAMSimulator::addGcodeCommand(const char* cmd)
+void DlgCAMSimulator::addCommand(const std::string& name, const std::map<std::string, double>& params)
 {
-    mGCode.push_back(cmd);
+    mCommands.push_back({name, params, mSourceCount++});
 }
 
 void DlgCAMSimulator::addOperation(const char* name, const float* color)
 {
-    Operation op {mGCode.size(), name, color != nullptr, {0, 0, 0}};
+    Operation op {mCommands.size(), name, color != nullptr, {0, 0, 0}};
     if (color) {
         std::copy(color, color + 3, op.color);
     }
@@ -321,8 +324,7 @@ void DlgCAMSimulator::addTool(
 {
     Q_UNUSED(resolution)
 
-    std::string toolCmd = "T" + std::to_string(toolNumber);
-    addGcodeCommand(toolCmd.c_str());
+    mCommands.push_back({"T" + std::to_string(toolNumber), {}, -1});
     mTools.emplace_back(toolProfilePoints, toolNumber, diameter);
 }
 
@@ -586,7 +588,7 @@ void DlgCAMSimulator::timerEvent(QTimerEvent* event)
 
     // only render when something changed, so an idle simulator does not use the CPU and GPU
     bool needsFrame = mNeedsInitialize || mNeedsClear || mStock.needsUpdate || mBase.needsUpdate
-        || mState || mLastGCode != mGCode.size() || mMillSimulator->NeedsFrame();
+        || mState || mLastCommand != mCommands.size() || mMillSimulator->NeedsFrame();
     if (mDummyViewer) {
         const SoCamera* camera = mDummyViewer->getCamera();
         if (camera && (camera != mLastCamera || camera->getNodeId() != mLastCameraId)) {
@@ -608,12 +610,12 @@ void DlgCAMSimulator::updateResources()
 
     if (mNeedsClear) {
         mMillSimulator->Clear();
-        mLastGCode = 0;
+        mLastCommand = 0;
         mLastOperation = 0;
         mNeedsClear = false;
     }
 
-    // update gcode
+    // update the toolpath
 
     auto beginOperations = [this](std::size_t line) {
         while (mLastOperation < mOperations.size()
@@ -623,13 +625,14 @@ void DlgCAMSimulator::updateResources()
             mLastOperation++;
         }
     };
-    for (std::size_t i = mLastGCode; i < mGCode.size(); i++) {
+    for (std::size_t i = mLastCommand; i < mCommands.size(); i++) {
         beginOperations(i);
-        mMillSimulator->AddGcodeLine(mGCode[i].c_str());
+        const Command& cmd = mCommands[i];
+        mMillSimulator->AddCommand(cmd.name, cmd.params, cmd.source);
     }
-    beginOperations(mGCode.size());
+    beginOperations(mCommands.size());
 
-    mLastGCode = mGCode.size();
+    mLastCommand = mCommands.size();
 
     // update tools
 

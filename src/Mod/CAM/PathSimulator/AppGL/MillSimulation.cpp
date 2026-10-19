@@ -42,6 +42,38 @@ using namespace std::literals;
 namespace CAMSimulator
 {
 
+// The motion from one position to the next, in double precision. Arcs (in the XY plane) as
+// MillPathSegment has them, which decides whether the motion is an arc.
+static Material::Segment MakeSegment(const MillMotion& from, const MillMotion& to, bool arc)
+{
+    Material::Segment cut;
+    cut.arc = arc;
+    cut.rapid = to.rapid;
+    cut.operation = to.operation;
+    cut.start[0] = from.x;
+    cut.start[1] = from.y;
+    cut.start[2] = from.z;
+    cut.end[0] = to.x;
+    cut.end[1] = to.y;
+    cut.end[2] = to.z;
+    if (arc) {
+        cut.center[0] = from.x + to.i;
+        cut.center[1] = from.y + to.j;
+        cut.radius = std::hypot(to.i, to.j);
+        const double direction = to.cmd == eRotateCCW ? -1 : 1;
+        cut.startAngle = std::atan2(cut.center[0] - from.x, from.y - cut.center[1]);
+        const double endAngle = std::atan2(cut.center[0] - to.x, to.y - cut.center[1]);
+        double sweep = (cut.startAngle - endAngle) * direction;
+        if (sweep < EPSILON) {
+            sweep += 2 * M_PI;
+        }
+        cut.sweep = -direction * sweep;
+    }
+    MotionToolAxis(from, cut.axis0);
+    MotionToolAxis(to, cut.axis1);
+    return cut;
+}
+
 MillSimulation::MillSimulation()
 {}
 
@@ -73,6 +105,7 @@ void MillSimulation::Clear()
     mStockObject.Clear();
     mMaterial.reset();
     mSegments.clear();
+    mSegmentMotions.clear();
     simDisplay.CleanGL();
 
     mCurStep = 0;
@@ -99,6 +132,7 @@ void MillSimulation::InitSimulation(float quality, float maxStockDimension)
     MillPathSegment::SetQuality(quality, maxStockDimension);
     mQuality = quality;
     mSegments.clear();
+    mSegmentMotions.clear();
 
     for (SimOperation& op : mOperations) {
         op.firstStep = op.endStep = -1;
@@ -135,19 +169,12 @@ void MillSimulation::InitSimulation(float quality, float maxStockDimension)
             MillPathSegments.push_back(segment);
             segment->AppendPathPoints(millPathLine.MillPathPointsBuffer);
 
-            Material::Segment cut;
+            Material::Segment cut = MakeSegment(prevMotion, curMotion, segment->IsArc());
             cut.tool = curMotion.tool;  // tool id, replaced by the index when starting
-            cut.arc = segment->IsArc();
-            segment->GetEndPoints(cut.start, cut.end);
-            if (cut.arc) {
-                segment->GetArc(cut.center, cut.radius, cut.startAngle, cut.sweep);
-            }
-            MotionToolAxis(prevMotion, cut.axis0);
-            MotionToolAxis(curMotion, cut.axis1);
             cut.steps = segment->numSimSteps;
             cut.sweepSteps = segment->SweepSteps();
-            cut.operation = curMotion.operation;
             mSegments.push_back(cut);
+            mSegmentMotions.push_back(curMotion);
         }
 
         prevMotion = curMotion;
@@ -876,6 +903,15 @@ bool MillSimulation::LoadGCodeFile(const char* fileName)
 bool MillSimulation::AddGcodeLine(const char* line)
 {
     return mCodeParser.AddLine(line);
+}
+
+bool MillSimulation::AddCommand(
+    const std::string& name,
+    const std::map<std::string, double>& params,
+    int source
+)
+{
+    return mCodeParser.AddCommand(name, params, source);
 }
 
 void MillSimulation::BeginOperation(const std::string& name, const float* color)

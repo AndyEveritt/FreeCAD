@@ -4,6 +4,7 @@ set(CAMSimulatorEngine_DIR ${CMAKE_SOURCE_DIR}/src/Mod/CAM/PathSimulator/AppGL)
 add_library(CAMSimulatorAccuracy STATIC
     SimulatorAccuracy.cpp
     SimulatorAccuracy.h
+    ${CAMSimulatorEngine_DIR}/GCodeParser.cpp
     ${CAMSimulatorEngine_DIR}/MaterialGrid.cpp
     ${CAMSimulatorEngine_DIR}/MaterialJob.cpp
     ${CAMSimulatorEngine_DIR}/MaterialLayout.cpp
@@ -21,6 +22,7 @@ add_executable(CAM_tests_run
     MaterialAccuracy.cpp
     MaterialSimulator.cpp
     Path.cpp
+    SimulatorGCode.cpp
 )
 target_link_libraries(CAM_tests_run CAMSimulatorAccuracy)
 
