@@ -104,10 +104,18 @@ operation on motions following each other (up to 3 segments apart) make one even
   at the ends of the material along the lines, about every 0.25 mm (`RegionSpacing`), cut into
   the model by more than the tolerance (`SimulatorDeviationTolerance`), or away from it by more,
   closer than the 1 mm range of the distance (farther, like the far side of a groove around the
-  part, it is not the part). They are joined into regions (in cells of 1 mm, with their 26
-  neighbors, 3 points at least): an event each, with the largest distance, its box and the
-  operation that cut most of it, at the end of that operation on the timeline. Changing the
-  tolerance or the model finds them again.
+  part, it is not the part). They are joined into regions (in cells of 1 mm, with the cells
+  within 2.5 times the spacing of their points, 3 points at least), the operation that cut most
+  of a region is its operation. The regions of one kind and operation make one event, at the
+  deepest one, with their number and box, at the end of the operation on the timeline: a finish
+  leaving scallops above the tolerance is one problem. Changing the tolerance or the model finds
+  them again.
+
+Without a view: `ToolpathCheck` simulates a toolpath, given as the simulator is given it, and
+returns its problems (`CAMSimulator.checkToolpath(steps, stock, model, quality, tolerance)`, the
+steps of `simulationSteps` in `Path/Main/SimulatorFeed.py`). The Sanity Check report lists them as
+squawks of their operation (`Sanity._simulationSquawks`): rapids into the stock CAUTION, the tool
+above its flutes and cuts into the model WARNING, material left NOTE.
 
 The view marks the events on the timeline in the color of their kind, with buttons to go to the
 previous and the next one; the task panel lists them (`CAMSim.GetEvents`,
@@ -252,6 +260,8 @@ around Z. This is the place to add machine specific kinematics.
   normals, 3 the dexels at a click.
 - `SimulatorStockOpacity`, `SimulatorModelOpacity` (float, 0 to 1, default 1): opacity of the
   stock (not with the stencil renderer) and of the model.
+- `SanitySimulation` (bool, default true): the Sanity Check report simulates the job and lists the
+  problems found, at `SanitySimulationQuality` (int, 1 to 10, default 5).
 
 ## Tests and benchmark
 

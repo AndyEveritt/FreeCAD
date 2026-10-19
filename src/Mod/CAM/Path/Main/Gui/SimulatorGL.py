@@ -27,8 +27,7 @@ Command and task window handler for the OpenGL based CAM simulator
 import os
 import FreeCAD
 import Path.Base.Util as PathUtil
-import Path.Dressup.Utils as PathDressup
-from Path.Main.SimulatorFeed import SimulatorFeed, commandText, toolProfile
+from Path.Main.SimulatorFeed import commandText, eventText, simulationSteps, toolProfile
 from PathScripts import PathUtils
 import CAMSimulator
 
@@ -71,33 +70,6 @@ EVENT_COLORS = {
     "gouge": (220, 30, 30),
     "left": (60, 120, 255),
 }
-
-
-def EventText(event, factor=1.0, unit="mm"):
-    """The text of a problem the simulation found, its sizes in a length unit of factor mm"""
-    x, y, z = (v / factor for v in event["position"])
-    where = "X%.2f Y%.2f Z%.2f" % (x, y, z)
-    if event["kind"] == "rapid":
-        volume = event["volume"] / factor**3
-        return QtCore.QT_TRANSLATE_NOOP(
-            "CAM_Simulator", "Rapid move into the stock, %.3g %s³ at %s"
-        ) % (volume, unit, where)
-    if event["kind"] == "shank":
-        return QtCore.QT_TRANSLATE_NOOP(
-            "CAM_Simulator", "Tool above its flutes meets the material at %s"
-        ) % where
-    # regions: the distance from the model is measured up to 1 mm
-    depth = event["depth"]
-    amount = ("%.3g %s" % (depth / factor, unit)) if depth < 0.98 else ("> %.3g %s" % (1 / factor, unit))
-    if event["kind"] == "gouge":
-        return QtCore.QT_TRANSLATE_NOOP(
-            "CAM_Simulator", "Cut into the model by %s at %s"
-        ) % (amount, where)
-    if event["kind"] == "left":
-        return QtCore.QT_TRANSLATE_NOOP(
-            "CAM_Simulator", "Material left, up to %s, at %s"
-        ) % (amount, where)
-    return where
 
 
 def PathColor(op):
@@ -482,30 +454,8 @@ class CAMSimulation:
             listOperations.setCurrentItem(None)
 
     def SimulationSteps(self, ops, stock, colors):
-        """SimulationSteps(ops, stock, colors) ... the calls that give ops to the
-        simulator, in order: ("command", cmd), ("operation", label, color) and
-        ("tool", profile, number, diameter, extras), extras the keyword arguments
-        of AddTool. colors are those of ops."""
-        feed = SimulatorFeed(stock.BoundBox)
-        for op, color in zip(ops, colors):
-            # an operation without a tool controller, a Custom one say, runs
-            # with the tool already in the spindle
-            tc = PathDressup.toolController(op)
-            profile, arcs = toolProfile(tc.Tool.Shape, 0.5) if tc is not None else (None, None)
-            toolLength = max(profile[1::2]) - min(profile[1::2]) if profile else None
-            retract, opCommands = feed.add(op, toolLength)
-            for cmd in retract:
-                yield ("command", cmd)
-            yield ("operation", op.Label, color)
-            if tc is not None:
-                extras = {"arcs": arcs}
-                # the simulator finds the tool above its flutes meeting the material
-                flutes = getattr(tc.Tool, "CuttingEdgeHeight", None)
-                if flutes is not None and float(getattr(flutes, "Value", flutes)) > 0:
-                    extras["flutes"] = float(getattr(flutes, "Value", flutes))
-                yield ("tool", profile, tc.ToolNumber, tc.Tool.Diameter, extras)
-            for cmd in opCommands:
-                yield ("command", cmd)
+        """SimulationSteps(ops, stock, colors) ... see simulationSteps in SimulatorFeed"""
+        return simulationSteps(ops, stock, colors)
 
     def SimPlay(self):
         """Activate the simulation"""
@@ -577,7 +527,7 @@ class CAMSimulation:
         form.listEvents.clear()
         factor, unit = self.units
         for event in self.millSim.GetEvents():
-            text = EventText(event, factor, unit)
+            text = eventText(event, factor, unit)
             op = event["operation"]
             if 0 <= op < len(self.operationLabels):
                 text = self.operationLabels[op] + ": " + text

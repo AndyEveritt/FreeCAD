@@ -26,6 +26,7 @@
 
 #include "GlUtils.h"
 #include "MaterialJob.h"
+#include "ToolpathCheck.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -41,38 +42,6 @@ using namespace std::literals;
 
 namespace CAMSimulator
 {
-
-// The motion from one position to the next, in double precision. Arcs (in the XY plane) as
-// MillPathSegment has them, which decides whether the motion is an arc.
-static Material::Segment MakeSegment(const MillMotion& from, const MillMotion& to, bool arc)
-{
-    Material::Segment cut;
-    cut.arc = arc;
-    cut.rapid = to.rapid;
-    cut.operation = to.operation;
-    cut.start[0] = from.x;
-    cut.start[1] = from.y;
-    cut.start[2] = from.z;
-    cut.end[0] = to.x;
-    cut.end[1] = to.y;
-    cut.end[2] = to.z;
-    if (arc) {
-        cut.center[0] = from.x + to.i;
-        cut.center[1] = from.y + to.j;
-        cut.radius = std::hypot(to.i, to.j);
-        const double direction = to.cmd == eRotateCCW ? -1 : 1;
-        cut.startAngle = std::atan2(cut.center[0] - from.x, from.y - cut.center[1]);
-        const double endAngle = std::atan2(cut.center[0] - to.x, to.y - cut.center[1]);
-        double sweep = (cut.startAngle - endAngle) * direction;
-        if (sweep < EPSILON) {
-            sweep += 2 * M_PI;
-        }
-        cut.sweep = -direction * sweep;
-    }
-    MotionToolAxis(from, cut.axis0);
-    MotionToolAxis(to, cut.axis1);
-    return cut;
-}
 
 MillSimulation::MillSimulation()
 {}
@@ -179,7 +148,7 @@ void MillSimulation::InitSimulation(float quality, float maxStockDimension)
                 millPathLine.MillPathPointsBuffer[p].Rapid = curMotion.rapid ? 1.0f : 0.0f;
             }
 
-            Material::Segment cut = MakeSegment(prevMotion, curMotion, segment->IsArc());
+            Material::Segment cut = MotionSegment(prevMotion, curMotion);
             cut.tool = curMotion.tool;  // tool id, replaced by the index when starting
             cut.steps = segment->numSimSteps;
             cut.sweepSteps = segment->SweepSteps();

@@ -88,6 +88,7 @@ class CAMSanity:
         data["designData"] = self._designData()
         data["toolData"] = self._toolData()
         data["runData"] = self._runData()
+        data["runData"]["squawkData"].extend(self._simulationSquawks())
         data["outputData"] = self._outputData()
         data["fixtureData"] = self._fixtureData()
         data["stockData"] = self._stockData()
@@ -119,6 +120,56 @@ class CAMSanity:
         }
 
         return squawk
+
+    def _simulationSquawks(self):
+        """The problems the CAM simulator finds by simulating the active operations of the job:
+        rapid moves into the stock, the tool above its flutes meeting the material, regions cut
+        into the model or left. Nothing without the simulator (CAMSimulator, a GUI module) or
+        with the preference SanitySimulation off."""
+        prefs = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/CAM")
+        if not prefs.GetBool("SanitySimulation", True):
+            return []
+        try:
+            import CAMSimulator
+            import Part
+            from Path.Main.SimulatorFeed import eventText, simulationSteps
+        except ImportError:
+            return []
+        if not hasattr(CAMSimulator, "checkToolpath"):
+            return []
+        job = self.job
+        ops = [op for op in job.Operations.OutList if PathUtil.opProperty(op, "Active")]
+        if not ops:
+            return []
+        try:
+            stock = job.Stock.Shape
+            shapes = [o.Shape for o in job.Model.OutList]
+            model = Part.makeCompound(shapes) if shapes else None
+            steps = list(simulationSteps(ops, stock, [None] * len(ops)))
+            events = CAMSimulator.checkToolpath(
+                steps,
+                stock,
+                model,
+                prefs.GetInt("SanitySimulationQuality", 5),
+                prefs.GetFloat("SimulatorDeviationTolerance", 0.05),
+            )
+        except Exception as e:
+            Path.Log.warning(f"Simulation of the job failed: {e}")
+            return []
+        # a crash, a broken tool or a damaged part, a part to finish
+        kinds = {"rapid": "CAUTION", "shank": "WARNING", "gouge": "WARNING", "left": "NOTE"}
+        squawks = []
+        for event in events:
+            op = event["operation"]
+            operator = ops[op].Label if 0 <= op < len(ops) else "CAM Simulator"
+            squawks.append(
+                self.squawk(
+                    operator,
+                    translate("CAM_Sanity", "Simulation: ") + eventText(event),
+                    squawkType=kinds.get(event["kind"], "NOTE"),
+                )
+            )
+        return squawks
 
     def _baseObjectData(self):
         data = {"baseimage": "", "bases": "", "squawkData": []}

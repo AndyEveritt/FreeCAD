@@ -36,6 +36,7 @@ import CAMTests.PathTestUtils as PathTestUtils
 from Path.Main.SimulatorFeed import (
     SimulatorFeed,
     commandText,
+    eventText,
     rotaryForAxis,
     toolAxis,
     toolProfile,
@@ -401,4 +402,17 @@ class TestPathSimulatorFeed(PathTestUtils.PathTestBase):
         # inches, inches per minute
         self.assertEqual(
             commandText(cmd, (25.4, 4), (25.4 / 60, 1), rotary=False), "G1 X1.0000 Y0.1000 Z0.0000 F59.1 S1000"
+        )
+
+    def test16(self):
+        """The text of the problems the simulator finds, sizes in a length unit."""
+        rapid = {"kind": "rapid", "position": (25.4, 0, -2.54), "volume": 25.4**3}
+        self.assertEqual(eventText(rapid), "Rapid move into the stock, 1.64e+04 mm³ at X25.40 Y0.00 Z-2.54")
+        self.assertEqual(eventText(rapid, 25.4, "in"), "Rapid move into the stock, 1 in³ at X1.00 Y0.00 Z-0.10")
+        gouge = {"kind": "gouge", "position": (1, 2, 3), "depth": 0.25, "count": 1}
+        self.assertEqual(eventText(gouge), "Cut into the model by 0.25 mm at X1.00 Y2.00 Z3.00")
+        # the distance is measured up to 1 mm
+        left = {"kind": "left", "position": (1, 2, 3), "depth": 1.0, "count": 3}
+        self.assertEqual(
+            eventText(left), "Material left in 3 places, the most over 1 mm at X1.00 Y2.00 Z3.00"
         )

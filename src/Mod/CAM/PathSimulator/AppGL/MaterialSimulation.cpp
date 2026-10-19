@@ -903,6 +903,7 @@ void Simulation::FindRegions()
         model = mModel;
         tolerance = mTolerance;
         mRegionsPending = false;
+        mFindingRegions = true;
         // the regions found for another model
         mEvents.erase(
             std::remove_if(
@@ -913,6 +914,19 @@ void Simulation::FindRegions()
             mEvents.end()
         );
     }
+    // done, for WaitEvents, however it ends
+    struct Done
+    {
+        Simulation* sim;
+        ~Done()
+        {
+            {
+                std::lock_guard<std::mutex> lock(sim->mMutex);
+                sim->mFindingRegions = false;
+            }
+            sim->mFrontierDone.notify_all();
+        }
+    } done {this};
     if (!model || model->Empty()) {
         return;
     }
@@ -925,6 +939,7 @@ void Simulation::FindRegions()
     {
         float p[3];
         float distance;
+        float spacing;  // of the samples around it
         int tag;
     };
     const Layout& layout = *mLayout;
@@ -968,6 +983,7 @@ void Simulation::FindRegions()
                             sample.p[k] = (float)(k == axis ? at : origin[k]);
                         }
                         sample.distance = model->SignedDistance(sample.p);
+                        sample.spacing = (float)(stride * cell);
                         sample.tag = TagOf(packed);
                         if (sample.distance < -tolerance
                             || (sample.distance > tolerance && sample.distance < 0.98f * range)) {
@@ -983,7 +999,9 @@ void Simulation::FindRegions()
         samples.insert(samples.end(), f.begin(), f.end());
     }
 
-    // regions: the samples of a kind in cells of a hash, joined to their 26 neighbors
+    // regions: the samples of a kind in cells of a hash, joined to the cells within 2.5 times the
+    // spacing of their samples, so neighboring samples touch where the cells of the simulation
+    // are coarse, and regions apart stay apart where they are fine
     const double hashCell = 4 * RegionSpacing;
     auto keyOf = [](long x, long y, long z) {
         return ((uint64_t)(x & 0x1FFFFF)) | ((uint64_t)(y & 0x1FFFFF) << 21)
@@ -1005,6 +1023,13 @@ void Simulation::FindRegions()
                 .push_back(i);
         }
         std::unordered_map<uint64_t, bool> seen;
+        auto reachOf = [&](const std::vector<int>& in) {
+            float spacing = 0;
+            for (int i : in) {
+                spacing = std::max(spacing, samples[i].spacing);
+            }
+            return std::max(1L, (long)std::ceil(2.5 * spacing / hashCell));
+        };
         for (const auto& [start, _] : cells) {
             if (seen[start]) {
                 continue;
@@ -1021,9 +1046,10 @@ void Simulation::FindRegions()
                 const long cx = (long)std::floor(s.p[0] / hashCell),
                            cy = (long)std::floor(s.p[1] / hashCell),
                            cz = (long)std::floor(s.p[2] / hashCell);
-                for (long dz = -1; dz <= 1; dz++) {
-                    for (long dy = -1; dy <= 1; dy++) {
-                        for (long dx = -1; dx <= 1; dx++) {
+                const long reach = reachOf(in);
+                for (long dz = -reach; dz <= reach; dz++) {
+                    for (long dy = -reach; dy <= reach; dy++) {
+                        for (long dx = -reach; dx <= reach; dx++) {
                             const uint64_t k = keyOf(cx + dx, cy + dy, cz + dz);
                             if (cells.count(k) && !seen[k]) {
                                 seen[k] = true;
@@ -1065,12 +1091,41 @@ void Simulation::FindRegions()
             regions.push_back(e);
         }
     }
-    // in the order of the operations, larger first
-    std::sort(regions.begin(), regions.end(), [](const Event& a, const Event& b) {
-        return a.operation != b.operation ? a.operation < b.operation : a.depth > b.depth;
+    // the regions of one kind and operation make one event, at the deepest one, with the box of
+    // all of them: a finish leaving scallops above the tolerance is one problem, not many
+    std::vector<Event> merged;
+    for (const Event& r : regions) {
+        auto it = std::find_if(merged.begin(), merged.end(), [&](const Event& m) {
+            return m.kind == r.kind && m.operation == r.operation;
+        });
+        if (it == merged.end()) {
+            merged.push_back(r);
+            continue;
+        }
+        if (r.depth > it->depth) {
+            std::copy(r.position, r.position + 3, it->position);
+            it->depth = r.depth;
+        }
+        for (int k = 0; k < 3; k++) {
+            it->lo[k] = std::min(it->lo[k], r.lo[k]);
+            it->hi[k] = std::max(it->hi[k], r.hi[k]);
+        }
+        it->count++;
+    }
+    // in the order of the operations
+    std::sort(merged.begin(), merged.end(), [](const Event& a, const Event& b) {
+        return a.operation != b.operation ? a.operation < b.operation : a.kind < b.kind;
     });
     std::lock_guard<std::mutex> lock(mMutex);
-    mEvents.insert(mEvents.end(), regions.begin(), regions.end());
+    mEvents.insert(mEvents.end(), merged.begin(), merged.end());
+}
+
+void Simulation::WaitEvents() const
+{
+    std::unique_lock<std::mutex> lock(mMutex);
+    mFrontierDone.wait(lock, [&] {
+        return mFrontierStep >= TotalSteps() && !mRegionsPending && !mFindingRegions;
+    });
 }
 
 std::vector<Event> Simulation::Events() const

@@ -18,6 +18,7 @@
 #include <Mod/CAM/PathSimulator/AppGL/MaterialSimulation.h>
 #include <Mod/CAM/PathSimulator/AppGL/MaterialTool.h>
 #include <Mod/CAM/PathSimulator/AppGL/ThreadPool.h>
+#include <Mod/CAM/PathSimulator/AppGL/ToolpathCheck.h>
 
 #include "MaterialTestTools.h"
 
@@ -705,6 +706,43 @@ TEST(MaterialSimulation, regionsCutIntoTheModelOrLeftAreFound)
     }
     ASSERT_EQ(events.size(), 1u);
     EXPECT_EQ(events[0].kind, Event::Gouge);
+}
+
+TEST(MaterialSimulation, toolpathsAreCheckedWithoutAView)
+{
+    // the commands of a toolpath as the simulator is given them: a rapid into the stock, and a cut
+    // into the model 1 mm below the top
+    CAMSimulator::ToolpathCheck check;
+    check.BeginOperation();
+    check.AddTool(3, FlatProfile(2), {}, 0);
+    check.AddCommand("G0", {{"X", -5}, {"Y", 5}, {"Z", 5}});
+    check.AddCommand("G0", {{"Z", -0.5}});
+    check.AddCommand("G0", {{"X", 45}});  // command 2
+    check.BeginOperation();
+    check.AddCommand("G0", {{"Y", 15}, {"Z", 5}});
+    check.AddCommand("G1", {{"Z", -1.6}});
+    check.AddCommand("G1", {{"X", -5}});
+    const double lo[3] = {0, 0, -10}, hi[3] = {40, 20, 0};
+    std::vector<float> xyz, modelXyz;
+    std::vector<uint32_t> triangles, modelTriangles;
+    MakeBox(lo, hi, xyz, triangles);
+    const double modelHi[3] = {40, 20, -1};
+    MakeBox(lo, modelHi, modelXyz, modelTriangles);
+    check.SetStock(xyz, triangles);
+    check.SetModel(std::make_shared<ModelDistance>(modelXyz, modelTriangles, 1.0f), 0.05);
+    const auto found = check.Run(6);
+    ASSERT_GE(found.size(), 2u);
+    EXPECT_EQ(found[0].event.kind, Event::RapidIntoStock);
+    EXPECT_EQ(found[0].command, 2);
+    EXPECT_EQ(found[0].event.operation, 0);
+    // the gouge of the second operation, the rapid's cut is within the model's top
+    const auto gouge = std::find_if(found.begin(), found.end(), [](const auto& f) {
+        return f.event.kind == Event::Gouge;
+    });
+    ASSERT_NE(gouge, found.end());
+    EXPECT_EQ(gouge->event.operation, 1);
+    EXPECT_EQ(gouge->command, -1);
+    EXPECT_NEAR(gouge->event.depth, 0.6, 0.03);
 }
 
 TEST(MaterialSimulation, seeksMatchTheWholePath)

@@ -148,8 +148,9 @@ class CAMSim(BaseClass):
         away from the model), step (on the timeline: where it starts, where the operation that cut
         a region is done), command (the index of the command where it starts, -1 for none),
         operation (its index, -1 for none), volume (of the material met, mm3), position (its
-        centroid), depth (regions: the largest distance from the model, mm) and box (regions:
-        (lo, hi)).
+        centroid, regions: of the deepest one), depth (regions: the largest distance from the
+        model, mm), box (regions: (lo, hi)) and count (the regions of one kind and operation make
+        one problem, their number).
         """
         ...
 

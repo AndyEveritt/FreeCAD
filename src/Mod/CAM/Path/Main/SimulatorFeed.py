@@ -58,6 +58,8 @@ from FreeCAD import Vector
 import Constants
 import Path.Base.Util as PathUtil
 
+translate = FreeCAD.Qt.translate
+
 # the most a swing around the stock turns in one move, so its chords stay clear
 _SWING_STEP = math.radians(15)
 # how far from a vertical plane a work plane is still treated as one, so that
@@ -460,6 +462,70 @@ def commandText(cmd, length=(1.0, 3), velocity=(1.0, 1), rotary=True):
             number = number.lstrip("-")  # no -0.000
         text.append(letter + number)
     return " ".join(text)
+
+
+def simulationSteps(ops, stock, colors):
+    """simulationSteps(ops, stock, colors) ... the calls that give ops to the
+    simulator, in order: ("command", cmd), ("operation", label, color) and
+    ("tool", profile, number, diameter, extras), extras the keyword arguments
+    of AddTool. colors are those of ops."""
+    import Path.Dressup.Utils as PathDressup
+
+    feed = SimulatorFeed(stock.BoundBox)
+    for op, color in zip(ops, colors):
+        # an operation without a tool controller, a Custom one say, runs
+        # with the tool already in the spindle
+        tc = PathDressup.toolController(op)
+        profile, arcs = toolProfile(tc.Tool.Shape, 0.5) if tc is not None else (None, None)
+        toolLength = max(profile[1::2]) - min(profile[1::2]) if profile else None
+        retract, opCommands = feed.add(op, toolLength)
+        for cmd in retract:
+            yield ("command", cmd)
+        yield ("operation", op.Label, color)
+        if tc is not None:
+            extras = {"arcs": arcs}
+            # the simulator finds the tool above its flutes meeting the material
+            flutes = getattr(tc.Tool, "CuttingEdgeHeight", None)
+            if flutes is not None and float(getattr(flutes, "Value", flutes)) > 0:
+                extras["flutes"] = float(getattr(flutes, "Value", flutes))
+            yield ("tool", profile, tc.ToolNumber, tc.Tool.Diameter, extras)
+        for cmd in opCommands:
+            yield ("command", cmd)
+
+
+def eventText(event, factor=1.0, unit="mm"):
+    """The text of a problem the simulation found, its sizes in a length unit of factor mm"""
+    x, y, z = (v / factor for v in event["position"])
+    where = "X%.2f Y%.2f Z%.2f" % (x, y, z)
+    if event["kind"] == "rapid":
+        volume = event["volume"] / factor**3
+        return translate(
+            "CAM_Simulator", "Rapid move into the stock, %.3g %s³ at %s"
+        ) % (volume, unit, where)
+    if event["kind"] == "shank":
+        return translate(
+            "CAM_Simulator", "Tool above its flutes meets the material at %s"
+        ) % where
+    # regions: the distance from the model is measured up to 1 mm
+    depth = event["depth"]
+    if depth < 0.98:
+        amount = "%.3g %s" % (depth / factor, unit)
+    else:
+        amount = translate("CAM_Simulator", "over %.3g %s") % (1 / factor, unit)
+    count = event.get("count", 1)
+    if event["kind"] == "gouge":
+        if count > 1:
+            return translate(
+                "CAM_Simulator", "Cut into the model in %d places, the deepest by %s at %s"
+            ) % (count, amount, where)
+        return translate("CAM_Simulator", "Cut into the model by %s at %s") % (amount, where)
+    if event["kind"] == "left":
+        if count > 1:
+            return translate(
+                "CAM_Simulator", "Material left in %d places, the most %s at %s"
+            ) % (count, amount, where)
+        return translate("CAM_Simulator", "Material left, %s, at %s") % (amount, where)
+    return where
 
 
 def _slerp(d0, d1, angle, t):

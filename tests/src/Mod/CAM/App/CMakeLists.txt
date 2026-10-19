@@ -13,6 +13,7 @@ add_library(CAMSimulatorAccuracy STATIC
     ${CAMSimulatorEngine_DIR}/MaterialSimulation.cpp
     ${CAMSimulatorEngine_DIR}/MaterialTool.cpp
     ${CAMSimulatorEngine_DIR}/ThreadPool.cpp
+    ${CAMSimulatorEngine_DIR}/ToolpathCheck.cpp
 )
 target_include_directories(CAMSimulatorAccuracy PUBLIC ${CMAKE_SOURCE_DIR}/src)
 find_package(Threads REQUIRED)

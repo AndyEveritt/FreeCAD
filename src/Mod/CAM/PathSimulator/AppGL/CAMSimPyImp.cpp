@@ -373,6 +373,7 @@ PyObject* CAMSimPy::GetEvents()
         d.setItem("operation", Py::Long(e.event.operation));
         d.setItem("volume", Py::Float(e.event.volume));
         d.setItem("depth", Py::Float(e.event.depth));
+        d.setItem("count", Py::Long(e.event.count));
         d.setItem(
             "box",
             Py::TupleN(

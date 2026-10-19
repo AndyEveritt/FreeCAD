@@ -88,10 +88,12 @@ struct Event
     int operation = -1;              // regions: the operation that cut most of it
     double volume = 0;               // of the material met, mm3
     double position[3] = {0, 0, 0};  // the centroid of the material met or of the region
-    // regions: the largest distance from the model, mm, and the box of the region
+    // regions: the largest distance from the model, mm, the box of the regions, and their
+    // number: the regions of one kind and operation make one event, at the deepest one
     double depth = 0;
     double lo[3] = {0, 0, 0};
     double hi[3] = {0, 0, 0};
+    int count = 1;
 };
 
 class ModelDistance;
@@ -185,6 +187,8 @@ public:
     // Blocks until the frontier reached the end (tests, benchmarks)
     void WaitFrontier() const;
 
+    // Blocks until the frontier reached the end and the regions of the model are found
+    void WaitEvents() const;
     // The problems found on the path up to the frontier, in the order of the path
     std::vector<Event> Events() const;
     // Count of the events, changes as they are found
@@ -286,6 +290,7 @@ private:
     std::shared_ptr<const ModelDistance> mModel;
     double mTolerance = 0.05;
     bool mRegionsPending = false;
+    bool mFindingRegions = false;
 };
 
 }  // namespace CAMSimulator::Material

@@ -77,6 +77,8 @@ SET(CAMSimulator_SRCS_Core
     TextureLoader.h
     ThreadPool.cpp
     ThreadPool.h
+    ToolpathCheck.cpp
+    ToolpathCheck.h
     ViewCAMSimulator.cpp
     ViewCAMSimulator.h
     Dummy3DViewer.cpp
