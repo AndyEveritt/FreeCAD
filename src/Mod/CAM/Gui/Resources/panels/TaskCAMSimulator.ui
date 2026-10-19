@@ -444,6 +444,66 @@
         </property>
        </widget>
       </item>
+      <item row="7" column="0">
+       <widget class="QLabel" name="labelSection">
+        <property name="text">
+         <string>Section</string>
+        </property>
+       </widget>
+      </item>
+      <item row="7" column="1">
+       <widget class="QComboBox" name="sectionAxis">
+        <property name="toolTip">
+         <string>Cut the stock and the model by a plane across an axis, to see inside</string>
+        </property>
+        <item>
+         <property name="text">
+          <string>None</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Across X</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Across Y</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Across Z</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item row="8" column="0">
+       <widget class="QCheckBox" name="sectionFlip">
+        <property name="toolTip">
+         <string>Keep the other side of the section</string>
+        </property>
+        <property name="text">
+         <string>Flip</string>
+        </property>
+       </widget>
+      </item>
+      <item row="8" column="1">
+       <widget class="QSlider" name="sectionPosition">
+        <property name="toolTip">
+         <string>Where the section is, across the stock</string>
+        </property>
+        <property name="maximum">
+         <number>1000</number>
+        </property>
+        <property name="value">
+         <number>500</number>
+        </property>
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+       </widget>
+      </item>
      </layout>
     </widget>
    </item>

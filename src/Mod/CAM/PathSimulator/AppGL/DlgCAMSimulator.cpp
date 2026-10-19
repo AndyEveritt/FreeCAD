@@ -657,6 +657,12 @@ void DlgCAMSimulator::setOriginVisible(bool visible)
     update();
 }
 
+void DlgCAMSimulator::setSection(int axis, float position, bool flip)
+{
+    mMillSimulator->SetSection(axis, position, flip);
+    update();
+}
+
 void DlgCAMSimulator::setInspect(int mode)
 {
     mMillSimulator->SetInspect(mode);

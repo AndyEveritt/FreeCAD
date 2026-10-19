@@ -158,6 +158,8 @@ public:
     void setOutlines(bool enabled);
     // the origin of the job and its axes
     void setOriginVisible(bool visible);
+    // a section of the stock and the model, see MillSimulation::SetSection
+    void setSection(int axis, float position, bool flip);
     // lines over the stock to inspect it, see MillSimulation::SetInspect
     void setInspect(int mode);
     // opacity of the stock and the model, from 0 to 1

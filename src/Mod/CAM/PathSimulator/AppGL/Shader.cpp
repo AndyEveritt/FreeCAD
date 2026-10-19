@@ -519,10 +519,16 @@ const char* FragShaderGeom = R"(
     uniform bool twoSided;
     uniform sampler2D peelDepth;
     uniform vec2 screenSize;
+    // the section: objects keep the side of the plane (view space) where dot(n, p) <= d
+    uniform bool sectioned;
+    uniform vec4 sectionPlane;
 
     void main()
     {
         if (peel && gl_FragCoord.z <= texture2D(peelDepth, gl_FragCoord.xy / screenSize).r) {
+            discard;
+        }
+        if (sectioned && dot(sectionPlane.xyz, Position) > sectionPlane.w) {
             discard;
         }
         vec3 normal = normalize(Normal);
@@ -613,6 +619,9 @@ const char* FragShaderStock = R"(
     uniform bool twoSided;
     uniform sampler2D peelDepth;
     uniform vec2 screenSize;
+    // the section: objects keep the side of the plane (view space) where dot(n, p) <= d
+    uniform bool sectioned;
+    uniform vec4 sectionPlane;
 
     void main()
     {
@@ -621,6 +630,9 @@ const char* FragShaderStock = R"(
         }
         vec3 color = deviationMode ? deviationColor(Deviation)
             : (Thickness < thinThreshold ? thinColor : Color);
+        if (sectioned && dot(sectionPlane.xyz, Position) > sectionPlane.w) {
+            discard;
+        }
         vec3 normal = normalize(Normal);
         gl_FragData[0] = vec4(color, opacity);
         // the stock and the operation of the face, for picking

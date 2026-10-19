@@ -137,6 +137,22 @@ public:
 
     void SetPathColor(const vec3& normal, const vec3& rapid);
 
+    // The section plane, world coordinates: the objects drawn while sectionOn keep the side of
+    // it where dot(normal, p) <= offset
+    void SetSection(bool enabled, const vec3& normal, float offset);
+    bool SectionEnabled() const
+    {
+        return mSectionEnabled;
+    }
+    bool sectionOn = false;
+    // The cap of a closed object cut by the section: draw the object (sectionOn) between
+    // BeginSectionStencil and DrawSectionCap. The stencil counts the surfaces along the lines of
+    // sight, odd where the plane is inside the object: the cap is drawn there, a quad on the plane
+    // across the box lo, hi, as the stock (picked as uncut stock) or as another object. The cap of
+    // an object drawn later shows over an earlier one at the same depth.
+    void BeginSectionStencil();
+    void DrawSectionCap(bool stock, const vec3& color, const float lo[3], const float hi[3]);
+
     // The object at a pixel of the view (from the bottom left) in the next frame, which is drawn
     // completely; TakePick gives it after that frame
     void RequestPick(int x, int y);
@@ -237,6 +253,10 @@ protected:
     float mOpacity = 1;
     void ComposeTransparentLayer();
     PickResult mPick;
+    bool mSectionEnabled = false;
+    vec3 mSectionNormal = {0, 0, 1};
+    float mSectionOffset = 0;
+    unsigned int mCapVbo = 0;
     void ReadPick(unsigned int fbo, bool transparent);
 
     unsigned int mFbo = 0;

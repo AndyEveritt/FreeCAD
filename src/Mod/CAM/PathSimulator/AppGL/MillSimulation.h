@@ -188,6 +188,9 @@ public:
     void EnableSsao(bool b);
     // The origin of the job (of the workpiece coordinates) and its axes
     void SetOriginVisible(bool b);
+    // A section of the stock and the model across an axis (0 X, 1 Y, 2 Z, -1 for none), at a
+    // fraction of the box of the stock along it: the side below is kept, the side above with flip
+    void SetSection(int axis, float position, bool flip);
 
     // Cut faces in the color of their operation
     void SetColorByOperation(bool b);
@@ -299,6 +302,12 @@ protected:
     float mBaseOpacity = 1;
     float mThinThreshold = 0.5f;
     bool mOriginVisible = true;
+    int mSectionAxis = -1;
+    float mSectionPosition = 0.5f;
+    bool mSectionFlip = false;
+    void ApplySection();
+    // the box of the stock
+    void StockBox(float lo[3], float hi[3]) const;
     unsigned int mOriginVbo = 0;
     float mOriginLength = 0;  // of the axes in mOriginVbo
 

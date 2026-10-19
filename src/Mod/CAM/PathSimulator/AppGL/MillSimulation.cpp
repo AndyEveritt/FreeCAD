@@ -696,9 +696,21 @@ void MillSimulation::RenderBaseShape()
     // the colors of its operations are shown, the model only where the stock is cut deeper
     glPolygonOffset(1, 4);
     glEnable(GL_POLYGON_OFFSET_FILL);
+    // the section cuts the model too, its cap over the stock's, so it shows in it
+    simDisplay.sectionOn = true;
     simDisplay.StartGeometryPass(baseShapeColor, false);
     mBaseShape.render();
     glDisable(GL_POLYGON_OFFSET_FILL);
+    if (simDisplay.SectionEnabled()) {
+        simDisplay.BeginSectionStencil();
+        simDisplay.StartGeometryPass(baseShapeColor, false);
+        mBaseShape.render();
+        const vec3 cap = {baseShapeColor[0] * 0.8f, baseShapeColor[1] * 0.8f, baseShapeColor[2] * 0.8f};
+        float lo[3], hi[3];
+        StockBox(lo, hi);
+        simDisplay.DrawSectionCap(false, cap, lo, hi);
+    }
+    simDisplay.sectionOn = false;
 }
 
 // The axes of the origin, a fifth of the size of the stock long, X red, Y green, Z blue
@@ -928,6 +940,7 @@ void MillSimulation::SetArbitraryStock(
     }
     mStockTriangles.assign(indices.begin(), indices.end());
     mMaterialNeedsStart = true;
+    ApplySection();
 }
 
 void MillSimulation::SetStockVisible(bool b)
@@ -985,6 +998,46 @@ void MillSimulation::SetPathVisible(bool b)
     }
 
     mViewPath = b;
+    simDisplay.updateDisplay = true;
+}
+
+void MillSimulation::SetSection(int axis, float position, bool flip)
+{
+    mSectionAxis = axis >= 0 && axis < 3 ? axis : -1;
+    mSectionPosition = std::clamp(position, 0.0f, 1.0f);
+    mSectionFlip = flip;
+    ApplySection();
+}
+
+void MillSimulation::StockBox(float lo[3], float hi[3]) const
+{
+    for (int k = 0; k < 3; k++) {
+        lo[k] = 1e30f;
+        hi[k] = -1e30f;
+        for (size_t i = k; i < mStockXyz.size(); i += 3) {
+            lo[k] = std::min(lo[k], mStockXyz[i]);
+            hi[k] = std::max(hi[k], mStockXyz[i]);
+        }
+    }
+}
+
+// the plane of the section in the box of the stock
+void MillSimulation::ApplySection()
+{
+    vec3 normal = {0, 0, 0};
+    float offset = 0;
+    if (mSectionAxis >= 0 && !mStockXyz.empty()) {
+        float lo = 1e30f, hi = -1e30f;
+        for (size_t i = mSectionAxis; i < mStockXyz.size(); i += 3) {
+            lo = std::min(lo, mStockXyz[i]);
+            hi = std::max(hi, mStockXyz[i]);
+        }
+        const float at = lo + mSectionPosition * (hi - lo);
+        const float sign = mSectionFlip ? -1.0f : 1.0f;
+        normal[mSectionAxis] = sign;
+        offset = sign * at;
+    }
+    simDisplay.SetSection(mSectionAxis >= 0 && !mStockXyz.empty(), normal, offset);
     simDisplay.updateDisplay = true;
 }
 
@@ -1433,7 +1486,18 @@ void MillSimulation::RenderMaterialStock()
         return;
     }
     if (mMaterial) {
+        // the section cuts the stock, its cap in a darker stock color
+        simDisplay.sectionOn = true;
         mMaterial->Render(simDisplay, stockColor, cutColor, mColoring);
+        if (simDisplay.SectionEnabled()) {
+            simDisplay.BeginSectionStencil();
+            mMaterial->Render(simDisplay, stockColor, cutColor, mColoring);
+            const vec3 cap = {stockColor[0] * 0.75f, stockColor[1] * 0.75f, stockColor[2] * 0.75f};
+            float lo[3], hi[3];
+            StockBox(lo, hi);
+            simDisplay.DrawSectionCap(true, cap, lo, hi);
+        }
+        simDisplay.sectionOn = false;
     }
 }
 

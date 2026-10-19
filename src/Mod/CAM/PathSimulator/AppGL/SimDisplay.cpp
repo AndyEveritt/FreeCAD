@@ -413,6 +413,7 @@ void SimDisplay::CleanGL()
 
     // cleanup geometry
     GLDELETE_BUFFER(mFboQuadVBO);
+    GLDELETE_BUFFER(mCapVbo);
 
     GLDELETE_TEXTURE(mOperationColorTexture);
     mOperationColors.clear();
@@ -619,12 +620,111 @@ void SimDisplay::SetPeelState(unsigned int shaderId)
     glUniform1i(glGetUniformLocation(shaderId, "twoSided"), mLayer >= 0 ? 1 : 0);
     glUniform1i(glGetUniformLocation(shaderId, "peelDepth"), 6);
     glUniform2f(glGetUniformLocation(shaderId, "screenSize"), (float)mWidth, (float)mHeight);
-    if (mLayer >= 0) {
+    // the section: the plane in view space, the back faces drawn for the caps
+    const bool sectioned = mSectionEnabled && sectionOn;
+    glUniform1i(glGetUniformLocation(shaderId, "sectioned"), sectioned ? 1 : 0);
+    if (sectioned) {
+        vec4 n = {mSectionNormal[0], mSectionNormal[1], mSectionNormal[2], 0};
+        vec4 p = {
+            mSectionNormal[0] * mSectionOffset,
+            mSectionNormal[1] * mSectionOffset,
+            mSectionNormal[2] * mSectionOffset,
+            1
+        };
+        vec4 nv, pv;
+        mat4x4_mul_vec4(nv, mMatLookAt, n);
+        mat4x4_mul_vec4(pv, mMatLookAt, p);
+        const float d = nv[0] * pv[0] + nv[1] * pv[1] + nv[2] * pv[2];
+        const float plane[4] = {nv[0], nv[1], nv[2], d};
+        glUniform4fv(glGetUniformLocation(shaderId, "sectionPlane"), 1, plane);
+    }
+    if (mLayer >= 0 || sectioned) {
         glDisable(GL_CULL_FACE);
     }
     else {
         glEnable(GL_CULL_FACE);
     }
+}
+
+void SimDisplay::SetSection(bool enabled, const vec3& normal, float offset)
+{
+    mSectionEnabled = enabled;
+    std::copy(normal, normal + 3, mSectionNormal);
+    mSectionOffset = offset;
+}
+
+void SimDisplay::BeginSectionStencil()
+{
+    glBindFramebuffer(GL_FRAMEBUFFER, mTargetFbo);
+    glClearStencil(0);
+    glClear(GL_STENCIL_BUFFER_BIT);
+    glEnable(GL_STENCIL_TEST);
+    glStencilFunc(GL_ALWAYS, 0, 1);
+    glStencilOp(GL_KEEP, GL_KEEP, GL_INVERT);
+    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+    glDepthMask(GL_FALSE);
+    glDepthFunc(GL_ALWAYS);
+}
+
+void SimDisplay::DrawSectionCap(bool stock, const vec3& color, const float lo[3], const float hi[3])
+{
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glDepthMask(GL_TRUE);
+    glDepthFunc(GL_LEQUAL);
+    glStencilFunc(GL_EQUAL, 1, 1);
+    glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+
+    // the quad on the plane across the box, facing the cut side
+    int axis = 0;
+    for (int k = 1; k < 3; k++) {
+        if (std::abs(mSectionNormal[k]) > std::abs(mSectionNormal[axis])) {
+            axis = k;
+        }
+    }
+    const int u = (axis + 1) % 3, v = (axis + 2) % 3;
+    const float at = mSectionOffset / mSectionNormal[axis];
+    float quad[6][6];
+    const float corners[6][2] = {{0, 0}, {1, 0}, {1, 1}, {0, 0}, {1, 1}, {0, 1}};
+    for (int i = 0; i < 6; i++) {
+        quad[i][axis] = at;
+        quad[i][u] = corners[i][0] ? hi[u] + 1 : lo[u] - 1;
+        quad[i][v] = corners[i][1] ? hi[v] + 1 : lo[v] - 1;
+        for (int k = 0; k < 3; k++) {
+            quad[i][3 + k] = mSectionNormal[k];
+        }
+    }
+    if (mCapVbo == 0) {
+        glGenBuffers(1, &mCapVbo);
+    }
+    glBindBuffer(GL_ARRAY_BUFFER, mCapVbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_DYNAMIC_DRAW);
+
+    const bool wasOn = sectionOn;
+    sectionOn = false;
+    if (stock) {
+        StartStockGeometryPass(color, StockColoring());
+    }
+    else {
+        StartGeometryPass(color, false);
+    }
+    sectionOn = wasOn;
+    mat4x4 identity;
+    mat4x4_identity(identity);
+    (stock ? shaderStock : shaderGeom).UpdateModelMat(identity, identity);
+    glDisable(GL_CULL_FACE);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+    for (int a = 2; a < 5; a++) {
+        glDisableVertexAttribArray(a);
+    }
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+    glDisable(GL_STENCIL_TEST);
+    glDepthFunc(GL_LESS);
+    glEnable(GL_CULL_FACE);
 }
 
 void SimDisplay::StartStockGeometryPass(const vec3& objColor, const StockColoring& coloring)

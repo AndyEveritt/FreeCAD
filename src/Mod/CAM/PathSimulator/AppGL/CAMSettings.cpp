@@ -57,6 +57,7 @@ void CAMSettings::applySettings()
     OnChange(*hGrp, "SimulatorOutlines");
     OnChange(*hGrp, "SimulatorOriginVisible");
     OnChange(*hGrp, "SimulatorRapidRate");
+    OnChange(*hGrp, "SimulatorSection");
     OnChange(*hGrp, "SimulatorStockOpacity");
 }
 
@@ -98,6 +99,17 @@ void CAMSettings::OnChange(ParameterGrp::SubjectType& rCaller, ParameterGrp::Mes
     }
     else if (Reason == "SimulatorOutlines"sv) {
         mDlg.setOutlines(hGrp->GetBool("SimulatorOutlines", true));
+    }
+    else if (
+        Reason == "SimulatorSection"sv || Reason == "SimulatorSectionPosition"sv
+        || Reason == "SimulatorSectionFlip"sv
+    ) {
+        // 0 none, 1 X, 2 Y, 3 Z
+        mDlg.setSection(
+            (int)hGrp->GetInt("SimulatorSection", 0) - 1,
+            (float)hGrp->GetFloat("SimulatorSectionPosition", 0.5),
+            hGrp->GetBool("SimulatorSectionFlip", false)
+        );
     }
     else if (Reason == "SimulatorRapidRate"sv) {
         // mm/min, of tools without a rapid rate

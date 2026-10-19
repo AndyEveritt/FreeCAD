@@ -157,7 +157,12 @@ scrubbing cut the view grid without measuring, they cost nothing more.
   fold by more than about 40 degrees, step far off the plane of each other, and at the background.
   The
   toolpath is drawn a few pixels closer to the camera than it is, so a path on the surface of the
-  stock, like the bottom of a ball end mill groove, is not hidden by it. Rapid moves (G0) are drawn in the
+  stock, like the bottom of a ball end mill groove, is not hidden by it. A section across an axis cuts the stock and the model
+  (`SimDisplay::SetSection`): their shaders discard the side of the plane, and their caps are drawn
+  where the plane is inside them: drawn again into the stencil only, inverted at every surface,
+  odd where the plane is inside, a quad on the plane is drawn there (the stencil method; the model's
+  cap after the stock's, at the same depth it shows in it). The stock's cap is picked as uncut
+  stock. Rapid moves (G0) are drawn in the
   rapid color of the preferences (`DefaultRapidPathColor`), faint once passed. The path is drawn
   as separate lines (`MillPathLine`), each with the segment and the rapid flag of its end. The
   origin of the job is drawn
@@ -273,6 +278,9 @@ around Z. This is the place to add machine specific kinematics.
   normals, 3 the dexels at a click.
 - `SimulatorStockOpacity`, `SimulatorModelOpacity` (float, 0 to 1, default 1): opacity of the
   stock (not with the stencil renderer) and of the model.
+- `SimulatorSection` (int, default 0): a section of the stock and the model, 0 none, 1 across X,
+  2 across Y, 3 across Z, at `SimulatorSectionPosition` (float, 0 to 1 across the box of the stock,
+  default 0.5), the side below kept, the side above with `SimulatorSectionFlip` (bool).
 - `SimulatorRapidRate` (float, mm/min, default 5000): the rapid rate of tool controllers
   without one, for the time of the machine.
 - `SanitySimulation` (bool, default true): the Sanity Check report simulates the job and lists the

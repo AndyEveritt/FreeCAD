@@ -224,6 +224,13 @@ class CAMSimulation:
         form.outlines.toggled.connect(self.onOutlinesChange)
         form.originVisible.setChecked(prefs.GetBool("SimulatorOriginVisible", True))
         form.originVisible.toggled.connect(self.onOriginChange)
+        form.sectionAxis.setCurrentIndex(prefs.GetInt("SimulatorSection", 0))
+        form.sectionPosition.setValue(round(1000 * prefs.GetFloat("SimulatorSectionPosition", 0.5)))
+        form.sectionFlip.setChecked(prefs.GetBool("SimulatorSectionFlip", False))
+        form.sectionAxis.currentIndexChanged.connect(self.onSectionChange)
+        form.sectionPosition.valueChanged.connect(self.onSectionChange)
+        form.sectionFlip.toggled.connect(self.onSectionChange)
+        self.onSectionChange()
         form.stockVisible.setChecked(prefs.GetBool("SimulatorStockVisible", True))
         form.modelVisible.setChecked(prefs.GetBool("SimulatorModelVisible", False))
         form.stockVisible.toggled.connect(self.onVisibilityChange)
@@ -385,6 +392,17 @@ class CAMSimulation:
         """Dark lines at the edges of the stock and the model"""
         prefs = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/CAM")
         prefs.SetBool("SimulatorOutlines", self.taskForm.form.outlines.isChecked())
+
+    def onSectionChange(self, *_args):
+        """A section of the stock and the model across an axis, where and which side"""
+        form = self.taskForm.form
+        prefs = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/CAM")
+        axis = form.sectionAxis.currentIndex()
+        form.sectionPosition.setEnabled(axis > 0)
+        form.sectionFlip.setEnabled(axis > 0)
+        prefs.SetFloat("SimulatorSectionPosition", form.sectionPosition.value() / 1000.0)
+        prefs.SetBool("SimulatorSectionFlip", form.sectionFlip.isChecked())
+        prefs.SetInt("SimulatorSection", axis)
 
     def onOriginChange(self, *_args):
         """The origin of the job and its axes in the simulator view"""
