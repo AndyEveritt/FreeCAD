@@ -718,12 +718,12 @@ void DlgCAMSimulator::setOpacity(float stock, float model)
     update();
 }
 
-void DlgCAMSimulator::setDeviation(bool enabled, float tolerance)
+void DlgCAMSimulator::setDeviation(bool enabled, float tolerance, int show)
 {
     mDeviation = enabled;
-    mMillSimulator->SetDeviation(enabled, tolerance);
+    mMillSimulator->SetDeviation(enabled, tolerance, show);
     if (mGui) {
-        mGui->setDeviationScale(enabled, tolerance);
+        mGui->setDeviationScale(enabled, tolerance, show);
     }
     if (enabled && mDeviationModelGeneration != mDeviationGeneration) {
         startDeviationModel();
@@ -961,7 +961,8 @@ std::vector<double> DlgCAMSimulator::takeFrameTimes()
 
 bool DlgCAMSimulator::isRenderPending() const
 {
-    return mMillSimulator->IsRenderPending();
+    // the colors by the distance wait for the model, made in another thread
+    return mMillSimulator->IsRenderPending() || (mDeviation && mDeviationModel.valid());
 }
 
 std::map<std::string, std::string> DlgCAMSimulator::rendererInfo() const
