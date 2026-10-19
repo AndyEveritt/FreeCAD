@@ -365,6 +365,18 @@ PyObject* CAMSimPy::SetEventsChangedCallback(PyObject* args)
     return Py_None;
 }
 
+PyObject* CAMSimPy::SetCurrentEventCallback(PyObject* args)
+{
+    PyObject* callback;
+    std::function<void(int)> handler;
+    if (!PyArg_ParseTuple(args, "O", &callback) || !IntHandler(callback, handler)) {
+        return nullptr;
+    }
+    getCAMSimPtr()->SetCurrentEventHandler(handler);
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
 PyObject* CAMSimPy::GoToEvent(PyObject* args)
 {
     int index;

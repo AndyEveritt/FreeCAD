@@ -124,7 +124,9 @@ above its flutes and cuts into the model WARNING, moves the machine can't make C
 
 The view marks the events on the timeline in the color of their kind, with buttons to go to the
 previous and the next one; the task panel lists them (`CAMSim.GetEvents`,
-`SetEventsChangedCallback`), a click goes to the start of one (`CAMSim.GoToEvent`). Seeking and
+`SetEventsChangedCallback`), a click goes to the start of one (`CAMSim.GoToEvent`). While playing
+or scrubbing, the last one the simulation has got to is selected and scrolled to
+(`SetCurrentEventCallback`, from the steps of the events and the current step). Seeking and
 scrubbing cut the view grid without measuring, they cost nothing more.
 
 ## Display

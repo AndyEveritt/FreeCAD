@@ -266,6 +266,7 @@ class CAMSimulation:
         font = QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.FixedFont)
         form.listCommands.setFont(font)
         self.commandModel = None
+        self.eventSteps = []  # the steps of the problems listed
         self.toggledItem = None
         FreeCADGui.Control.showDialog(self.taskForm)
         self.disableAnim = False
@@ -591,7 +592,9 @@ class CAMSimulation:
         self.units = (lengthFactor, lengthUnit)
         self.operationLabels = labels
         self.taskForm.form.listEvents.clear()
+        self.eventSteps = []
         self.millSim.SetEventsChangedCallback(self.onEventsChanged)
+        self.millSim.SetCurrentEventCallback(self.onCurrentEvent)
         self.taskForm.form.cycleTime.setText("")
         self.taskForm.form.exportStock.setEnabled(True)
         self.showTimes(50)
@@ -655,7 +658,9 @@ class CAMSimulation:
         form = self.taskForm.form
         form.listEvents.clear()
         factor, unit = self.units
-        for event in self.millSim.GetEvents():
+        events = self.millSim.GetEvents()
+        self.eventSteps = [event["step"] for event in events]
+        for event in events:
             text = eventText(event, factor, unit)
             op = event["operation"]
             if 0 <= op < len(self.operationLabels):
@@ -668,6 +673,21 @@ class CAMSimulation:
         form.groupEvents.setTitle(
             QtCore.QT_TRANSLATE_NOOP("CAM_Simulator", "Problems") + " (%d)" % count
         )
+
+    def onCurrentEvent(self, index):
+        """The simulation got past another problem: show the last one in the list"""
+        events = self.taskForm.form.listEvents
+        if not 0 <= index < events.count():
+            events.clearSelection()
+            events.setCurrentRow(-1)
+            return
+        # a problem clicked stays chosen among those that start at the same step
+        row = events.currentRow()
+        steps = self.eventSteps
+        if 0 <= row < len(steps) and index < len(steps) and steps[row] == steps[index]:
+            index = row
+        events.setCurrentRow(index)
+        events.scrollToItem(events.item(index), QtGui.QAbstractItemView.PositionAtCenter)
 
     @staticmethod
     def _eventIcon(kind):
@@ -702,6 +722,7 @@ class CAMSimulation:
             self.millSim.SetOperationPickedCallback(None)
             self.millSim.SetCommandChangedCallback(None)
             self.millSim.SetEventsChangedCallback(None)
+            self.millSim.SetCurrentEventCallback(None)
 
 
 class CommandCAMSimulate:

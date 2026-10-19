@@ -201,12 +201,16 @@ public:
     std::vector<SimEvent> events() const;
     void goToEvent(int index);
     void setEventsChangedHandler(std::function<void(int)> handler);
+    // The handler gets the index of the last problem the simulation has got to (in the order of
+    // events), -1 for none, when it changes, and after the problems change
+    void setCurrentEventHandler(std::function<void(int)> handler);
 
 Q_SIGNALS:
     void simulationStarted();
     void operationPicked(int operation);
     void commandChanged(int command);
     void eventsChanged(int count);
+    void currentEventChanged(int index);
 
 protected:
     void timerEvent(QTimerEvent* event) override;
@@ -226,7 +230,10 @@ private:
     std::function<void(int)> mOperationPicked;
     std::function<void(int)> mCommandChanged;
     std::function<void(int)> mEventsChanged;
+    std::function<void(int)> mCurrentEvent;
     int mEventCount = 0;  // the events shown
+    std::vector<long> mEventSteps;  // their steps, in order
+    int mLastEventShown = -2;       // the current event last reported
     void updateEvents();
     int mLastCommandShown = -2;  // the command in progress last reported
     bool mFrameTiming = false;

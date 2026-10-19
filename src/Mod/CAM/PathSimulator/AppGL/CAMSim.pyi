@@ -214,6 +214,14 @@ class CAMSim(BaseClass):
         """
         ...
 
+    def SetCurrentEventCallback(self, callback: Any, /) -> None:
+        """
+        Call callback(index) when the last problem the simulation has got to changes, with its
+        index in GetEvents, or -1 for none; after the problems change, again. None removes the
+        callback.
+        """
+        ...
+
     @no_args
     def GetRendererInfo(self) -> dict:
         """

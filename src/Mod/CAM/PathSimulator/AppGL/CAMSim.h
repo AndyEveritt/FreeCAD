@@ -104,6 +104,7 @@ public:
     std::vector<SimEvent> GetEvents();
     void GoToEvent(int index);
     void SetEventsChangedHandler(std::function<void(int)> handler);
+    void SetCurrentEventHandler(std::function<void(int)> handler);
 };
 
 }  // namespace CAMSimulator

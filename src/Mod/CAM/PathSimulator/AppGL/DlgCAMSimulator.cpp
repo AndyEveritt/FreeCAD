@@ -25,6 +25,8 @@
 
 #include "DlgCAMSimulator.h"
 
+#include <algorithm>
+
 #include "Dummy3DViewer.h"
 #include "GuiDisplay.h"
 #include "MaterialModel.h"
@@ -119,6 +121,17 @@ DlgCAMSimulator::DlgCAMSimulator(QWidget* parent)
     );
     connect(
         this,
+        &DlgCAMSimulator::currentEventChanged,
+        this,
+        [this](int index) {
+            if (mCurrentEvent) {
+                mCurrentEvent(index);
+            }
+        },
+        Qt::QueuedConnection
+    );
+    connect(
+        this,
         &DlgCAMSimulator::commandChanged,
         this,
         [this](int command) {
@@ -195,6 +208,12 @@ void DlgCAMSimulator::setEventsChangedHandler(std::function<void(int)> handler)
     mEventCount = -1;  // reported again, the simulation may have found them already
 }
 
+void DlgCAMSimulator::setCurrentEventHandler(std::function<void(int)> handler)
+{
+    mCurrentEvent = std::move(handler);
+    mLastEventShown = -2;  // reported again
+}
+
 // The color of the problems of a kind
 static QColor EventColor(Material::Event::Kind kind)
 {
@@ -215,19 +234,36 @@ static QColor EventColor(Material::Event::Kind kind)
 void DlgCAMSimulator::updateEvents()
 {
     const int count = mMillSimulator->EventCount();
-    if (count == mEventCount) {
-        return;
-    }
-    mEventCount = count;
-    if (mGui) {
-        const int total = std::max(1, mMillSimulator->GetState().mNTotalSteps);
-        std::vector<std::pair<float, QColor>> marks;
-        for (const SimEvent& e : mMillSimulator->GetEvents()) {
-            marks.emplace_back((float)e.step / total, EventColor(e.event.kind));
+    if (count != mEventCount) {
+        mEventCount = count;
+        const auto events = mMillSimulator->GetEvents();
+        mEventSteps.clear();
+        for (const SimEvent& e : events) {
+            mEventSteps.push_back(e.step);
         }
-        mGui->setEvents(marks);
+        if (mGui) {
+            const int total = std::max(1, mMillSimulator->GetState().mNTotalSteps);
+            std::vector<std::pair<float, QColor>> marks;
+            for (const SimEvent& e : events) {
+                marks.emplace_back((float)e.step / total, EventColor(e.event.kind));
+            }
+            mGui->setEvents(marks);
+        }
+        Q_EMIT eventsChanged(count);
+        mLastEventShown = -2;  // the list is made again: reported again, after it
     }
-    Q_EMIT eventsChanged(count);
+
+    // the last event the simulation has got to
+    if (mCurrentEvent) {
+        const long step = mMillSimulator->GetState().mCurStep;
+        const int current
+            = (int)(std::upper_bound(mEventSteps.begin(), mEventSteps.end(), step) - mEventSteps.begin())
+            - 1;
+        if (current != mLastEventShown) {
+            mLastEventShown = current;
+            Q_EMIT currentEventChanged(current);
+        }
+    }
 }
 
 void DlgCAMSimulator::connectTo(GuiDisplay& gui, Dummy3DViewer& dv)
@@ -402,6 +438,7 @@ void DlgCAMSimulator::cloneFrom(const DlgCAMSimulator& from)
     mOperationPicked = from.mOperationPicked;
     mCommandChanged = from.mCommandChanged;
     mEventsChanged = from.mEventsChanged;
+    mCurrentEvent = from.mCurrentEvent;
 }
 
 DlgCAMSimulator* DlgCAMSimulator::instance(Gui::Document* doc)

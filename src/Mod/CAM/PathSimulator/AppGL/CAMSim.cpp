@@ -191,6 +191,11 @@ void CAMSim::SetEventsChangedHandler(std::function<void(int)> handler)
     DlgCAMSimulator::instance()->setEventsChangedHandler(std::move(handler));
 }
 
+void CAMSim::SetCurrentEventHandler(std::function<void(int)> handler)
+{
+    DlgCAMSimulator::instance()->setCurrentEventHandler(std::move(handler));
+}
+
 void CAMSim::GoToCommand(int index)
 {
     DlgCAMSimulator::instance()->goToCommand(index);
