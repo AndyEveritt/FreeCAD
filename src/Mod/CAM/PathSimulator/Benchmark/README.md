@@ -14,8 +14,8 @@ FreeCAD.
 - `run_benchmark.py`: launcher. Starts FreeCAD, prints a summary, compares with a baseline and
   reports a verdict.
 - `reference/`: correctness reference images: `mixed` at sizes `small` (quick mode) and `medium`,
-  `five_axis` at size `small` (quick mode), and `manifold_block` at `--quality 6`, each colored by
-  operation (the default) and plain.
+  `five_axis` at size `small` (quick mode), `manifold_block` at `--quality 6` and
+  `simulator_checks`, each colored by operation (the default) and plain.
 
 ## Running
 
@@ -126,6 +126,7 @@ number can be given instead of a size name. Document jobs have one size, `docume
 | `drilling` | grid of `G81` drill cycles |
 | `tool_shapes` | a pocket machined with every tool shape FreeCAD supports: roughing, bull nose floor finishing, ball end channels, a dovetail undercut and a slitting saw groove in the walls, corner radius rounding of the top edges, a bored and thread milled hole, a V groove and drilled holes |
 | `manifold_block` | document job: the CAM job of `../../DemoParts/manifold_block_3plus2.fcstd` (made by `make_manifold_block_3plus2.py` there), a manifold block machined done-in-one with every tool shape and every 3 axis operation, and 3+2 work planes for the front, the right side and a 45 degree chamfer. It is given to the simulator like the simulator task panel does (`SimulationSteps` in `Path/Main/Gui/SimulatorGL.py`): the active operations in world coordinates with the tool axis of their work plane, the tool backing out and turning around the stock between work planes, the job's stock and model. Not in quick or full mode, run it with `--jobs manifold_block` |
+| `simulator_checks` | document job: the CAM job of `../../DemoParts/simulator_checks.fcstd` (made by `make_simulator_checks.py` there), a demo of the checks of the simulator: tools with arcs in their profiles (a bull nose D20 R5, ball ends), an arc in the XZ plane, peck drilling, and deliberate mistakes: a shank rubbing the walls of a deep slot, material left, a gouge into the model and a rapid into the stock. Not in quick or full mode, run it with `--jobs simulator_checks` |
 
 Operations are laid out like on a real part: every operation cuts material, in its own area of the
 stock or on features made by an earlier operation. 5 axis operations turn the tool only at safe

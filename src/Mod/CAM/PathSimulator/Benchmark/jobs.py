@@ -774,6 +774,7 @@ JOBS = {
 # operations that are active in the document, as the simulator task panel does.
 DOCUMENT_JOBS = {
     "manifold_block": "../../DemoParts/manifold_block_3plus2.fcstd",
+    "simulator_checks": "../../DemoParts/simulator_checks.fcstd",
 }
 # the size of a document job
 DOCUMENT_SIZE = "document"
