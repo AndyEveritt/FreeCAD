@@ -209,6 +209,23 @@ public:
     {
         return mInspect == 3;
     }
+    // Inspect 4: a click picks a point of a surface, two make a distance; the wall behind the
+    // first one, through the stock, is measured too
+    bool Measures() const
+    {
+        return mInspect == 4;
+    }
+    struct Measure
+    {
+        int points = 0;  // 0, 1 or 2
+        float a[3] = {0, 0, 0};
+        float b[3] = {0, 0, 0};
+        double wall = -1;  // the thickness of the stock behind a, negative for none
+    };
+    const Measure& GetMeasure() const
+    {
+        return mMeasure;
+    }
     // Opacity of the stock and of the base shape (the model), from 0 to 1. The stock of the
     // stencil renderer is always opaque.
     void SetOpacity(float stock, float base);
@@ -296,6 +313,9 @@ protected:
     bool mThinWalls = false;
     bool mDeviation = false;
     int mInspect = 0;
+    Measure mMeasure;
+    unsigned int mMeasureVbo = 0;
+    void RenderMeasure();
     void ApplyInspect();
     std::shared_ptr<const Material::ModelDistance> mDeviationModel;
     float mStockOpacity = 1;

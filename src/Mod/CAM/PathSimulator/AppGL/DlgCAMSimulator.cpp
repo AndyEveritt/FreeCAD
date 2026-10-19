@@ -32,6 +32,7 @@
 #include "ThreadPool.h"
 #include "ViewCAMSimulator.h"
 #include <App/Application.h>
+#include <Base/Quantity.h>
 #include <Gui/View3DInventorViewer.h>
 #include <Inventor/nodes/SoCamera.h>
 #include <BRepBuilderAPI_Copy.hxx>
@@ -337,12 +338,44 @@ void DlgCAMSimulator::updateGui()
         (int)operations.size()
     );
 
+    mGui->setMeasure(measureText());
     mGui->setPathVisible(state.mViewPath);
     mGui->setSsaoEnabled(state.mViewSSAO);
 
     if (mDummyViewer && !mDummyViewer->isAnimating()) {
         mGui->setRotateEnabled(false);
     }
+}
+
+// The points measured, their distance and the wall behind the first one, in the units of the
+// preferences
+QString DlgCAMSimulator::measureText() const
+{
+    if (!mMillSimulator->Measures()) {
+        return {};
+    }
+    const MillSimulation::Measure& m = mMillSimulator->GetMeasure();
+    auto length = [](double mm) {
+        return QString::fromStdString(Base::Quantity(mm, Base::Unit::Length).getUserString());
+    };
+    if (m.points == 0) {
+        return tr("Measure: click two points");
+    }
+    QString text;
+    if (m.points == 2) {
+        const double d[3] = {m.b[0] - m.a[0], m.b[1] - m.a[1], m.b[2] - m.a[2]};
+        text = tr("Distance %1").arg(length(std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2])));
+        text += QString::fromUtf8("\n\u0394X %1  \u0394Y %2  \u0394Z %3")
+                    .arg(length(d[0]), length(d[1]), length(d[2]));
+    }
+    else {
+        text = tr("First point X %1  Y %2  Z %3")
+                   .arg(length(m.a[0]), length(m.a[1]), length(m.a[2]));
+    }
+    if (m.wall >= 0) {
+        text += QString::fromLatin1("\n") + tr("Wall behind the first point %1").arg(length(m.wall));
+    }
+    return text;
 }
 
 void DlgCAMSimulator::cloneFrom(const DlgCAMSimulator& from)
@@ -925,8 +958,9 @@ void DlgCAMSimulator::paintGL()
     int operation = -1;
     bool stock = false;
     float position[3];
-    // inspecting the dexels, a click chooses where, it doesn't go to the operation
-    if (mMillSimulator->TakePick(operation, stock, position) && !mMillSimulator->InspectsDexels()) {
+    // inspecting the dexels or measuring, a click chooses where, it doesn't go to the operation
+    if (mMillSimulator->TakePick(operation, stock, position) && !mMillSimulator->InspectsDexels()
+        && !mMillSimulator->Measures()) {
         Q_EMIT operationPicked(operation);
     }
 

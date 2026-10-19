@@ -77,6 +77,8 @@ void MillSimulation::Clear()
 
     mStockObject.Clear();
     GLDELETE_BUFFER(mOriginVbo);
+    GLDELETE_BUFFER(mMeasureVbo);
+    mMeasure = Measure();
     mMaterial.reset();
     mSegments.clear();
     mSegmentMotions.clear();
@@ -713,6 +715,47 @@ void MillSimulation::RenderBaseShape()
     simDisplay.sectionOn = false;
 }
 
+// The points measured, crosses, and the line between them, seen through the objects
+void MillSimulation::RenderMeasure()
+{
+    if (mInspect != 4 || mMeasure.points == 0) {
+        return;
+    }
+    float lo[3], hi[3];
+    StockBox(lo, hi);
+    const float size = 0.01f * std::max({hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2], 1.0f});
+    std::vector<float> lines;
+    for (int p = 0; p < mMeasure.points; p++) {
+        const float* c = p ? mMeasure.b : mMeasure.a;
+        for (int k = 0; k < 3; k++) {
+            float e[3] = {0, 0, 0};
+            e[k] = size;
+            lines.insert(lines.end(), {c[0] - e[0], c[1] - e[1], c[2] - e[2]});
+            lines.insert(lines.end(), {c[0] + e[0], c[1] + e[1], c[2] + e[2]});
+        }
+    }
+    if (mMeasure.points == 2) {
+        lines.insert(lines.end(), mMeasure.a, mMeasure.a + 3);
+        lines.insert(lines.end(), mMeasure.b, mMeasure.b + 3);
+    }
+    if (mMeasureVbo == 0) {
+        glGenBuffers(1, &mMeasureVbo);
+    }
+    glBindBuffer(GL_ARRAY_BUFFER, mMeasureVbo);
+    glBufferData(GL_ARRAY_BUFFER, lines.size() * sizeof(float), lines.data(), GL_DYNAMIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void*)0);
+    glDisableVertexAttribArray(1);
+    glDisableVertexAttribArray(2);
+    const vec3 color = {1.0f, 0.85f, 0.1f};
+    for (bool hidden : {true, false}) {
+        simDisplay.SetupLinePass(color, hidden, 0.6f);
+        glDrawArrays(GL_LINES, 0, (int)lines.size() / 3);
+    }
+    glDepthMask(GL_TRUE);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
 // The axes of the origin, a fifth of the size of the stock long, X red, Y green, Z blue
 void MillSimulation::RenderOrigin()
 {
@@ -793,6 +836,7 @@ void MillSimulation::Render()
         }
         RenderPath();
         RenderOrigin();
+        RenderMeasure();
         simDisplay.ClearTransparentLayer();
         if (transparentStock || transparentBase) {
             for (int layer = 0; simDisplay.StartTransparentLayer(layer); layer++) {
@@ -1152,7 +1196,8 @@ void MillSimulation::SetDeviationModel(std::shared_ptr<const Material::ModelDist
 
 void MillSimulation::SetInspect(int mode)
 {
-    mInspect = std::clamp(mode, 0, 3);
+    mInspect = std::clamp(mode, 0, 4);
+    mMeasure = Measure();
     ApplyInspect();
     simDisplay.updateDisplay = true;
 }
@@ -1172,7 +1217,8 @@ void MillSimulation::ApplyInspect()
         }
         size = std::max(size, hi - lo);
     }
-    mMaterial->SetInspect((Material::View::Inspect)mInspect, std::max(size * 0.006f, 0.01f));
+    const auto inspect = mInspect <= 3 ? (Material::View::Inspect)mInspect : Material::View::Inspect::None;
+    mMaterial->SetInspect(inspect, std::max(size * 0.006f, 0.01f));
 }
 
 int MillSimulation::OperationAt(int step) const
@@ -1324,6 +1370,24 @@ bool MillSimulation::TakePick(int& operation, bool& stock, float position[3])
     stock = pick.stock;
     if (pick.stock && mInspect == 3 && mMaterial) {
         mMaterial->InspectAt(pick.position);
+        simDisplay.updateDisplay = true;
+    }
+    if (pick.hit && mInspect == 4) {
+        // the first point again after two
+        if (mMeasure.points != 1) {
+            mMeasure = Measure();
+            std::copy(pick.position, pick.position + 3, mMeasure.a);
+            mMeasure.points = 1;
+            // the wall of the stock behind it, against its normal
+            if (pick.stock && mMaterial) {
+                const float inward[3] = {-pick.normal[0], -pick.normal[1], -pick.normal[2]};
+                mMeasure.wall = mMaterial->RayDistance(pick.position, inward);
+            }
+        }
+        else {
+            std::copy(pick.position, pick.position + 3, mMeasure.b);
+            mMeasure.points = 2;
+        }
         simDisplay.updateDisplay = true;
     }
     // operations share the tags beyond Material::MaxTag

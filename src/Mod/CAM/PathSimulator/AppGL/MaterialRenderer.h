@@ -132,6 +132,11 @@ public:
     void RenderInspection(SimDisplay& display);
     void FreeResources();
     long TriangleCount() const;
+    // The distance from a point along a direction (unit) to the first face of the stock shown,
+    // beyond 1 um, negative for none: the thickness of a wall behind a point of its surface
+    double RayDistance(const float origin[3], const float direction[3]) const;
+    // The triangles of the stock shown, a closed mesh
+    void Triangles(std::vector<float>& xyz, std::vector<uint32_t>& triangles) const;
 
 private:
     struct Chunk

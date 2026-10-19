@@ -884,30 +884,46 @@ void SimDisplay::ReadPick(unsigned int fbo, bool transparent)
         return;
     }
     float value[4] = {0, 0, 0, 0};
+    float normal[4] = {0, 0, 0, 0};
     glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
     glReadBuffer(GL_COLOR_ATTACHMENT1);
     glReadPixels(mPick.x, mPick.y, 1, 1, GL_RGBA, GL_FLOAT, value);
+    glReadBuffer(GL_COLOR_ATTACHMENT2);
+    glReadPixels(mPick.x, mPick.y, 1, 1, GL_RGBA, GL_FLOAT, normal);
     glReadBuffer(GL_COLOR_ATTACHMENT0);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, mTargetFbo);
-    if (value[3] < 0.5f) {
+    // a surface has a normal, the background none
+    const bool surface = normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2] > 0.25f;
+    const bool stock = value[3] >= 0.5f;
+    if (!surface && !stock) {
         return;
     }
     if (transparent) {
+        if (!stock) {
+            return;  // the opaque objects behind the transparent stock are picked
+        }
         mPick.stockInLayer = true;
     }
     else if (mPick.stockInLayer) {
         return;
     }
-    mPick.stock = true;
-    mPick.tag = (int)std::lround(value[3]) - 1;
-    // the position in the world, from the view
+    mPick.stock = stock;
+    mPick.tag = stock ? (int)std::lround(value[3]) - 1 : 0;
+    mPick.hit = true;
+    // the position and the normal in the world, from the view
     vec4 view = {value[0], value[1], value[2], 1};
+    vec4 viewNormal = {normal[0], normal[1], normal[2], 0};
     mat4x4 inverse;
     mat4x4_invert(inverse, mMatLookAt);
-    vec4 world;
+    vec4 world, worldNormal;
     mat4x4_mul_vec4(world, inverse, view);
+    mat4x4_mul_vec4(worldNormal, inverse, viewNormal);
+    const float length = std::sqrt(
+        worldNormal[0] * worldNormal[0] + worldNormal[1] * worldNormal[1] + worldNormal[2] * worldNormal[2]
+    );
     for (int k = 0; k < 3; k++) {
         mPick.position[k] = world[k];
+        mPick.normal[k] = length > 0 ? worldNormal[k] / length : (k == 2 ? 1.0f : 0.0f);
     }
 }
 

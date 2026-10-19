@@ -64,6 +64,9 @@ struct PickResult
     bool stock = false;         // the stock is there, else nothing or another object
     int tag = 0;                // operation tag of its face (0 for uncut)
     float position[3] = {0, 0, 0};
+    // a surface of any object is there, at position, with this normal (world coordinates)
+    bool hit = false;
+    float normal[3] = {0, 0, 1};
 };
 
 struct Point3D

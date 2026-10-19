@@ -26,6 +26,7 @@
 
 #include "ui_GuiDisplay.h"
 #include <QCoreApplication>
+#include <QLabel>
 #include <QLinearGradient>
 #include <QPainter>
 #include <QSlider>
@@ -226,6 +227,13 @@ GuiDisplay::GuiDisplay(QWidget* parent)
 
     deviationScale = new DeviationScale(this);
     deviationScale->hide();
+    measureLabel = new QLabel(this);
+    measureLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+    measureLabel->setStyleSheet(
+        QString::fromLatin1("color:white; background:rgba(20,20,24,170); padding:6px; border-radius:6px")
+    );
+    measureLabel->move(10, 10);
+    measureLabel->hide();
 }
 
 void GuiDisplay::setDeviationScale(bool visible, float tolerance)
@@ -233,6 +241,17 @@ void GuiDisplay::setDeviationScale(bool visible, float tolerance)
     static_cast<DeviationScale*>(deviationScale)->setTolerance(tolerance);
     deviationScale->setVisible(visible);
     placeDeviationScale();
+}
+
+void GuiDisplay::setMeasure(const QString& text)
+{
+    if (text == measureLabel->text() && measureLabel->isVisible() == !text.isEmpty()) {
+        return;
+    }
+    measureLabel->setText(text);
+    measureLabel->adjustSize();
+    measureLabel->setVisible(!text.isEmpty());
+    setMask(childrenRegion());
 }
 
 void GuiDisplay::setEvents(const std::vector<std::pair<float, QColor>>& marks)

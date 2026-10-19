@@ -275,7 +275,10 @@ around Z. This is the place to add machine specific kinematics.
 - `SimulatorOriginVisible` (bool, default true): the origin of the job and its axes (X red, Y
   green, Z blue, a fifth of the size of the stock long), seen through the objects in front of it.
 - `SimulatorInspect` (int, default 0): lines over the stock to inspect it: 0 none, 1 the mesh, 2 the
-  normals, 3 the dexels at a click.
+  normals, 3 the dexels at a click, 4 measure: a click picks a point of any surface (the G-buffer
+  position and normal at the pixel), two give their distance, shown at the top left of the view
+  in the units of the preferences, with the thickness of the stock behind the first point along
+  its normal (a ray through the mesh of the stock shown, `View::RayDistance`).
 - `SimulatorStockOpacity`, `SimulatorModelOpacity` (float, 0 to 1, default 1): opacity of the
   stock (not with the stencil renderer) and of the model.
 - `SimulatorSection` (int, default 0): a section of the stock and the model, 0 none, 1 across X,

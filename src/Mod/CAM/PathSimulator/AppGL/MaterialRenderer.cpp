@@ -449,6 +449,67 @@ void View::BuildDexels()
     glBufferData(GL_ARRAY_BUFFER, all.size() * sizeof(float), all.data(), GL_STATIC_DRAW);
 }
 
+double View::RayDistance(const float origin[3], const float direction[3]) const
+{
+    // Moeller-Trumbore with every triangle
+    double best = -1;
+    for (const UnitMesh& unit : mUnits) {
+        for (const std::vector<uint32_t>* list : {&unit.stock, &unit.cut}) {
+            for (size_t i = 0; i + 2 < list->size(); i += 3) {
+                const MeshVertex& a = unit.vertices[(*list)[i]];
+                const MeshVertex& b = unit.vertices[(*list)[i + 1]];
+                const MeshVertex& c = unit.vertices[(*list)[i + 2]];
+                const double e1[3] = {b.x - a.x, b.y - a.y, b.z - a.z};
+                const double e2[3] = {c.x - a.x, c.y - a.y, c.z - a.z};
+                const double p[3] = {
+                    direction[1] * e2[2] - direction[2] * e2[1],
+                    direction[2] * e2[0] - direction[0] * e2[2],
+                    direction[0] * e2[1] - direction[1] * e2[0],
+                };
+                const double det = e1[0] * p[0] + e1[1] * p[1] + e1[2] * p[2];
+                if (std::abs(det) < 1e-14) {
+                    continue;
+                }
+                const double t0[3] = {origin[0] - a.x, origin[1] - a.y, origin[2] - a.z};
+                const double u = (t0[0] * p[0] + t0[1] * p[1] + t0[2] * p[2]) / det;
+                if (u < 0 || u > 1) {
+                    continue;
+                }
+                const double q[3] = {
+                    t0[1] * e1[2] - t0[2] * e1[1],
+                    t0[2] * e1[0] - t0[0] * e1[2],
+                    t0[0] * e1[1] - t0[1] * e1[0],
+                };
+                const double v
+                    = (direction[0] * q[0] + direction[1] * q[1] + direction[2] * q[2]) / det;
+                if (v < 0 || u + v > 1) {
+                    continue;
+                }
+                const double t = (e2[0] * q[0] + e2[1] * q[1] + e2[2] * q[2]) / det;
+                if (t > 1e-3 && (best < 0 || t < best)) {
+                    best = t;
+                }
+            }
+        }
+    }
+    return best;
+}
+
+void View::Triangles(std::vector<float>& xyz, std::vector<uint32_t>& triangles) const
+{
+    for (const UnitMesh& unit : mUnits) {
+        const uint32_t base = (uint32_t)(xyz.size() / 3);
+        for (const MeshVertex& v : unit.vertices) {
+            xyz.insert(xyz.end(), {v.x, v.y, v.z});
+        }
+        for (const std::vector<uint32_t>* list : {&unit.stock, &unit.cut}) {
+            for (uint32_t i : *list) {
+                triangles.push_back(base + i);
+            }
+        }
+    }
+}
+
 void View::RenderInspection(SimDisplay& display)
 {
     if (mInspect == Inspect::None) {

@@ -30,6 +30,8 @@
 #include <utility>
 #include <vector>
 
+class QLabel;
+
 namespace CAMSimulator
 {
 class Ui_GuiDisplay;
@@ -54,6 +56,8 @@ public:
     // marks on the timeline at the problems found on the toolpath: their place from 0 to 1 and
     // their color
     void setEvents(const std::vector<std::pair<float, QColor>>& marks);
+    // what is measured, at the top left of the view, empty for nothing
+    void setMeasure(const QString& text);
 
     void setRotateEnabled(bool b);
     void setPathVisible(bool b);
@@ -95,6 +99,7 @@ private:
     Ui_GuiDisplay* ui;
     QWidget* deviationScale = nullptr;
     QWidget* eventMarks = nullptr;
+    QLabel* measureLabel = nullptr;
 
     bool playing = true;
     int speed = 1;

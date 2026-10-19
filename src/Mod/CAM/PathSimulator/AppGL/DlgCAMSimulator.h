@@ -208,6 +208,7 @@ protected:
     void resizeGL(int w, int h) override;
 
     void updateGui();
+    QString measureText() const;
 
 private:
     std::function<void(int)> mOperationPicked;
