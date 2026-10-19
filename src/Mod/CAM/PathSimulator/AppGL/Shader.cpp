@@ -841,8 +841,10 @@ const char* VertShader3DLine = R"(
 
     layout(location = 0) attribute vec3 aPosition;
     layout(location = 1) attribute float aIndex;
+    layout(location = 2) attribute float aRapid;
 
     varying float Index;
+    varying float Rapid;
 
     uniform mat4 view;
     uniform mat4 projection;
@@ -857,6 +859,7 @@ const char* VertShader3DLine = R"(
         p.z += depthBias.y;
         gl_Position = projection * p;
         Index = aIndex;
+        Rapid = aRapid;
     }
 )";
 
@@ -864,14 +867,20 @@ const char* FragShader3DLine = R"(
     #version 120
 
     varying float Index;
+    varying float Rapid;
 
     uniform vec4 objectColorAlpha;
     uniform vec3 objectColor;
+    uniform vec3 rapidColor;
     uniform int curSegment;
 
     void main()
     {
-        if (Index > curSegment) gl_FragColor = objectColorAlpha;
+        // rapid moves in their color, faint once passed
+        if (Rapid > 0.5) {
+            gl_FragColor = vec4(rapidColor, objectColorAlpha.a * (Index > curSegment ? 1.0 : 0.35));
+        }
+        else if (Index > curSegment) gl_FragColor = objectColorAlpha;
         else gl_FragColor = vec4(objectColor, objectColorAlpha.a);
     }
 )";

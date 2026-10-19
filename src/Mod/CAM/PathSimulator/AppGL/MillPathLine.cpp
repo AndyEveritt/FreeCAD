@@ -12,8 +12,19 @@ namespace CAMSimulator
 
 void MillPathLine::GenerateModel()
 {
-    mNumVerts = MillPathPointsBuffer.size();
-    void* vbuffer = MillPathPointsBuffer.data();
+    // separate lines rather than a strip, so every line has the attributes of its segment
+    std::vector<MillPathPosition> lines;
+    lines.reserve(2 * MillPathPointsBuffer.size());
+    for (size_t i = 1; i < MillPathPointsBuffer.size(); i++) {
+        const MillPathPosition& end = MillPathPointsBuffer[i];
+        MillPathPosition start = MillPathPointsBuffer[i - 1];
+        start.SegmentId = end.SegmentId;
+        start.Rapid = end.Rapid;
+        lines.push_back(start);
+        lines.push_back(end);
+    }
+    mNumVerts = (int)lines.size();
+    void* vbuffer = lines.data();
 
     // vertex buffer
     glGenBuffers(1, &mVbo);
@@ -46,6 +57,15 @@ void MillPathLine::SetupVertexAttibs()
         sizeof(MillPathPosition),
         (void*)offsetof(MillPathPosition, SegmentId)
     );
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(
+        2,
+        1,
+        GL_FLOAT,
+        GL_FALSE,
+        sizeof(MillPathPosition),
+        (void*)offsetof(MillPathPosition, Rapid)
+    );
 }
 
 void MillPathLine::Clear()
@@ -58,7 +78,8 @@ void MillPathLine::Clear()
 void MillPathLine::Render()
 {
     SetupVertexAttibs();
-    glDrawArrays(GL_LINE_STRIP, 0, mNumVerts);
+    glDrawArrays(GL_LINES, 0, mNumVerts);
+    glDisableVertexAttribArray(2);
 }
 
 }  // namespace CAMSimulator

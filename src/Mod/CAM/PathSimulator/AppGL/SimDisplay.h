@@ -199,6 +199,7 @@ protected:
     vec3 ambientCol = {0.2f, 0.2f, 0.25f};
     vec4 pathLineColor = {0.0f, 0.9f, 0.0f, 1.0};
     vec3 pathLineColorPassed = {0.9f, 0.3f, 0.3f};
+    vec3 pathRapidColor = {0.67f, 0.0f, 0.0f};
 
     mat4x4 mMatLookAt;
     StockObject mlightObject;

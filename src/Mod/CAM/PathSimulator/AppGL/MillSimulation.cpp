@@ -170,7 +170,11 @@ void MillSimulation::InitSimulation(float quality, float maxStockDimension)
             }
             mNTotalSteps += segment->numSimSteps;
             MillPathSegments.push_back(segment);
+            const size_t firstPoint = millPathLine.MillPathPointsBuffer.size();
             segment->AppendPathPoints(millPathLine.MillPathPointsBuffer);
+            for (size_t p = firstPoint; p < millPathLine.MillPathPointsBuffer.size(); p++) {
+                millPathLine.MillPathPointsBuffer[p].Rapid = curMotion.rapid ? 1.0f : 0.0f;
+            }
 
             Material::Segment cut = MakeSegment(prevMotion, curMotion, segment->IsArc());
             cut.tool = curMotion.tool;  // tool id, replaced by the index when starting

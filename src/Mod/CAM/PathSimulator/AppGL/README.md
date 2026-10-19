@@ -114,7 +114,10 @@ from angles, are snapped to them.
   fold by more than about 40 degrees, step far off the plane of each other, and at the background.
   The
   toolpath is drawn a few pixels closer to the camera than it is, so a path on the surface of the
-  stock, like the bottom of a ball end mill groove, is not hidden by it. The origin of the job is drawn
+  stock, like the bottom of a ball end mill groove, is not hidden by it. Rapid moves (G0) are drawn in the
+  rapid color of the preferences (`DefaultRapidPathColor`), faint once passed. The path is drawn
+  as separate lines (`MillPathLine`), each with the segment and the rapid flag of its end. The
+  origin of the job is drawn
   as its axes, like the toolpath, and seen through the objects in front of it. The model is drawn a
   little behind the stock: where the stock is cut to the model, the stock and the colors of its
   operations are shown, the model only where the stock is cut deeper. Transparent objects (the
