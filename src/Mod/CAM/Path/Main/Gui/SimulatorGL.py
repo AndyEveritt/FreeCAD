@@ -267,6 +267,8 @@ class CAMSimulation:
         form.listCommands.setFont(font)
         self.commandModel = None
         self.eventSteps = []  # the steps of the problems listed
+        self.operationRows = []  # the row in the list of operations of each operation simulated
+        self.operationRowShown = None
         self.toggledItem = None
         FreeCADGui.Control.showDialog(self.taskForm)
         self.disableAnim = False
@@ -591,6 +593,13 @@ class CAMSimulation:
         self.millSim.SetCommandChangedCallback(self.onCommandChanged)
         self.units = (lengthFactor, lengthUnit)
         self.operationLabels = labels
+        # the row of the list of operations of each label, the simulated operations first
+        rows = {}
+        for op in self.activeOps + self.operations:
+            if op in self.operations:
+                rows.setdefault(op.Label, self.operations.index(op))
+        self.operationRows = [rows.get(label, -1) for label in labels]
+        self.operationRowShown = None
         self.taskForm.form.listEvents.clear()
         self.eventSteps = []
         self.millSim.SetEventsChangedCallback(self.onEventsChanged)
@@ -608,6 +617,7 @@ class CAMSimulation:
         if not 0 <= index < count:
             form.listCommands.clearSelection()
             form.commandLabel.setText("")
+            self.showOperationRow(-1)
             return
         row = self.commandModel.index(index)
         form.listCommands.setCurrentIndex(row)
@@ -615,6 +625,20 @@ class CAMSimulation:
         _, op = self.commandModel.commands[index]
         label = self.commandModel.operations[op] if op >= 0 else ""
         form.commandLabel.setText("%d / %d  %s" % (index + 1, count, label))
+        self.showOperationRow(self.operationRows[op] if 0 <= op < len(self.operationRows) else -1)
+
+    def showOperationRow(self, row):
+        """Select the operation in progress in the list of operations, once each time it changes"""
+        if row == self.operationRowShown:
+            return
+        self.operationRowShown = row
+        listOperations = self.taskForm.form.listOperations
+        if 0 <= row < listOperations.count():
+            listOperations.setCurrentRow(row)
+            listOperations.scrollToItem(listOperations.item(row))
+        else:
+            listOperations.clearSelection()
+            listOperations.setCurrentItem(None)
 
     def showTimes(self, tries):
         """The time of the machine in all and of each operation, once the simulation has it"""

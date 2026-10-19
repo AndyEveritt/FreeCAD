@@ -126,7 +126,8 @@ The view marks the events on the timeline in the color of their kind, with butto
 previous and the next one; the task panel lists them (`CAMSim.GetEvents`,
 `SetEventsChangedCallback`), a click goes to the start of one (`CAMSim.GoToEvent`). While playing
 or scrubbing, the last one the simulation has got to is selected and scrolled to
-(`SetCurrentEventCallback`, from the steps of the events and the current step). Seeking and
+(`SetCurrentEventCallback`, from the steps of the events and the current step). The list of
+operations follows the operation of the command in progress the same way. Seeking and
 scrubbing cut the view grid without measuring, they cost nothing more.
 
 ## Display
