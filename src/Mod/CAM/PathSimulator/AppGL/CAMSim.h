@@ -77,6 +77,8 @@ public:
     // the stock shown, a closed mesh: the meshes of the parts of the stock joined at their equal
     // vertices
     Mesh::MeshObject* GetStockMesh();
+    // the machine of the job, for the next simulation
+    void SetMachine(const MachineKinematics& machine);
     // the time of the machine in all and of each operation, s
     double GetTotalSeconds();
     std::vector<double> GetOperationSeconds();

@@ -92,6 +92,11 @@ Mesh::MeshObject* CAMSim::GetStockMesh()
     return new Mesh::MeshObject(kernel);
 }
 
+void CAMSim::SetMachine(const MachineKinematics& machine)
+{
+    DlgCAMSimulator::instance()->setMachine(machine);
+}
+
 double CAMSim::GetTotalSeconds()
 {
     return DlgCAMSimulator::instance()->totalSeconds();

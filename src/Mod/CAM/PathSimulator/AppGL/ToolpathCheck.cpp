@@ -71,7 +71,8 @@ double MotionSeconds(
     const MillMotion& to,
     const Material::Segment& cut,
     const ToolRates& rates,
-    double defaultRapid
+    double defaultRapid,
+    const double* axisRapid
 )
 {
     const double dz = std::abs(to.z - from.z);
@@ -79,7 +80,16 @@ double MotionSeconds(
                                       : std::hypot(to.x - from.x, to.y - from.y);
     const double turn = std::max({std::abs(to.a - from.a), std::abs(to.b - from.b), std::abs(to.c - from.c)});
     double seconds;
-    if (to.rapid) {
+    if (to.rapid && rates.horizRapid <= 0 && axisRapid) {
+        // the axes of the machine at their velocities
+        const double d[3] = {std::abs(to.x - from.x), std::abs(to.y - from.y), dz};
+        seconds = 0;
+        for (int k = 0; k < 3; k++) {
+            seconds = std::max(seconds, d[k] / (axisRapid[k] > 0 ? axisRapid[k] : defaultRapid));
+        }
+        seconds = std::max(seconds, turn / 90);
+    }
+    else if (to.rapid) {
         const double h = rates.horizRapid > 0 ? rates.horizRapid : defaultRapid;
         const double v = rates.vertRapid > 0 ? rates.vertRapid : h;
         seconds = std::max(horizontal / h, dz / v);
@@ -146,6 +156,7 @@ std::vector<ToolpathCheck::Found> ToolpathCheck::Run(float quality)
     }
     std::vector<Material::Segment> segments;
     std::vector<int> sources;
+    std::vector<MillMotion> ends;
     const auto& motions = mParser.Operations;
     for (size_t i = 1; i < motions.size(); i++) {
         const auto tool = indexOf.find(motions[i].tool);
@@ -156,6 +167,7 @@ std::vector<ToolpathCheck::Found> ToolpathCheck::Run(float quality)
         s.tool = tool->second;
         segments.push_back(s);
         sources.push_back(motions[i].source);
+        ends.push_back(motions[i]);
     }
 
     Material::Simulation sim;
@@ -163,8 +175,12 @@ std::vector<ToolpathCheck::Found> ToolpathCheck::Run(float quality)
     sim.SetModel(mModel, mTolerance);
     sim.Start(tools, segments, mStockXyz, mStockTriangles, quality);
     sim.WaitEvents();
+    std::vector<Material::Event> events
+        = ends.empty() ? std::vector<Material::Event>() : MachineEvents(mMachine, motions.front(), ends);
+    const auto material = sim.Events();
+    events.insert(events.end(), material.begin(), material.end());
     std::vector<Found> found;
-    for (const Material::Event& e : sim.Events()) {
+    for (const Material::Event& e : events) {
         Found f;
         f.event = e;
         if (e.firstSegment >= 0 && e.firstSegment < (int)sources.size()) {

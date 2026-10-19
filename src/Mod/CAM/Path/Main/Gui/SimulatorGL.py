@@ -27,7 +27,13 @@ Command and task window handler for the OpenGL based CAM simulator
 import os
 import FreeCAD
 import Path.Base.Util as PathUtil
-from Path.Main.SimulatorFeed import commandText, eventText, simulationSteps, toolProfile
+from Path.Main.SimulatorFeed import (
+    commandText,
+    eventText,
+    machineDescription,
+    simulationSteps,
+    toolProfile,
+)
 from PathScripts import PathUtils
 import CAMSimulator
 
@@ -77,6 +83,7 @@ EVENT_COLORS = {
     "shank": (190, 80, 240),
     "gouge": (220, 30, 30),
     "left": (60, 120, 255),
+    "machine": (255, 200, 0),
 }
 
 
@@ -500,6 +507,7 @@ class CAMSimulation:
                 labels.append(step[1])
             else:
                 self.millSim.AddTool(step[1], step[2], step[3], 1, **step[4])
+        self.millSim.SetMachine(machineDescription(self.job))
         self.millSim.BeginSimulation(self.stock, self.quality)
         self.millSim.SetOperationPickedCallback(self.onOperationPicked)
         self.SetupCommands(commands, labels)

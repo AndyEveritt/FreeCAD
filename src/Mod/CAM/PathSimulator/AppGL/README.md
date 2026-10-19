@@ -111,6 +111,14 @@ operation on motions following each other (up to 3 segments apart) make one even
   leaving scallops above the tolerance is one problem. Changing the tolerance or the model finds
   them again.
 
+- the machine can't make the moves: with the Machine of the job (`CAMSim.SetMachine`,
+  `machineDescription` in `SimulatorFeed.py`: its linear and rotary axes, `MachineKinematics`), a
+  tool direction its rotary axes don't reach within their limits (inverse kinematics of up to two
+  rotary axes of the table or the head: the Paden-Kahan subproblems), or a toolpath wider than the
+  travel of a linear axis (the tip in the machine, turned by the table about the origin of the
+  part; the work offset is not known). Moves turning the tool are left out: the machine turns its
+  rotary axes its own way, like between work planes.
+
 Without a view: `ToolpathCheck` simulates a toolpath, given as the simulator is given it, and
 returns its problems (`CAMSimulator.checkToolpath(steps, stock, model, quality, tolerance)`, the
 steps of `simulationSteps` in `Path/Main/SimulatorFeed.py`). The Sanity Check report lists them as
@@ -247,13 +255,21 @@ operation), so the tool starts where the program takes it, not at the origin.
 The timeline is in the time of the machine (`MotionSeconds`): feed moves at their programmed
 feed rate (modal, also across operations, as on the machine), else at the feed rate of their tool
 controller (the vertical one for moves more vertical than horizontal), rapid moves at the rapid
-rates of their tool controller, else at `SimulatorRapidRate`, the axes at once: the longer of the
-horizontal and the vertical. Turns of the tool take at least their largest angle at 30 degrees a
+rates of their tool controller, else at the velocities of the X, Y, Z axes of the Machine of the
+job, else at `SimulatorRapidRate`, the axes at once: the longest of the axes. Turns of the tool take at least their largest angle at 30 degrees a
 second feeding, 90 rapid. Accelerations are not modeled. A step is a millisecond, every motion has
 at least one (`MillSimulation::StepsPerSecond`); the playback speed is in times the time of the
 machine (x1 to x1000, x10 at first). The view shows the time at the tool and in all, the task
 panel the cycle time and the time of every operation (`CAMSim.GetTimes`). The stencil renderer
 has steps of its own, by the length of the motions (`ApplyTimeline` when it is switched).
+
+## Machine
+
+`MachineKinematics` takes the axes of the Machine of a job: rotary axes of the table turn the part
+(a point p of the part is at R_n ... R_0 p in the machine, sequence 0 nearest to the part), rotary
+axes of the head turn the tool (H_m ... H_0 z, sequence 0 nearest to the tool); the tool direction
+in the part is R_0^T ... R_n^T H z. It gives the angles for a tool direction (up to two rotary
+axes, the solutions within the limits of the axes first), and points of the part in the machine.
 
 ## 5 axis toolpaths
 

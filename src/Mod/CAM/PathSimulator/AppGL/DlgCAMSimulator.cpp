@@ -207,6 +207,8 @@ static QColor EventColor(Material::Event::Kind kind)
             return QColor(220, 30, 30);
         case Material::Event::MaterialLeft:
             return QColor(60, 120, 255);
+        case Material::Event::MachineLimit:
+            return QColor(255, 200, 0);
     }
     return QColor(255, 255, 255);
 }
@@ -477,6 +479,11 @@ void DlgCAMSimulator::addTool(
 
     mCommands.push_back({"T" + std::to_string(toolNumber), {}, -1});
     mTools.push_back({toolProfilePoints, toolNumber, diameter, arcs, flutes, rates});
+}
+
+void DlgCAMSimulator::setMachine(const MachineKinematics& machine)
+{
+    mMillSimulator->SetMachine(machine);
 }
 
 void DlgCAMSimulator::setRapidRate(double rate)

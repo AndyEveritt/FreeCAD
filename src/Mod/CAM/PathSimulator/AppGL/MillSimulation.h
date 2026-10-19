@@ -25,6 +25,7 @@
 #pragma once
 
 #include "GCodeParser.h"
+#include "MachineKinematics.h"
 #include "MaterialJob.h"
 #include "MaterialRenderer.h"
 #include "MillPathLine.h"
@@ -103,6 +104,9 @@ public:
     );
     // The rapid rate of tools without one, mm/s
     void SetRapidRate(double rate);
+    // The machine of the job: the limits of its axes are checked (Event::MachineLimit), rapid
+    // moves of tools without a rapid rate go at the velocities of its axes
+    void SetMachine(const MachineKinematics& machine);
 
     // The timeline is in the time of the machine: a step a millisecond, at least one a motion.
     // The stencil renderer has its own steps, by the length of the motions.
@@ -304,6 +308,8 @@ protected:
     std::map<int, double> mToolFlutes;                           // by tool id
     std::map<int, ToolRates> mToolRates;                         // by tool id
     double mRapidRate = 5000.0 / 60;
+    MachineKinematics mMachine;
+    std::vector<Material::Event> mMachineEvents;
     // of the segments: the time of the machine, its start, and the steps of the stencil renderer
     std::vector<double> mSegmentSeconds;
     std::vector<double> mSegmentStartSeconds;

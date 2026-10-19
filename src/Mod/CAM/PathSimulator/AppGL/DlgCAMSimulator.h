@@ -47,6 +47,7 @@
 
 #include <Base/Parameter.h>
 #include "MaterialTool.h"
+#include "MachineKinematics.h"
 #include "MillMotion.h"
 #include <Mod/Part/App/TopoShape.h>
 
@@ -136,6 +137,8 @@ public:
     );
     // the rapid rate of tools without one, mm/s
     void setRapidRate(double rate);
+    // the machine of the job, see MillSimulation::SetMachine, for the next start
+    void setMachine(const MachineKinematics& machine);
     // the triangles of the stock shown, see MillSimulation::StockTriangles
     void stockTriangles(std::vector<float>& xyz, std::vector<uint32_t>& triangles) const;
     // the time of the machine in all and of each operation, s

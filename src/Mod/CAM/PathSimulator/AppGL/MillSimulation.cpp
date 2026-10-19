@@ -157,12 +157,18 @@ void MillSimulation::InitSimulation(float quality, float maxStockDimension)
             Material::Segment cut = MotionSegment(prevMotion, curMotion);
             cut.tool = curMotion.tool;  // tool id, replaced by the index when starting
             const auto rates = mToolRates.find(curMotion.tool);
+            double axisRapid[3] = {0, 0, 0};
+            for (int k = 0; k < 3; k++) {
+                const MachineAxis* axis = mMachine.Linear(k);
+                axisRapid[k] = axis ? axis->velocity : 0;
+            }
             const double seconds = MotionSeconds(
                 prevMotion,
                 curMotion,
                 cut,
                 rates != mToolRates.end() ? rates->second : ToolRates(),
-                mRapidRate
+                mRapidRate,
+                mMachine.Known() ? axisRapid : nullptr
             );
             mSegmentStartSeconds.push_back(
                 mSegmentSeconds.empty() ? 0 : mSegmentStartSeconds.back() + mSegmentSeconds.back()
@@ -177,6 +183,9 @@ void MillSimulation::InitSimulation(float quality, float maxStockDimension)
         prevMotion = curMotion;
     }
     ApplyTimeline();
+    mMachineEvents = mSegmentMotions.empty()
+        ? std::vector<Material::Event>()
+        : MachineEvents(mMachine, mCodeParser.Operations.front(), mSegmentMotions);
 
     // colors of the operation tags: of the first operation with the tag, operations without a
     // color of their own get hues far apart
@@ -328,6 +337,11 @@ void MillSimulation::AddTool(
     mToolArcs[toolid] = arcs;
     mToolFlutes[toolid] = flutes;
     mToolRates[toolid] = rates;
+}
+
+void MillSimulation::SetMachine(const MachineKinematics& machine)
+{
+    mMachine = machine;
 }
 
 void MillSimulation::SetRapidRate(double rate)
@@ -1314,10 +1328,12 @@ void MillSimulation::StockTriangles(std::vector<float>& xyz, std::vector<uint32_
 std::vector<SimEvent> MillSimulation::GetEvents() const
 {
     std::vector<SimEvent> events;
-    if (!mMaterial) {
-        return events;
+    std::vector<Material::Event> found = mMachineEvents;
+    if (mMaterial) {
+        const auto material = mMaterial->Events();
+        found.insert(found.end(), material.begin(), material.end());
     }
-    for (const Material::Event& e : mMaterial->Events()) {
+    for (const Material::Event& e : found) {
         SimEvent se;
         se.event = e;
         if (e.firstSegment >= 0 && e.firstSegment < (int)mSegmentFirstStep.size()) {
@@ -1330,12 +1346,16 @@ std::vector<SimEvent> MillSimulation::GetEvents() const
         }
         events.push_back(se);
     }
+    // in the order of the timeline
+    std::stable_sort(events.begin(), events.end(), [](const SimEvent& a, const SimEvent& b) {
+        return a.step < b.step;
+    });
     return events;
 }
 
 int MillSimulation::EventCount() const
 {
-    return mMaterial ? mMaterial->EventCount() : 0;
+    return (int)mMachineEvents.size() + (mMaterial ? mMaterial->EventCount() : 0);
 }
 
 void MillSimulation::GoToEvent(int index)

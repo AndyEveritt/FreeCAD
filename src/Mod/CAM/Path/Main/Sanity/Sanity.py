@@ -132,7 +132,7 @@ class CAMSanity:
         try:
             import CAMSimulator
             import Part
-            from Path.Main.SimulatorFeed import eventText, simulationSteps
+            from Path.Main.SimulatorFeed import eventText, machineDescription, simulationSteps
         except ImportError:
             return []
         if not hasattr(CAMSimulator, "checkToolpath"):
@@ -152,12 +152,19 @@ class CAMSanity:
                 model,
                 prefs.GetInt("SanitySimulationQuality", 5),
                 prefs.GetFloat("SimulatorDeviationTolerance", 0.05),
+                machineDescription(job),
             )
         except Exception as e:
             Path.Log.warning(f"Simulation of the job failed: {e}")
             return []
         # a crash, a broken tool or a damaged part, a part to finish
-        kinds = {"rapid": "CAUTION", "shank": "WARNING", "gouge": "WARNING", "left": "NOTE"}
+        kinds = {
+            "rapid": "CAUTION",
+            "shank": "WARNING",
+            "gouge": "WARNING",
+            "left": "NOTE",
+            "machine": "CAUTION",
+        }
         squawks = []
         for event in events:
             op = event["operation"]

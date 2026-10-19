@@ -464,6 +464,43 @@ def commandText(cmd, length=(1.0, 3), velocity=(1.0, 1), rotary=True):
     return " ".join(text)
 
 
+def machineDescription(job):
+    """machineDescription(job) ... the axes of the Machine of the job as the
+    simulator takes them (PathSim.SetMachine), None without one: linear axes
+    (name, min, max, velocity), rotary axes (name, vector, min, max, velocity,
+    table, sequence), mm, degrees, per second."""
+    name = getattr(job, "Machine", "")
+    if not name:
+        return None
+    try:
+        from Machine.models.machine import AxisRole, MachineFactory
+
+        machine = MachineFactory.get_machine(name)
+    except Exception as e:
+        Path.Log.warning(f"The simulator can't read the machine {name}: {e}")
+        return None
+    if machine is None:
+        return None
+    scale = 25.4 if getattr(machine, "configuration_units", "metric") == "imperial" else 1.0
+    linear = [
+        (n, a.min_limit * scale, a.max_limit * scale, a.max_velocity * scale / 60.0)
+        for n, a in machine.linear_axes.items()
+    ]
+    rotary = [
+        (
+            n,
+            (a.rotation_vector.x, a.rotation_vector.y, a.rotation_vector.z),
+            a.min_limit,
+            a.max_limit,
+            a.max_velocity / 60.0,
+            a.role != AxisRole.HEAD_ROTARY,
+            a.sequence,
+        )
+        for n, a in machine.rotary_axes.items()
+    ]
+    return {"linear": linear, "rotary": rotary}
+
+
 def _speed(tc, name):
     """A speed of a tool controller in mm/s, 0 if it has none."""
     value = getattr(tc, name, None)
@@ -521,6 +558,20 @@ def eventText(event, factor=1.0, unit="mm"):
         amount = "%.3g %s" % (depth / factor, unit)
     else:
         amount = translate("CAM_Simulator", "over %.3g %s") % (1 / factor, unit)
+    if event["kind"] == "machine":
+        if event["axis"]:
+            return translate(
+                "CAM_Simulator", "The toolpath needs %s of %s travel, the machine has %s, at %s"
+            ) % (
+                "%.4g %s" % (event["needed"] / factor, unit),
+                event["axis"],
+                "%.4g %s" % (event["available"] / factor, unit),
+                where,
+            )
+        return translate(
+            "CAM_Simulator",
+            "The rotary axes of the machine can't turn the tool to (%.3f, %.3f, %.3f) within their limits, at %s",
+        ) % (*event["direction"], where)
     count = event.get("count", 1)
     if event["kind"] == "gouge":
         if count > 1:

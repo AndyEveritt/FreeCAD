@@ -32,6 +32,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -80,6 +81,7 @@ struct Event
         ShankContact,    // the tool above its flutes meets material
         Gouge,           // a region of the final stock cut into the model
         MaterialLeft,    // a region of faces the toolpath cut, away from the model
+        MachineLimit,    // the machine can't make the moves, see MachineEvents
     };
     Kind kind = RapidIntoStock;
     // the segments of the moves, one after the other, -1 for the regions of the final stock
@@ -94,6 +96,12 @@ struct Event
     double lo[3] = {0, 0, 0};
     double hi[3] = {0, 0, 0};
     int count = 1;
+    // machine limits: the linear axis whose travel is too short, what it needs and has (mm), or
+    // none for a tool direction the rotary axes don't reach, then that direction
+    std::string axis;
+    double needed = 0;
+    double available = 0;
+    double direction[3] = {0, 0, 1};
 };
 
 class ModelDistance;

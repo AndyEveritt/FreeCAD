@@ -33,6 +33,7 @@
 #include <Mod/Part/App/TopoShapePy.h>
 
 #include "DocumentPy.h"
+#include "SimulatorPy.h"
 // inclusion of the generated files (generated out of CAMSimPy.xml)
 #include "CAMSimPy.h"
 #include "CAMSimPy.cpp"
@@ -360,52 +361,32 @@ PyObject* CAMSimPy::GoToEvent(PyObject* args)
     return Py_None;
 }
 
-// The names of the kinds of events
-static const char* EventKindName(Material::Event::Kind kind)
-{
-    switch (kind) {
-        case Material::Event::RapidIntoStock:
-            return "rapid";
-        case Material::Event::ShankContact:
-            return "shank";
-        case Material::Event::Gouge:
-            return "gouge";
-        case Material::Event::MaterialLeft:
-            return "left";
-    }
-    return "";
-}
-
 PyObject* CAMSimPy::GetEvents()
 {
     Py::List list;
     for (const SimEvent& e : getCAMSimPtr()->GetEvents()) {
-        Py::Dict d;
-        d.setItem("kind", Py::String(EventKindName(e.event.kind)));
+        Py::Dict d = EventToPython(e.event);
         d.setItem("step", Py::Long(e.step));
         d.setItem("command", Py::Long(e.command));
-        d.setItem("operation", Py::Long(e.event.operation));
-        d.setItem("volume", Py::Float(e.event.volume));
-        d.setItem("depth", Py::Float(e.event.depth));
-        d.setItem("count", Py::Long(e.event.count));
-        d.setItem(
-            "box",
-            Py::TupleN(
-                Py::TupleN(Py::Float(e.event.lo[0]), Py::Float(e.event.lo[1]), Py::Float(e.event.lo[2])),
-                Py::TupleN(Py::Float(e.event.hi[0]), Py::Float(e.event.hi[1]), Py::Float(e.event.hi[2]))
-            )
-        );
-        d.setItem(
-            "position",
-            Py::TupleN(
-                Py::Float(e.event.position[0]),
-                Py::Float(e.event.position[1]),
-                Py::Float(e.event.position[2])
-            )
-        );
         list.append(d);
     }
     return Py::new_reference_to(list);
+}
+
+PyObject* CAMSimPy::SetMachine(PyObject* args)
+{
+    PyObject* description;
+    if (!PyArg_ParseTuple(args, "O", &description)) {
+        return nullptr;
+    }
+    try {
+        getCAMSimPtr()->SetMachine(MachineFromPython(Py::Object(description)));
+    }
+    catch (const Py::Exception&) {
+        return nullptr;
+    }
+    Py_INCREF(Py_None);
+    return Py_None;
 }
 
 PyObject* CAMSimPy::GetStockMesh()

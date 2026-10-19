@@ -143,6 +143,17 @@ class CAMSim(BaseClass):
         """
         ...
 
+    def SetMachine(self, machine: dict | None, /) -> None:
+        """
+        The machine of the job, for the next simulation, None for none: its axes, as
+        {"linear": [(name, min, max, velocity)], "rotary": [(name, (x, y, z), min, max, velocity,
+        table, sequence)]}, mm, degrees, per second; table: the axis turns the part, else the tool;
+        sequence: 0 nearest to the part (table) or to the tool (head). The simulator finds the
+        tool directions its rotary axes don't reach within their limits and toolpaths wider than
+        its travel, and rapid moves of tools without a rapid rate go at the velocities of its axes.
+        """
+        ...
+
     @no_args
     def GetStockMesh(self) -> Any:
         """
@@ -169,8 +180,11 @@ class CAMSim(BaseClass):
         a region is done), command (the index of the command where it starts, -1 for none),
         operation (its index, -1 for none), volume (of the material met, mm3), position (its
         centroid, regions: of the deepest one), depth (regions: the largest distance from the
-        model, mm), box (regions: (lo, hi)) and count (the regions of one kind and operation make
-        one problem, their number).
+        model, mm), box (regions: (lo, hi)), count (the regions of one kind and operation make
+        one problem, their number), and for "machine" (the machine can't make the moves, see
+        SetMachine): axis (a linear axis whose travel is too short, empty for a tool direction
+        the rotary axes don't reach), needed and available (its travel, mm), direction (the tool
+        direction).
         """
         ...
 

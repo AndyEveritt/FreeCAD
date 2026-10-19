@@ -25,6 +25,7 @@
 #pragma once
 
 #include "GCodeParser.h"
+#include "MachineKinematics.h"
 #include "MaterialSimulation.h"
 
 #include <map>
@@ -41,15 +42,17 @@ Material::Segment MotionSegment(const MillMotion& from, const MillMotion& to);
 
 // The time of the machine for the motion of a segment, s: feed moves at their programmed feed
 // rate, else at the feed rate of the tool (vertical for moves more vertical than horizontal),
-// rapid moves at the rapid rates of the tool, else at defaultRapid, all axes at once: the longer
-// of the horizontal and the vertical. Turns of the tool take at least their largest angle at 30
+// rapid moves at the rapid rates of the tool, else at the velocities of the X, Y and Z axes of the
+// machine (axisRapid, mm/s, if given), else at defaultRapid, all axes at once: the longest of the
+// axes. Turns of the tool take at least their largest angle at 30
 // degrees a second feeding, 90 rapid.
 double MotionSeconds(
     const MillMotion& from,
     const MillMotion& to,
     const Material::Segment& cut,
     const ToolRates& rates,
-    double defaultRapid
+    double defaultRapid,
+    const double* axisRapid = nullptr
 );
 
 // The problems of a toolpath (Material::Event), found by simulating it without a view: the
@@ -71,6 +74,11 @@ public:
     // The stock and the model, closed triangle meshes; without a model no regions are found
     void SetStock(std::vector<float> xyz, std::vector<uint32_t> triangles);
     void SetModel(std::shared_ptr<const Material::ModelDistance> model, double tolerance);
+    // The machine of the toolpath, see MachineEvents
+    void SetMachine(const MachineKinematics& machine)
+    {
+        mMachine = machine;
+    }
 
     // A problem and the command where it starts (-1 for the regions of the final stock)
     struct Found
@@ -96,6 +104,7 @@ private:
     std::vector<uint32_t> mStockTriangles;
     std::shared_ptr<const Material::ModelDistance> mModel;
     double mTolerance = 0.05;
+    MachineKinematics mMachine;
 };
 
 }  // namespace CAMSimulator

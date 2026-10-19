@@ -50,6 +50,8 @@ SET(CAMSimulator_SRCS_Core
     MaterialRenderer.h
     MaterialSimulation.cpp
     MaterialSimulation.h
+    MachineKinematics.cpp
+    MachineKinematics.h
     MaterialTool.cpp
     MaterialTool.h
     MillMotion.h

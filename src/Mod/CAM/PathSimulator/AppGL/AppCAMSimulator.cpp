@@ -29,6 +29,7 @@
 #include "CAMSim.h"
 #include "CAMSimPy.h"
 #include "MaterialModel.h"
+#include "SimulatorPy.h"
 #include "ToolpathCheck.h"
 #include "ViewCAMSimulator.h"
 
@@ -48,12 +49,13 @@ public:
         add_varargs_method(
             "checkToolpath",
             &Module::checkToolpath,
-            "checkToolpath(steps, stock, model, quality, tolerance) -> list\n"
+            "checkToolpath(steps, stock, model, quality, tolerance, machine=None) -> list\n"
             "Simulate a toolpath without a view and return the problems found on it, as dicts like\n"
             "PathSim.GetEvents gives them, without their step. steps: the toolpath as the\n"
             "simulator is given it, ('command', command), ('operation', ...) and ('tool', profile,\n"
             "number, diameter, extras), see SimulationSteps; stock and model: shapes, model None\n"
-            "for none; quality: 1 to 10; tolerance: of the distance from the model, mm."
+            "for none; quality: 1 to 10; tolerance: of the distance from the model, mm; machine:\n"
+            "its axes, see PathSim.SetMachine."
         );
         initialize("This module is the CAMSimulator module.");  // register with Python
     }
@@ -83,22 +85,24 @@ private:
 
     Py::Object checkToolpath(const Py::Tuple& args)
     {
-        PyObject *steps, *stock, *model;
+        PyObject *steps, *stock, *model, *machine = Py_None;
         float quality;
         double tolerance;
         if (!PyArg_ParseTuple(
                 args.ptr(),
-                "OO!Ofd",
+                "OO!Ofd|O",
                 &steps,
                 &(Part::TopoShapePy::Type),
                 &stock,
                 &model,
                 &quality,
-                &tolerance
+                &tolerance,
+                &machine
             )) {
             throw Py::Exception();
         }
         ToolpathCheck check;
+        check.SetMachine(MachineFromPython(Py::Object(machine)));
         for (const Py::Object& item : Py::Sequence(steps)) {
             const Py::Sequence step(item);
             const std::string kind = Py::String(step[0]).as_std_string();
@@ -159,28 +163,10 @@ private:
         found = check.Run(quality);
         Py_END_ALLOW_THREADS
 
-        static const char* kinds[] = {"rapid", "shank", "gouge", "left"};
         Py::List list;
         for (const ToolpathCheck::Found& f : found) {
-            const Material::Event& e = f.event;
-            Py::Dict d;
-            d.setItem("kind", Py::String(kinds[e.kind]));
+            Py::Dict d = EventToPython(f.event);
             d.setItem("command", Py::Long(f.command));
-            d.setItem("operation", Py::Long(e.operation));
-            d.setItem("volume", Py::Float(e.volume));
-            d.setItem("depth", Py::Float(e.depth));
-            d.setItem("count", Py::Long(e.count));
-            d.setItem(
-                "position",
-                Py::TupleN(Py::Float(e.position[0]), Py::Float(e.position[1]), Py::Float(e.position[2]))
-            );
-            d.setItem(
-                "box",
-                Py::TupleN(
-                    Py::TupleN(Py::Float(e.lo[0]), Py::Float(e.lo[1]), Py::Float(e.lo[2])),
-                    Py::TupleN(Py::Float(e.hi[0]), Py::Float(e.hi[1]), Py::Float(e.hi[2]))
-                )
-            );
             list.append(d);
         }
         return list;
