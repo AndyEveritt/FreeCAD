@@ -767,6 +767,12 @@ void SimDisplay::StartStockGeometryPass(const vec3& objColor, const StockColorin
     glUniform1f(glGetUniformLocation(id, "restOpacity"), mLayer >= 0 ? coloring.restOpacity : 0.0f);
     glUniform1i(glGetUniformLocation(id, "restOnly"), coloring.restOnly ? 1 : 0);
     SetPeelState(id);
+    // with faces hidden the stock is open: the inside of the faces shown is seen through the
+    // holes, both sides of the faces lit
+    if (coloring.Filtered()) {
+        glUniform1i(glGetUniformLocation(id, "twoSided"), 1);
+        glDisable(GL_CULL_FACE);
+    }
     glDisable(GL_BLEND);
 }
 
