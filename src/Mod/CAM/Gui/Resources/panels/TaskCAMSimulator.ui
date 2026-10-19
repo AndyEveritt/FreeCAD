@@ -214,14 +214,27 @@
         </item>
        </widget>
       </item>
-      <item row="2" column="0">
+      <item row="2" column="0" colspan="2">
+       <widget class="QCheckBox" name="outlines">
+        <property name="toolTip">
+         <string>Dark lines at the edges of the stock and the model in the simulator view</string>
+        </property>
+        <property name="text">
+         <string>Outlines</string>
+        </property>
+        <property name="checked">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="0">
        <widget class="QLabel" name="labelThinWallThreshold">
         <property name="text">
          <string>Thin wall threshold</string>
         </property>
        </widget>
       </item>
-      <item row="2" column="1">
+      <item row="3" column="1">
        <widget class="Gui::QuantitySpinBox" name="thinWallThreshold">
         <property name="toolTip">
          <string>Material thinner than this is shown in red when the colors show thin walls</string>
@@ -243,14 +256,14 @@
         </property>
        </widget>
       </item>
-      <item row="3" column="0">
+      <item row="4" column="0">
        <widget class="QLabel" name="labelDeviationTolerance">
         <property name="text">
          <string>Model tolerance</string>
         </property>
        </widget>
       </item>
-      <item row="3" column="1">
+      <item row="4" column="1">
        <widget class="Gui::QuantitySpinBox" name="deviationTolerance">
         <property name="toolTip">
          <string>When the colors show the distance from the model: green within this distance, blue where more material is left, red where the stock is cut deeper into the model</string>
@@ -275,7 +288,7 @@
         </property>
        </widget>
       </item>
-      <item row="4" column="0">
+      <item row="5" column="0">
        <widget class="QCheckBox" name="stockVisible">
         <property name="toolTip">
          <string>Show the simulated stock</string>
@@ -288,7 +301,7 @@
         </property>
        </widget>
       </item>
-      <item row="4" column="1">
+      <item row="5" column="1">
        <widget class="QSlider" name="stockOpacity">
         <property name="toolTip">
          <string>Opacity of the simulated stock, the model and the tool show through a transparent stock</string>
@@ -304,7 +317,7 @@
         </property>
        </widget>
       </item>
-      <item row="5" column="0">
+      <item row="6" column="0">
        <widget class="QCheckBox" name="modelVisible">
         <property name="toolTip">
          <string>Show the model of the job</string>
@@ -314,7 +327,7 @@
         </property>
        </widget>
       </item>
-      <item row="5" column="1">
+      <item row="6" column="1">
        <widget class="QSlider" name="modelOpacity">
         <property name="toolTip">
          <string>Opacity of the model of the job</string>

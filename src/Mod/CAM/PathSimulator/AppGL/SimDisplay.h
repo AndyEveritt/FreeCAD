@@ -128,6 +128,7 @@ public:
     void RenderResult(bool recalculate, bool ssao);
     void RenderResultStandard();
     void RenderResultSSAO(bool recalculate);
+    void SetOutlines(bool enabled);
     void SetupLinePathPass(int curSegment, bool isHidden);
     void UpdateWindowScale(int width, int height);
     void UpdateCamera(const SoCamera& camera);
@@ -141,6 +142,8 @@ public:
 
 public:
     bool updateDisplay = false;
+    // dark lines at the edges of the opaque objects, see SetOutlines
+    bool outlines = true;
     bool displayInitiated = false;
     // true while the simulation FBO holds a valid result for the current view
     bool simCacheValid = false;

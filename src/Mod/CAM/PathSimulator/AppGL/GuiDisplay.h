@@ -43,6 +43,8 @@ public:
     void setStage(float f, int total);
     // the operation in progress, index -1 for none
     void setOperation(const QString& name, int index, int count);
+    // the scale of the colors of the distance from the model, while they are shown
+    void setDeviationScale(bool visible, float tolerance);
 
     void setRotateEnabled(bool b);
     void setPathVisible(bool b);
@@ -78,7 +80,9 @@ private Q_SLOTS:
 
 
 private:
+    void placeDeviationScale();
     Ui_GuiDisplay* ui;
+    QWidget* deviationScale = nullptr;
 
     bool playing = true;
     int speed = 1;

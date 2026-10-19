@@ -108,6 +108,7 @@ def run_process(args, runs, workdir, name):
         "runs": runs,
         "quality": args.quality,
         "color_mode": args.color_mode,
+        "stencil_rendering": args.stencil_rendering,
         "window": args.window,
         "view": args.view,
         "scenarios": args.scenarios,
@@ -349,7 +350,8 @@ def display_options(data):
     """The display options of a run. Results from before they were options were plain."""
     config = data["config"]
     if "color_mode" in config:
-        return "colors: " + config["color_mode"]
+        stencil = "  renderer: stencil" if config.get("stencil_rendering") else ""
+        return "colors: " + config["color_mode"] + stencil
     # results from before the color modes
     on = [
         k
@@ -510,6 +512,11 @@ def main():
         choices=list(COLOR_MODES),
         default="operation",
         help="the colors of the stock, the Colors of the task panel (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--stencil-rendering",
+        action="store_true",
+        help="the original stencil renderer instead of the material simulation (3 axis, plain)",
     )
     parser.add_argument("--view", default="ViewAxo", help="initial view, e.g. ViewAxo, ViewTop")
     parser.add_argument(

@@ -770,7 +770,9 @@ def main():
         cam = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/CAM")
         modes = {"plain": 0, "operation": 1, "thin-walls": 2, "distance": 3}
         cam.SetInt("SimulatorColorMode", modes[CONFIG["color_mode"]])
+        cam.SetBool("SimulatorStencilRendering", CONFIG.get("stencil_rendering", False))
         cam.SetBool("SimulatorStockVisible", True)
+        cam.SetBool("SimulatorOutlines", True)
         cam.SetBool("SimulatorModelVisible", False)
         setup_window()
         for run in CONFIG["runs"]:

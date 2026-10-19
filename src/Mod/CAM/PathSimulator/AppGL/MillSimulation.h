@@ -144,6 +144,8 @@ public:
     void SetColorByOperation(bool b);
     // Faces in front of material thinner than the threshold in red
     void SetThinWalls(bool enabled, float threshold);
+    // Dark lines at the edges of the stock and the other opaque objects
+    void SetOutlines(bool enabled);
     // Faces by their distance from the model, within the tolerance green, see StockColoring
     void SetDeviation(bool enabled, float tolerance);
     // The model to measure the distance from, null for none

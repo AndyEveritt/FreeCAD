@@ -502,9 +502,18 @@ void DlgCAMSimulator::setDeviation(bool enabled, float tolerance)
 {
     mDeviation = enabled;
     mMillSimulator->SetDeviation(enabled, tolerance);
+    if (mGui) {
+        mGui->setDeviationScale(enabled, tolerance);
+    }
     if (enabled && mDeviationModelGeneration != mDeviationGeneration) {
         startDeviationModel();
     }
+    update();
+}
+
+void DlgCAMSimulator::setOutlines(bool enabled)
+{
+    mMillSimulator->SetOutlines(enabled);
     update();
 }
 

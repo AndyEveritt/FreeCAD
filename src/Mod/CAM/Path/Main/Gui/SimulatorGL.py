@@ -287,6 +287,8 @@ class CAMSimulation:
         self.onColorModeChange()
         form.inspect.setCurrentIndex(prefs.GetInt("SimulatorInspect", 0))
         form.inspect.currentIndexChanged.connect(self.onInspectChange)
+        form.outlines.setChecked(prefs.GetBool("SimulatorOutlines", True))
+        form.outlines.toggled.connect(self.onOutlinesChange)
         form.stockVisible.setChecked(prefs.GetBool("SimulatorStockVisible", True))
         form.modelVisible.setChecked(prefs.GetBool("SimulatorModelVisible", False))
         form.stockVisible.toggled.connect(self.onVisibilityChange)
@@ -435,6 +437,11 @@ class CAMSimulation:
         form.labelDeviationTolerance.setEnabled(mode == 3)
         prefs = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/CAM")
         prefs.SetInt("SimulatorColorMode", mode)
+
+    def onOutlinesChange(self, *_args):
+        """Dark lines at the edges of the stock and the model"""
+        prefs = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/CAM")
+        prefs.SetBool("SimulatorOutlines", self.taskForm.form.outlines.isChecked())
 
     def onInspectChange(self, *_args):
         """Lines over the stock to inspect it: its mesh, its normals or its dexels at a click"""

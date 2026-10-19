@@ -25,6 +25,9 @@
 #include "GuiDisplay.h"
 
 #include "ui_GuiDisplay.h"
+#include <QCoreApplication>
+#include <QLinearGradient>
+#include <QPainter>
 #include <cmath>
 #include <limits>
 
@@ -33,6 +36,104 @@
 
 namespace CAMSimulator
 {
+
+namespace
+{
+
+// The colors of the distance from the model, as the stock shader shows them (deviationColor in
+// Shader.cpp): within the tolerance green, material left from light to dark blue up to 10
+// tolerances, cut into the model from orange to dark red
+class DeviationScale: public QWidget
+{
+public:
+    explicit DeviationScale(QWidget* parent)
+        : QWidget(parent)
+    {
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        resize(190, 206);
+    }
+    void setTolerance(float tolerance)
+    {
+        mTolerance = tolerance;
+        update();
+    }
+
+protected:
+    void paintEvent(QPaintEvent*) override
+    {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        // readable on light and dark backgrounds
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(20, 20, 24, 170));
+        p.drawRoundedRect(rect(), 6, 6);
+
+        const int barX = 12, barW = 18, top = 40, height = 150;
+        const int green = height / 5;  // the band within the tolerance
+        const int half = (height - green) / 2;
+        auto color = [](float r, float g, float b) {
+            return QColor::fromRgbF(r, g, b);
+        };
+        QLinearGradient left(0, top, 0, top + half);
+        left.setColorAt(0, color(0.05f, 0.15f, 0.6f));
+        left.setColorAt(1, color(0.45f, 0.7f, 1.0f));
+        p.fillRect(barX, top, barW, half, left);
+        p.fillRect(barX, top + half, barW, green, color(0.25f, 0.8f, 0.3f));
+        QLinearGradient cut(0, top + half + green, 0, top + height);
+        cut.setColorAt(0, color(1.0f, 0.6f, 0.2f));
+        cut.setColorAt(1, color(0.75f, 0.0f, 0.05f));
+        p.fillRect(barX, top + half + green, barW, height - half - green, cut);
+
+        p.setPen(Qt::white);
+        QFont font = p.font();
+        font.setBold(true);
+        p.setFont(font);
+        p.drawText(
+            QRect(8, 4, width() - 16, 22),
+            Qt::AlignLeft | Qt::AlignVCenter,
+            QCoreApplication::translate("CAM_Simulator", "Distance from model")
+        );
+        font.setBold(false);
+        p.setFont(font);
+        const float t = mTolerance;
+        auto mm = [](float v) {
+            return QString::fromUtf8("%1%2 mm")
+                .arg(
+                    v > 0       ? "+"
+                        : v < 0 ? "\u2212"
+                                : ""
+                )
+                .arg(std::abs(v), 0, 'g', 3);
+        };
+        const int textX = barX + barW + 8;
+        auto label = [&](int y, const QString& text) {
+            p.drawLine(barX + barW, y, barX + barW + 4, y);
+            p.drawText(
+                QRect(textX, y - 9, width() - textX - 6, 18),
+                Qt::AlignLeft | Qt::AlignVCenter,
+                text
+            );
+        };
+        label(
+            top,
+            QString::fromUtf8("\u2265 ") + mm(10 * t)
+                + QCoreApplication::translate("CAM_Simulator", " left")
+        );
+        label(top + half, mm(t));
+        label(top + half + green / 2, QCoreApplication::translate("CAM_Simulator", "on the model"));
+        label(top + half + green, mm(-t));
+        label(
+            top + height,
+            QString::fromUtf8("\u2264 ") + mm(-10 * t)
+                + QCoreApplication::translate("CAM_Simulator", " cut in")
+        );
+    }
+
+private:
+    float mTolerance = 0.05f;
+};
+
+}  // namespace
 
 GuiDisplay::GuiDisplay(QWidget* parent)
     : QWidget(parent)
@@ -57,6 +158,23 @@ GuiDisplay::GuiDisplay(QWidget* parent)
     setOperation(QString(), -1, 0);
     connect(ui->stageSlider, &QSlider::sliderPressed, this, [this] { Q_EMIT scrubbing(true); });
     connect(ui->stageSlider, &QSlider::sliderReleased, this, [this] { Q_EMIT scrubbing(false); });
+
+    deviationScale = new DeviationScale(this);
+    deviationScale->hide();
+}
+
+void GuiDisplay::setDeviationScale(bool visible, float tolerance)
+{
+    static_cast<DeviationScale*>(deviationScale)->setTolerance(tolerance);
+    deviationScale->setVisible(visible);
+    placeDeviationScale();
+}
+
+// at the top right of the view
+void GuiDisplay::placeDeviationScale()
+{
+    deviationScale->move(width() - deviationScale->width() - 10, 10);
+    setMask(childrenRegion());
 }
 
 GuiDisplay::~GuiDisplay()
@@ -67,7 +185,7 @@ GuiDisplay::~GuiDisplay()
 void GuiDisplay::resizeEvent(QResizeEvent* event)
 {
     QWidget::resizeEvent(event);
-    setMask(childrenRegion());
+    placeDeviationScale();
 }
 
 void GuiDisplay::setPlaying(bool b)

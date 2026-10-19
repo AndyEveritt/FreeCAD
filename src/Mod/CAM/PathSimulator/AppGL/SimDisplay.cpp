@@ -615,6 +615,8 @@ void SimDisplay::StartGeometryPass(const vec3& objColor, bool invertNormals)
 void SimDisplay::SetPeelState(unsigned int shaderId)
 {
     glUniform1i(glGetUniformLocation(shaderId, "peel"), mLayer > 0 ? 1 : 0);
+    // the stencil renderer draws the back faces of the tools with their normals inverted
+    glUniform1i(glGetUniformLocation(shaderId, "twoSided"), mLayer >= 0 ? 1 : 0);
     glUniform1i(glGetUniformLocation(shaderId, "peelDepth"), 6);
     glUniform2f(glGetUniformLocation(shaderId, "screenSize"), (float)mWidth, (float)mHeight);
     if (mLayer >= 0) {
@@ -740,6 +742,7 @@ void SimDisplay::EndTransparentLayer()
     shaderSSAOLighting.UpdatePositionTexSlot(1);
     shaderSSAOLighting.UpdateNormalTexSlot(2);
     shaderSSAOLighting.UpdateSsaoActive(false);
+    SetOutlines(false);
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
     glDisable(GL_BLEND);
@@ -873,6 +876,18 @@ void SimDisplay::RenderResult(bool recalculate, bool ssao)
     ComposeTransparentLayer();
 }
 
+// Dark lines at the edges of the objects in the lighting pass, for the opaque objects
+void SimDisplay::SetOutlines(bool enabled)
+{
+    const unsigned int id = shaderSSAOLighting.shaderId;
+    glUniform1i(glGetUniformLocation(id, "outlines"), enabled ? 1 : 0);
+    glUniform2f(
+        glGetUniformLocation(id, "texelSize"),
+        1.0f / std::max(mWidth, 1),
+        1.0f / std::max(mHeight, 1)
+    );
+}
+
 void SimDisplay::RenderResultStandard()
 {
     // set default frame buffer
@@ -884,7 +899,7 @@ void SimDisplay::RenderResultStandard()
     shaderSSAOLighting.UpdatePositionTexSlot(1);
     shaderSSAOLighting.UpdateNormalTexSlot(2);
     shaderSSAOLighting.UpdateSsaoActive(false);
-    // shaderSimFbo.Activate();
+    SetOutlines(outlines);
     SetupVertexAttribs();
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
@@ -946,6 +961,7 @@ void SimDisplay::RenderResultSSAO(bool recalculate)
     shaderSSAOLighting.UpdateNormalTexSlot(2);
     shaderSSAOLighting.UpdateSsaoTexSlot(3);
     shaderSSAOLighting.UpdateSsaoActive(true);
+    SetOutlines(outlines);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, mFboColTexture);
     glActiveTexture(GL_TEXTURE1);

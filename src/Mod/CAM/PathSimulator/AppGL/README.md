@@ -105,6 +105,11 @@ from angles, are snapped to them.
   at once, so the mesh never has cracks between new and old parts, and draws them in chunks of
   units. The view asks for a frame when a new mesh is ready.
 - `SimDisplay`: deferred shading with optional ambient occlusion (SSAO, at half resolution). The
+  lights are fixed to the view: a key light from the upper left, a fill light from the right, light
+  from above brighter than from below and a highlight of the key light, so faces turned differently
+  differ in brightness; the opaque objects get dark outlines (optional) where neighboring pixels
+  fold by more than about 40 degrees, step far off the plane of each other, and at the background.
+  The
   toolpath is drawn a few pixels closer to the camera than it is, so a path on the surface of the
   stock, like the bottom of a ball end mill groove, is not hidden by it. The model is drawn a
   little behind the stock: where the stock is cut to the model, the stock and the colors of its
@@ -137,7 +142,8 @@ changes (`CAMSettings`): the colors of the stock, the thin wall threshold and th
 and the stock and the model shown, with their opacities. The colors are plain, by operation (the
 path color of an operation where it has been set, otherwise a color of a palette, shown in the task
 panel), thin walls in red, or the distance from the model: within the tolerance green, where
-material is left blue, where the stock is cut into the model red, darker up to 10 tolerances away.
+material is left blue, where the stock is cut into the model red, darker up to 10 tolerances away,
+with a scale at the top right of the view.
 The distance of every vertex of the mesh is measured in the mesher thread while it is shown, from
 the model tessellated within 2 um in another thread (`MaterialModel`, `ModelDistance`: its
 triangles in a grid of the range of 1 mm, the sign by the normals of the nearest triangles, by the
@@ -172,6 +178,7 @@ around Z. This is the place to add machine specific kinematics. Arcs are in the 
   default 0.05) green.
 - `SimulatorStockVisible` (bool, default true), `SimulatorModelVisible` (bool, default false): the
   stock and the model shown.
+- `SimulatorOutlines` (bool, default true): dark lines at the edges of the opaque objects.
 - `SimulatorInspect` (int, default 0): lines over the stock to inspect it: 0 none, 1 the mesh, 2 the
   normals, 3 the dexels at a click.
 - `SimulatorStockOpacity`, `SimulatorModelOpacity` (float, 0 to 1, default 1): opacity of the

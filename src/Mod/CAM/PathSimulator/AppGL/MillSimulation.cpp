@@ -914,6 +914,12 @@ void MillSimulation::SetThinWalls(bool enabled, float threshold)
     simDisplay.updateDisplay = true;
 }
 
+void MillSimulation::SetOutlines(bool enabled)
+{
+    simDisplay.outlines = enabled;
+    simDisplay.updateDisplay = true;
+}
+
 void MillSimulation::SetDeviation(bool enabled, float tolerance)
 {
     mDeviation = enabled;

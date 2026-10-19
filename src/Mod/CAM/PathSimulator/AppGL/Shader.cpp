@@ -516,6 +516,7 @@ const char* FragShaderGeom = R"(
     uniform float opacity;
     // transparent layers: the surfaces behind those of the layer before, both sides of the faces
     uniform bool peel;
+    uniform bool twoSided;
     uniform sampler2D peelDepth;
     uniform vec2 screenSize;
 
@@ -528,7 +529,7 @@ const char* FragShaderGeom = R"(
         // Store position, normal, and diffuse color with the opacity in textures
         gl_FragData[0] = vec4(objectColor, opacity);
         gl_FragData[1] = vec4(Position, 0.0f);
-        gl_FragData[2] = vec4(gl_FrontFacing ? normal : -normal, 0.0f);
+        gl_FragData[2] = vec4(twoSided && !gl_FrontFacing ? -normal : normal, 0.0f);
     }
 )";
 
@@ -609,6 +610,7 @@ const char* FragShaderStock = R"(
     }
     // transparent layers: the surfaces behind those of the layer before, both sides of the faces
     uniform bool peel;
+    uniform bool twoSided;
     uniform sampler2D peelDepth;
     uniform vec2 screenSize;
 
@@ -623,7 +625,7 @@ const char* FragShaderStock = R"(
         gl_FragData[0] = vec4(color, opacity);
         // the stock and the operation of the face, for picking
         gl_FragData[1] = vec4(Position, 1.0 + floor(Tag + 0.5));
-        gl_FragData[2] = vec4(gl_FrontFacing ? normal : -normal, 0.0f);
+        gl_FragData[2] = vec4(twoSided && !gl_FrontFacing ? -normal : normal, 0.0f);
     }
 )";
 
@@ -726,18 +728,56 @@ const char* FragShaderSSAOLighting = R"(
     uniform vec3 lightAmbient;
 
     uniform bool ssaoActive;
+    // dark lines at the edges of the objects: where the surface folds, where it steps behind
+    // another one, and around them
+    uniform bool outlines;
+    uniform vec2 texelSize;
 
     uniform sampler2D ColorTex;
     uniform sampler2D PositionTex;
     uniform sampler2D NormalTex;
     uniform sampler2D AoTex;
 
-    vec3 ambAndDiffuse( vec3 pos, vec3 norm, vec3 diff, float ao ) {
-        ao = pow(ao, 4);
-        vec3 ambient = lightAmbient * diff * ao;
-        vec3 s = normalize( lightPos - pos);
-        float sDotN = max( dot(s,norm), 0.0 );
-        return ambient + lightColor * diff * sDotN;
+    // Lights fixed to the view: a key light from the upper left in front, a fill light from the
+    // right, light from above brighter than from below, and a highlight of the key light, so
+    // faces turned differently differ in brightness
+    vec3 shade(vec3 pos, vec3 norm, vec3 diff, float ao)
+    {
+        vec3 key = normalize(vec3(-0.45, 0.6, 0.65));
+        vec3 fill = normalize(vec3(0.7, -0.1, 0.45));
+        float keyDiffuse = max(dot(norm, key), 0.0);
+        float fillDiffuse = max(dot(norm, fill), 0.0);
+        vec3 ambient = mix(vec3(0.10, 0.10, 0.10), vec3(0.24, 0.25, 0.28), 0.5 + 0.5 * norm.y);
+        vec3 toCamera = normalize(-pos);
+        vec3 halfway = normalize(key + toCamera);
+        float highlight = keyDiffuse > 0.0 ? pow(max(dot(norm, halfway), 0.0), 48.0) * 0.2 : 0.0;
+        return diff * (ambient * pow(ao, 4.0) + 0.66 * keyDiffuse + 0.22 * fillDiffuse)
+            + vec3(highlight);
+    }
+
+    // 0 inside a surface, up to 1 at its edges
+    float edge(vec3 pos, vec3 norm)
+    {
+        float e = 0.0;
+        vec2 offsets[4];
+        offsets[0] = vec2(texelSize.x, 0.0);
+        offsets[1] = vec2(-texelSize.x, 0.0);
+        offsets[2] = vec2(0.0, texelSize.y);
+        offsets[3] = vec2(0.0, -texelSize.y);
+        for (int i = 0; i < 4; i++) {
+            vec3 n = texture2D(NormalTex, texCoord + offsets[i]).xyz;
+            if (dot(n, n) < 0.25) {
+                e = 1.0;  // nothing there: the outline of the objects
+                continue;
+            }
+            vec3 d = texture2D(PositionTex, texCoord + offsets[i]).xyz - pos;
+            // folds by more than about 40 degrees
+            float fold = smoothstep(0.8, 0.6, dot(norm, n));
+            // the next point far off the plane of this one: a step behind or in front
+            float step = smoothstep(0.35, 0.6, abs(dot(d, norm)) / (length(d) + 1e-6));
+            e = max(e, max(fold, step));
+        }
+        return e;
     }
 
     void main()
@@ -748,7 +788,10 @@ const char* FragShaderSSAOLighting = R"(
         vec3 diffColor = DiffColorA.rgb;
         float aoVal = ssaoActive ? texture2D( AoTex, texCoord).r : 1.0;
 
-        vec3 col = ambAndDiffuse(pos, norm, diffColor, aoVal);
+        vec3 col = shade(pos, norm, diffColor, aoVal);
+        if (outlines && dot(norm, norm) > 0.25) {
+            col *= 1.0 - 0.6 * edge(pos, norm);
+        }
         col = pow(col, vec3(1.0/2.2));
 
         gl_FragColor = vec4( col, DiffColorA.a );
