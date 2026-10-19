@@ -545,16 +545,21 @@ const char* VertShaderStock = R"(
 
     uniform vec3 objectColor;
     uniform bool colorByOperation;
-    uniform vec3 operationColors[63];
+    // the color of tag t in texel t - 1
+    uniform sampler2D operationColors;
+    uniform float operationCount;
 
     void main()
     {
         vec4 viewPos = view * model * vec4(aPosition, 1.0);
         Position = viewPos.xyz;
         Normal = mat3(view * model) * aNormal;
-        int tag = int(aOperation + 0.5);
-        Color = colorByOperation && tag > 0 ? operationColors[tag - 1] : objectColor;
-        Thickness = aThickness;
+        float tag = floor(aOperation + 0.5);
+        Color = colorByOperation && tag > 0.0
+            ? texture2DLod(operationColors, vec2((tag - 0.5) / operationCount, 0.5), 0.0).rgb
+            : objectColor;
+        // the fraction of 10 mm in 16 bits, all bits set for none
+        Thickness = aThickness > 0.99999 ? 1e30 : aThickness * (65535.0 / 65534.0) * 10.0;
         gl_Position = projection * viewPos;
     }
 )";

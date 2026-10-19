@@ -31,6 +31,7 @@
  ***************************************************************************/
 
 #include "SimDisplay.h"
+#include "MaterialTool.h"
 
 #include <Inventor/nodes/SoOrthographicCamera.h>
 #include <Inventor/nodes/SoPerspectiveCamera.h>
@@ -372,6 +373,9 @@ void SimDisplay::CleanGL()
     // cleanup geometry
     GLDELETE_BUFFER(mFboQuadVBO);
 
+    GLDELETE_TEXTURE(mOperationColorTexture);
+    mOperationColors.clear();
+
     // cleanup shaders
     shader3D.Destroy();
     shaderInv3D.Destroy();
@@ -571,18 +575,29 @@ void SimDisplay::StartStockGeometryPass(const vec3& objColor, const StockColorin
     shaderStock.UpdateViewMat(mMatLookAt);
     shaderStock.UpdateObjColor(objColor);
     const unsigned int id = shaderStock.shaderId;
-    const int colors = std::min((int)coloring.operationColors.size() / 3, 63);
+    const int colors = std::min((int)coloring.operationColors.size() / 3, Material::MaxTag);
     glUniform1i(
         glGetUniformLocation(id, "colorByOperation"),
         coloring.byOperation && colors > 0 ? 1 : 0
     );
-    if (colors > 0) {
-        glUniform3fv(
-            glGetUniformLocation(id, "operationColors"),
-            colors,
-            coloring.operationColors.data()
-        );
+    // the colors in a texture, read by the vertex shader
+    glActiveTexture(GL_TEXTURE5);
+    if (colors > 0 && (mOperationColorTexture == 0 || mOperationColors != coloring.operationColors)) {
+        mOperationColors = coloring.operationColors;
+        if (mOperationColorTexture == 0) {
+            glGenTextures(1, &mOperationColorTexture);
+        }
+        glBindTexture(GL_TEXTURE_2D, mOperationColorTexture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, colors, 1, 0, GL_RGB, GL_FLOAT, mOperationColors.data());
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     }
+    glBindTexture(GL_TEXTURE_2D, mOperationColorTexture);
+    glActiveTexture(GL_TEXTURE0);
+    glUniform1i(glGetUniformLocation(id, "operationColors"), 5);
+    glUniform1f(glGetUniformLocation(id, "operationCount"), (float)std::max(colors, 1));
     glUniform1f(glGetUniformLocation(id, "thinThreshold"), coloring.thinThreshold);
     glUniform1f(glGetUniformLocation(id, "opacity"), mOpacity);
     glUniform3fv(glGetUniformLocation(id, "thinColor"), 1, coloring.thinColor);

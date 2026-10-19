@@ -226,6 +226,9 @@ protected:
     unsigned int mFboSsaoTexture = 0;
     unsigned int mFboSsaoBlurTexture = 0;
     unsigned int mFboRandTexture = 0;
+    // colors of the operation tags of the stock, a row of texels
+    unsigned int mOperationColorTexture = 0;
+    std::vector<float> mOperationColors;
 };
 
 }  // namespace CAMSimulator

@@ -281,7 +281,7 @@ void View::Draw(const Chunk& chunk, bool cut) const
     glVertexAttribPointer(
         2,
         1,
-        GL_UNSIGNED_BYTE,
+        GL_UNSIGNED_SHORT,
         GL_FALSE,
         sizeof(MeshVertex),
         (void*)offsetof(MeshVertex, tag)
@@ -290,8 +290,8 @@ void View::Draw(const Chunk& chunk, bool cut) const
     glVertexAttribPointer(
         3,
         1,
-        GL_FLOAT,
-        GL_FALSE,
+        GL_UNSIGNED_SHORT,
+        GL_TRUE,
         sizeof(MeshVertex),
         (void*)offsetof(MeshVertex, thickness)
     );

@@ -515,9 +515,9 @@ uint32_t PackNormal(const float n[3])
         y = (1 - std::abs(ox)) * (oy >= 0 ? 1.0f : -1.0f);
     }
     // an even scale: 0, -1 and 1 are exact, so faces along the axes stay exact
-    const auto u = (uint32_t)((x * 0.5f + 0.5f) * 4094 + 0.5f);
-    const auto v = (uint32_t)((y * 0.5f + 0.5f) * 4094 + 0.5f);
-    return (v << 12) | u;
+    const auto u = (uint32_t)((x * 0.5f + 0.5f) * 1022 + 0.5f);
+    const auto v = (uint32_t)((y * 0.5f + 0.5f) * 1022 + 0.5f);
+    return (v << 10) | u;
 }
 
 void UnpackNormal(uint32_t packed, float n[3])
@@ -527,8 +527,8 @@ void UnpackNormal(uint32_t packed, float n[3])
         n[2] = 1;
         return;
     }
-    float x = (float)(packed & 4095) / 4094 * 2 - 1;
-    float y = (float)((packed >> 12) & 4095) / 4094 * 2 - 1;
+    float x = (float)(packed & 1023) / 1022 * 2 - 1;
+    float y = (float)((packed >> 10) & 1023) / 1022 * 2 - 1;
     const float z = 1 - std::abs(x) - std::abs(y);
     if (z < 0) {
         const float ox = x, oy = y;

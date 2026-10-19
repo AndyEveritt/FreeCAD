@@ -122,13 +122,15 @@ private:
     bool mSingleAxial = true;
 };
 
-// Packed unit normal of a material surface (octahedral, 24 bits), the tag of the operation that
-// made it (6 bits), and flags: made by cutting, normal unknown (made by a sharp edge of a tool).
+// Packed unit normal of a material surface (octahedral, 20 bits: within about 0.1 degrees), the
+// tag of the operation that made it (10 bits), and flags: made by cutting, normal unknown (made by
+// a sharp edge of a tool).
 constexpr uint32_t NoNormal = 1u << 30;
 constexpr uint32_t CutFlag = 1u << 31;
-constexpr int TagShift = 24;
-constexpr uint32_t TagMask = 63u << TagShift;
-constexpr int MaxTag = 63;
+constexpr int TagShift = 20;
+constexpr uint32_t TagMask = 1023u << TagShift;
+// operations get the tags 1 to MaxTag, more operations share them
+constexpr int MaxTag = 1023;
 inline int OperationTag(int operation)
 {
     return operation < 0 ? 0 : operation % MaxTag + 1;

@@ -38,20 +38,33 @@ class ThreadPool;
 namespace CAMSimulator::Material
 {
 
+// Material is measured up to this thickness
+constexpr float MaxThickness = 10;
+// Thickness of vertices that were not measured, or thicker than measured
+constexpr float NoThickness = 1e30f;
+// Thickness as a fraction of MaxThickness in 16 bits (steps of 0.15 um), the largest value for
+// none
+constexpr uint16_t NoThicknessCode = 65535;
+inline uint16_t EncodeThickness(float t)
+{
+    return t >= MaxThickness ? NoThicknessCode : (uint16_t)(t / MaxThickness * 65534 + 0.5f);
+}
+inline float DecodeThickness(uint16_t code)
+{
+    return code == NoThicknessCode ? NoThickness : code * (MaxThickness / 65534);
+}
+
 // Vertex of the stock mesh: position, normal, the tag of the operation that cut its face (0 for
-// none) and the thickness of the material behind it
+// none) and the thickness of the material behind it (EncodeThickness)
 struct MeshVertex
 {
     float x, y, z;
     int8_t nx, ny, nz;
-    uint8_t tag;
-    float thickness;
+    uint8_t reserved;
+    uint16_t tag;
+    uint16_t thickness;
 };
-
-// Thickness of vertices that were not measured, or thicker than measured
-constexpr float NoThickness = 1e30f;
-// Material is measured up to this thickness
-constexpr float MaxThickness = 10;
+static_assert(sizeof(MeshVertex) == 20);
 
 // Triangles of a mesh unit: faces of the original stock and cut faces
 struct UnitMesh

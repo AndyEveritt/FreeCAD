@@ -222,8 +222,10 @@ The accuracy table of the summary has:
 
 - surface error: 20000 points sampled on the mesh, the distance along the mesh normal to the true
   surface, as percentiles and the largest, in µm, and the bias (mean signed error, + where the mesh
-  is inside the material: it shows too much removed). `missed`: samples without the true surface
-  within 0.5 mm, like a piece of surface where there is none.
+  is inside the material: it shows too much removed). The true surface is searched along the mesh
+  normal, and along the axes and their diagonals where it is not found that way (a sample on a
+  wall at the height of the floor it meets would search along the floor). `missed`: samples
+  without the true surface within 0.5 mm, like a piece of surface where there is none.
 - volume error: 1 million points in the stock box, classified by the oracle and by the mesh.
   `wrong` is the volume shown wrongly, `gross` the part of it farther than 0.05 mm from the mesh,
   like missing or misplaced surface. Small cells and thin features account for most of `wrong`.

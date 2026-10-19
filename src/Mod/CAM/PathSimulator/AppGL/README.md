@@ -11,9 +11,9 @@ there too (`SimulatorStencilRendering`).
 The stock is stored as tri-dexels: lines along X, Y and Z through the points of a grid, each
 holding the ranges where there is material. Every end of a range is a point of the surface,
 exact along its line, with the normal of the surface there, whether it was cut and by which
-operation (packed into 32 bits: the normal in 24, the operation in 6, see `PackNormal`). This
-represents any stock and any material removal, including undercuts (dovetail, slitting saw,
-thread mill) and cuts with tilted and turning tools.
+operation (packed into 32 bits: the normal in 20, within about 0.1 degrees, the operation in 10,
+up to 1023 operations, see `PackNormal`). This represents any stock and any material removal,
+including undercuts (dovetail, slitting saw, thread mill) and cuts with tilted and turning tools.
 
 - `MaterialTool`: a tool as the solid of revolution of its profile, made of primitives whose
   sweeps along a straight motion meet every line in one interval: spheres, the arcs of the
@@ -84,9 +84,10 @@ from angles, are snapped to them.
   surface is flat (normals within about 8 degrees, points within a tenth of a cell of a plane), or
   into cubes of up to 4 cells holding one sharp edge or corner of planes, or a ridge between
   curved faces (like between passes of a ball end), with one sheet of surface. Every cube with a
-  surface gets a vertex: on the edge or corner of the planes of its points at sharp features, else
-  where the planes of its points meet (every plane counting the same), moved onto curved surfaces
-  by a quadric fit. Every edge of the cubes with a change of inside gets a quad of the vertices of
+  surface gets a vertex: on the edge or corner of the planes of its points at sharp features
+  (not of planes facing almost opposite ways, like the faces of a thin wall, where they meet
+  depends too much on their normals), else where the planes of its points meet (every plane
+  counting the same), moved onto curved surfaces by a quadric fit. Every edge of the cubes with a change of inside gets a quad of the vertices of
   the 4 cubes around it, from the smallest cubes around it, so bricks of different levels connect
   without cracks, split along the diagonal passing nearest to the surface point of the edge.
   Vertices on smooth surfaces share their normal, at sharp edges every quad gets the normal of its

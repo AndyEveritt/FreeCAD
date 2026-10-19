@@ -81,6 +81,8 @@ struct Report
     double mean = 0, p50 = 0, p90 = 0, p99 = 0, p999 = 0, max = 0;
     double bias = 0;  // mean signed error, positive: too much material removed
     int missed = 0;   // samples without the true surface in the search range
+    Point maxAt {};   // the sample with the largest error
+    std::vector<Point> missedAt;
     // volume error
     long volumePoints = 0;
     double boxVolume = 0;  // mm3

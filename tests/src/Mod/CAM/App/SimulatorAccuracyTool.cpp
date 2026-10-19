@@ -27,7 +27,8 @@ Simulates the job outside of the GUI and measures the stock shown against the ex
   --points N                volume points (default 1000000)
   --polyline-tools          tools as their profiles, arcs not fitted
   --json FILE               write the results as JSON
-  --gross FILE              write the gross error points (x y z material)
+  --gross FILE              write the points of gross errors (x y z material) and of samples
+                            without the true surface nearby (x y z missed)
   --max-p99 MM              fail above this 99th percentile of the surface error
   --max-p999 MM             fail above this 99.9th percentile of the surface error
   --max-gross MM3           fail above this volume of gross errors
@@ -141,6 +142,9 @@ int main(int argc, char** argv)
             for (size_t i = 0; i < r.grossPoints.size(); i++) {
                 const auto& p = r.grossPoints[i];
                 std::fprintf(f, "%.4f %.4f %.4f %d\n", p[0], p[1], p[2], r.grossMaterial[i] ? 1 : 0);
+            }
+            for (const auto& p : r.missedAt) {
+                std::fprintf(f, "%.4f %.4f %.4f missed\n", p[0], p[1], p[2]);
             }
             std::fclose(f);
         }

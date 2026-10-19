@@ -45,6 +45,8 @@ constexpr int EdgeCount = 3 * EdgesPerAxis;
 constexpr float MergeCos = 0.99f;
 // vertices with normals further apart than about 25 degrees are sharp
 constexpr float SharpCos = 0.9f;
+// planes whose normals are farther apart (about 135 degrees) are not intersected for a vertex
+constexpr double OppositeCos = -0.7;
 
 inline int AxisU(int a)
 {
@@ -90,11 +92,12 @@ struct Crossing
 {
     float p[3];
     float n[3];
-    bool hasNormal;
-    bool cut;
-    bool startInside;  // the edge starts inside the material: the surface faces along it
-    uint8_t tag;
+    uint16_t tag : 10;
+    uint16_t hasNormal : 1;
+    uint16_t cut : 1;
+    uint16_t startInside : 1;  // the edge starts inside the material: the surface faces along it
 };
+static_assert(sizeof(Crossing) == 28);
 
 // Inside the material at a grid point of a leaf, from its dexel along Z. The material includes its
 // surface, like the dexels along X and Y on a grid plane keep the material a tool only touches.
@@ -156,7 +159,7 @@ void FindCrossing(const Grid& grid, int leaf, int a, int i, int j, int t, bool s
         c.n[a] = startInside ? 1.0f : -1.0f;
     }
     c.cut = IsCut(packed);
-    c.tag = (uint8_t)TagOf(packed);
+    c.tag = (uint16_t)TagOf(packed);
     c.startInside = startInside;
 }
 
@@ -694,6 +697,11 @@ bool SharpVertex(
     for (int a = 0; a < groups; a++) {
         for (int b = 0; b < groups; b++) {
             N[a][b] = n[a][0] * n[b][0] + n[a][1] * n[b][1] + n[a][2] * n[b][2];
+            // planes facing almost opposite ways, like the faces of a thin wall: where they meet
+            // depends too much on their normals
+            if (N[a][b] < OppositeCos) {
+                return false;
+            }
         }
         r[a] = d[a] - (n[a][0] * mass[0] + n[a][1] * mass[1] + n[a][2] * mass[2]);
     }
@@ -786,10 +794,10 @@ struct Mesher::Geometry
         uint8_t size;   // cells
         float p[3];     // vertex
         float n[3];     // normal, if hasNormal
-        bool hasNormal;
-        bool sharp;
-        bool cut;
-        uint8_t tag;
+        uint16_t tag : 10;
+        uint16_t hasNormal : 1;
+        uint16_t sharp : 1;
+        uint16_t cut : 1;
     };
     std::vector<Cube> cubes;
     std::vector<Crossing> crossings;
@@ -1265,11 +1273,22 @@ void Mesher::ComputeGeometry(const Grid& grid, int leaf)
             SmoothVertex(points, lo, hi, cube.p);
         }
         double n[3] = {0, 0, 0};
-        int withNormal = 0, tagVotes[64] = {};
+        int withNormal = 0;
         int cut = 0;
+        // the tag of most points
+        thread_local std::vector<std::pair<uint16_t, int>> votes;
+        votes.clear();
         for (const Crossing* c : points) {
             cut += c->cut ? 1 : 0;
-            tagVotes[c->tag & 63]++;
+            auto vote = std::find_if(votes.begin(), votes.end(), [&](const auto& v) {
+                return v.first == c->tag;
+            });
+            if (vote == votes.end()) {
+                votes.emplace_back(c->tag, 1);
+            }
+            else {
+                vote->second++;
+            }
             if (c->hasNormal) {
                 withNormal++;
                 for (int k = 0; k < 3; k++) {
@@ -1278,7 +1297,9 @@ void Mesher::ComputeGeometry(const Grid& grid, int leaf)
             }
         }
         cube.cut = 2 * cut >= (int)points.size();
-        cube.tag = (uint8_t)(std::max_element(tagVotes, tagVotes + 64) - tagVotes);
+        cube.tag = std::max_element(votes.begin(), votes.end(), [](const auto& a, const auto& b) {
+                       return a.second < b.second;
+                   })->first;
         const double len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
         cube.hasNormal = withNormal > 0 && len > 1e-6;
         cube.sharp = withNormal < (int)points.size();
@@ -1320,8 +1341,8 @@ void Mesher::BuildUnit(const Grid& grid, int unit, UnitMesh& out) const
         if (smooth) {
             auto it = shared.find(key);
             if (it != shared.end()) {
-                float& t = out.vertices[it->second].thickness;
-                t = std::min(t, thickness);
+                uint16_t& t = out.vertices[it->second].thickness;
+                t = std::min(t, EncodeThickness(thickness));
                 return it->second;
             }
         }
@@ -1333,8 +1354,9 @@ void Mesher::BuildUnit(const Grid& grid, int unit, UnitMesh& out) const
         v.nx = (int8_t)std::lround(std::clamp(n[0], -1.0f, 1.0f) * 127);
         v.ny = (int8_t)std::lround(std::clamp(n[1], -1.0f, 1.0f) * 127);
         v.nz = (int8_t)std::lround(std::clamp(n[2], -1.0f, 1.0f) * 127);
+        v.reserved = 0;
         v.tag = smooth ? q.tag : c.tag;
-        v.thickness = thickness;
+        v.thickness = EncodeThickness(thickness);
         const uint32_t index = (uint32_t)out.vertices.size();
         out.vertices.push_back(v);
         if (smooth) {

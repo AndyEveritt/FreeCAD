@@ -765,6 +765,7 @@ Report Evaluate(const Oracle& oracle, const Mesh& mesh, const Options& options)
     const int samples = triangles > 0 && area.back() > 0 ? options.surfaceSamples : 0;
     constexpr double Missed = 1e30;
     std::vector<double> errors(samples, 0);
+    std::vector<V3> where(samples);
     std::atomic<int> next {0};
     const double step = std::min(0.005, options.searchRange / 10);
     ParallelRun(threads, [&](int) {
@@ -784,39 +785,72 @@ Report Evaluate(const Oracle& oracle, const Mesh& mesh, const Options& options)
             const V3 a = Vertex(mesh, idx[0]), b = Vertex(mesh, idx[1]), c = Vertex(mesh, idx[2]);
             const V3 p = Add(a, Add(Mul(Sub(b, a), u), Mul(Sub(c, a), v)));
             const V3 n = Unit(Cross(Sub(b, a), Sub(c, a)));
+            where[i] = p;
             // in the material the true surface is farther out, else farther in
             const bool in = oracle.Material(p);
             const double dir = in ? 1 : -1;
-            double lo = 0, hi = -1;
-            for (double s = step; s <= options.searchRange + 1e-9; s += step) {
-                if (oracle.Material(Add(p, Mul(n, dir * s))) != in) {
-                    lo = s - step;
-                    hi = s;
-                    break;
+            // distance along a direction to where the material changes, negative if not in range
+            auto changeAlong = [&](const V3& d) {
+                double lo = 0, hi = -1;
+                for (double s = step; s <= options.searchRange + 1e-9; s += step) {
+                    if (oracle.Material(Add(p, Mul(d, s))) != in) {
+                        lo = s - step;
+                        hi = s;
+                        break;
+                    }
+                }
+                if (hi < 0) {
+                    return -1.0;
+                }
+                for (int it = 0; it < 22; it++) {
+                    const double mid = 0.5 * (lo + hi);
+                    if (oracle.Material(Add(p, Mul(d, mid))) == in) {
+                        lo = mid;
+                    }
+                    else {
+                        hi = mid;
+                    }
+                }
+                return 0.5 * (lo + hi);
+            };
+            // along the normal, outwards in the material: the true surface is farther out
+            double distance = changeAlong(Mul(n, dir));
+            if (distance < 0) {
+                // A sample on a surface along another one, like a wall at the height of the floor
+                // it meets, searches along that surface: the nearest change along the axes and
+                // their diagonals
+                for (int k = 0; k < 27; k++) {
+                    if (k == 13) {
+                        continue;
+                    }
+                    const V3 d = Unit(
+                        {(double)(k % 3 - 1), (double)(k / 3 % 3 - 1), (double)(k / 9 - 1)}
+                    );
+                    const double along = changeAlong(d);
+                    if (along >= 0 && (distance < 0 || along < distance)) {
+                        distance = along;
+                    }
                 }
             }
-            if (hi < 0) {
+            if (distance < 0) {
                 errors[i] = Missed;
                 continue;
             }
-            for (int it = 0; it < 22; it++) {
-                const double mid = 0.5 * (lo + hi);
-                if (oracle.Material(Add(p, Mul(n, dir * mid))) == in) {
-                    lo = mid;
-                }
-                else {
-                    hi = mid;
-                }
-            }
-            errors[i] = dir * 0.5 * (lo + hi);
+            errors[i] = dir * distance;
         }
     });
     std::vector<double> magnitude;
-    double sum = 0;
-    for (double e : errors) {
+    double sum = 0, largest = -1;
+    for (int i = 0; i < samples; i++) {
+        const double e = errors[i];
         if (e == Missed) {
             report.missed++;
+            report.missedAt.push_back(where[i]);
             continue;
+        }
+        if (std::abs(e) > largest) {
+            largest = std::abs(e);
+            report.maxAt = where[i];
         }
         magnitude.push_back(std::abs(e));
         sum += e;
@@ -895,7 +929,7 @@ std::string Format(const Report& r)
         sizeof(buffer),
         "surface: samples %d  mean %.4f  p50 %.4f  p90 %.4f  p99 %.4f  p999 %.4f  max %.4f  bias "
         "%+.4f  "
-        "missed %d (mm)\n",
+        "missed %d (mm), max at %.3f %.3f %.3f\n",
         r.surfaceSamples,
         r.mean,
         r.p50,
@@ -904,7 +938,10 @@ std::string Format(const Report& r)
         r.p999,
         r.max,
         r.bias,
-        r.missed
+        r.missed,
+        r.maxAt[0],
+        r.maxAt[1],
+        r.maxAt[2]
     );
     out += buffer;
     std::snprintf(

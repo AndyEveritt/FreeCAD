@@ -647,12 +647,12 @@ TEST(MaterialMesher, thinWallsAreMeasured)
             && v.y < 14 && v.z > -3.5f && v.z < -0.5f;
         if (onWall) {
             wall++;
-            EXPECT_NEAR(v.thickness, 0.6f, 0.02f) << v.x << " " << v.y << " " << v.z;
+            EXPECT_NEAR(DecodeThickness(v.thickness), 0.6f, 0.02f) << v.x << " " << v.y << " " << v.z;
         }
         // the floors of the slots, with the stock below them
         if (std::abs(v.z + 4) < 1e-3 && v.y > 6 && v.y < 14 && std::abs(v.x - 7) < 1) {
             floor++;
-            EXPECT_NEAR(v.thickness, 2, 0.02f);
+            EXPECT_NEAR(DecodeThickness(v.thickness), 2, 0.02f);
         }
     });
     EXPECT_GT(wall, 4);
