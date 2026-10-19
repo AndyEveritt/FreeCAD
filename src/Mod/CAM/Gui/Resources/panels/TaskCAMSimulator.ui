@@ -146,7 +146,7 @@
    <item>
     <widget class="QListWidget" name="listOperations">
      <property name="selectionMode">
-      <enum>QAbstractItemView::NoSelection</enum>
+      <enum>QAbstractItemView::SingleSelection</enum>
      </property>
     </widget>
    </item>
