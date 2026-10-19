@@ -172,9 +172,9 @@ def document_job(name):
         elif step[0] == "operation":
             job["sections"].append((step[1], len(job["gcode"])))
         else:
-            profile, number, diameter = step[1:]
+            profile, number, diameter, extras = step[1:]
             if number not in [t[0] for t in job["tools"]]:
-                job["tools"].append((number, float(diameter), profile))
+                job["tools"].append((number, float(diameter), profile, extras))
             job["gcode"].append(f"T{number}")
     return job, doc
 
@@ -215,8 +215,8 @@ class JobBench:
 
         t0 = time.perf_counter()
         self.sim.ResetSimulation(FreeCADGui.getDocument(doc))
-        for number, diameter, profile in job["tools"]:
-            self.sim.AddTool(profile, number, diameter, 1)
+        for number, diameter, profile, *extras in job["tools"]:
+            self.sim.AddTool(profile, number, diameter, 1, **(extras[0] if extras else {}))
         # operations, by the index of their first command; operations without commands start
         # where the next one does
         sections = {}

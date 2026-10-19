@@ -108,12 +108,61 @@ int SolveQuadratic(double a, double b, double c, double roots[2])
 
 // ---------------------------------------------------------------------------------------- Tool
 
-Tool::Tool(const std::vector<float>& profile, bool cuts)
+Tool::Tool(const std::vector<float>& profile, bool cuts, const std::vector<ProfileArc>& arcs)
     : mCuts(cuts)
 {
-    std::vector<std::pair<double, double>> points;
+    std::vector<std::pair<double, double>> given;
     for (size_t i = 0; i + 1 < profile.size(); i += 2) {
-        points.emplace_back(std::max(0.0, (double)profile[i]), (double)profile[i + 1]);
+        given.emplace_back(std::max(0.0, (double)profile[i]), (double)profile[i + 1]);
+    }
+    // the arcs in order along the profile, each from the end of the one before
+    std::vector<ProfileArc> sorted;
+    for (const ProfileArc& a : arcs) {
+        if (a.first >= 0 && a.last > a.first && a.last < (int)given.size()) {
+            sorted.push_back(a);
+        }
+    }
+    std::sort(sorted.begin(), sorted.end(), [](const ProfileArc& a, const ProfileArc& b) {
+        return a.first < b.first;
+    });
+    std::vector<std::pair<double, double>> points;
+    int next = 0;  // the next given point
+    for (const ProfileArc& a : sorted) {
+        if (a.first < next) {
+            continue;  // overlaps the arc before
+        }
+        for (; next <= a.first; next++) {
+            points.push_back(given[next]);
+        }
+        const auto [r0, z0] = given[a.first];
+        const auto [r1, z1] = given[a.last];
+        const double radius = std::hypot(r0 - a.r, z0 - a.z);
+        const double a0 = std::atan2(z0 - a.z, r0 - a.r);
+        double sweep = std::remainder(std::atan2(z1 - a.z, r1 - a.r) - a0, 2 * M_PI);
+        // the arc through the given points between the ends, the shorter one without them
+        if (a.last - a.first >= 2) {
+            const auto [rm, zm] = given[(a.first + a.last) / 2];
+            const double am = std::remainder(std::atan2(zm - a.z, rm - a.r) - a0, 2 * M_PI);
+            if (am * sweep < 0 || std::abs(am) > std::abs(sweep)) {
+                sweep += sweep > 0 ? -2 * M_PI : 2 * M_PI;
+            }
+        }
+        const double step = std::max(
+            radius > ArcTolerance ? 2 * std::acos(1 - ArcTolerance / radius) : M_PI / 2,
+            M_PI / 64
+        );
+        const int n = std::max(3, (int)std::ceil(std::abs(sweep) / step));
+        for (int k = 1; k < n; k++) {
+            const double angle = a0 + sweep * k / n;
+            points.emplace_back(
+                std::max(0.0, a.r + radius * std::cos(angle)),
+                a.z + radius * std::sin(angle)
+            );
+        }
+        next = a.last;
+    }
+    for (; next < (int)given.size(); next++) {
+        points.push_back(given[next]);
     }
     Build(std::move(points));
 }

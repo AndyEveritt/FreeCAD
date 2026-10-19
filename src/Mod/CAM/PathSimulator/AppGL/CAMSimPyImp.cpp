@@ -98,23 +98,50 @@ PyObject* CAMSimPy::BeginSimulation(PyObject* args, PyObject* kwds)
 
 PyObject* CAMSimPy::AddTool(PyObject* args, PyObject* kwds)
 {
-    static const std::array<const char*, 5>
-        kwlist {"shape", "toolnumber", "diameter", "resolution", nullptr};
+    static const std::array<const char*, 6>
+        kwlist {"shape", "toolnumber", "diameter", "resolution", "arcs", nullptr};
     PyObject* pObjToolShape;
     int toolNumber;
     float resolution;
     float diameter;
+    PyObject* pyArcs = Py_None;
     if (!Base::Wrapped_ParseTupleAndKeywords(
             args,
             kwds,
-            "Oiff",
+            "Oiff|O",
             kwlist,
             &pObjToolShape,
             &toolNumber,
             &diameter,
-            &resolution
+            &resolution,
+            &pyArcs
         )) {
         return nullptr;
+    }
+    // the arcs of the profile: (first, last, r, z)
+    std::vector<Material::ProfileArc> arcs;
+    if (pyArcs != Py_None) {
+        PyObject* seq = PySequence_Fast(pyArcs, "arcs must be a sequence of (first, last, r, z)");
+        if (!seq) {
+            return nullptr;
+        }
+        const Py_ssize_t n = PySequence_Fast_GET_SIZE(seq);
+        for (Py_ssize_t i = 0; i < n; i++) {
+            Material::ProfileArc arc;
+            if (!PyArg_ParseTuple(
+                    PySequence_Fast_GET_ITEM(seq, i),
+                    "iidd",
+                    &arc.first,
+                    &arc.last,
+                    &arc.r,
+                    &arc.z
+                )) {
+                Py_DECREF(seq);
+                return nullptr;
+            }
+            arcs.push_back(arc);
+        }
+        Py_DECREF(seq);
     }
     // The tool shape is defined by a list of 2d points that represents the tool revolving profile
     Py_ssize_t num_floats = PyList_Size(pObjToolShape);
@@ -125,7 +152,7 @@ PyObject* CAMSimPy::AddTool(PyObject* args, PyObject* kwds)
     }
 
     CAMSim* sim = getCAMSimPtr();
-    sim->addTool(toolProfile, toolNumber, diameter, resolution);
+    sim->addTool(toolProfile, toolNumber, diameter, resolution, arcs);
 
     Py_INCREF(Py_None);
     return Py_None;

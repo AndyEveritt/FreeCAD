@@ -326,6 +326,39 @@ TEST(MaterialTool, primitives)
     EXPECT_NEAR(Tool(VBitProfile(3, 45)).BottomAt(1), 1, 1e-6);
 }
 
+TEST(MaterialTool, arcsOfTheProfileAreExact)
+{
+    // a bull nose corner given in 4 lines, and as an arc around (3, 2): the tool follows the circle
+    std::vector<float> profile = {5, ToolLength, 5, 2};
+    Arc(profile, 3, 2, 2, 4);
+    profile.insert(profile.end(), {0, 0});
+    const Tool coarse(profile);
+    const Tool exact(profile, true, {{1, 5, 3, 2}});
+    auto error = [](const Tool& tool) {
+        double worst = 0;
+        for (int i = 1; i < 200; i++) {
+            const double z = 2.0 * i / 200;
+            worst = std::max(worst, std::abs(std::hypot(tool.RadiusAt(z) - 3, z - 2) - 2));
+        }
+        return worst;
+    };
+    EXPECT_GT(error(coarse), 0.01);
+    EXPECT_LT(error(exact), Tool::ArcTolerance + 1e-6);
+    EXPECT_NEAR(exact.RadiusAt(2.5), 5, 1e-6);
+    EXPECT_NEAR(exact.BottomAt(1), 0, 1e-6);
+
+    // a ball end in 2 lines is no sphere, as an arc it is
+    const std::vector<float> ball = BallProfile(3, 2);
+    EXPECT_TRUE(Tool(ball).Spheres().empty());
+    const Tool sphere(ball, true, {{1, 3, 0, 3}});
+    ASSERT_EQ(sphere.Spheres().size(), 1u);
+    EXPECT_NEAR(sphere.Spheres()[0].zc, 3, 1e-6);
+    EXPECT_NEAR(sphere.Spheres()[0].radius, 3, 1e-6);
+
+    // arcs out of the profile are left out
+    EXPECT_EQ(Tool(ball, true, {{2, 9, 0, 3}}).Frustums().size(), Tool(ball).Frustums().size());
+}
+
 TEST(MaterialTool, sweepsOfFixedAxes)
 {
     std::mt19937 rng(1);

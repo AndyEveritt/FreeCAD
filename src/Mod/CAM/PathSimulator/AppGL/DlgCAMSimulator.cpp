@@ -319,13 +319,14 @@ void DlgCAMSimulator::addTool(
     const std::vector<float>& toolProfilePoints,
     int toolNumber,
     float diameter,
-    float resolution
+    float resolution,
+    const std::vector<Material::ProfileArc>& arcs
 )
 {
     Q_UNUSED(resolution)
 
     mCommands.push_back({"T" + std::to_string(toolNumber), {}, -1});
-    mTools.emplace_back(toolProfilePoints, toolNumber, diameter);
+    mTools.push_back({toolProfilePoints, toolNumber, diameter, arcs});
 }
 
 static SimShape getMeshData(const Part::TopoShape& shape, float resolution)
@@ -638,7 +639,7 @@ void DlgCAMSimulator::updateResources()
 
     for (const auto& tool : mTools) {
         if (!mMillSimulator->ToolExists(tool.id)) {
-            mMillSimulator->AddTool(tool.profile, tool.id, tool.diameter);
+            mMillSimulator->AddTool(tool.profile, tool.id, tool.diameter, tool.arcs);
         }
     }
 

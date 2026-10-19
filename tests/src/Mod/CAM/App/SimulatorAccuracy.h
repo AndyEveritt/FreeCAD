@@ -8,9 +8,9 @@
 // tools are solids of revolution of their profile, every motion is divided into pieces whose paths
 // in the frame of the tool deviate from straight lines by less than 0.1 um, and a point is in the
 // sweep of a piece if the segment between its positions in the tool frame at both ends meets the
-// tool. Only the arcs of the profiles (ball ends, corner radii) are taken as the spheres the
-// material simulation fits to them (Material::Tool), sampled finely, as profiles approximate arcs
-// by a few edges.
+// tool. The arcs of the profiles (ball ends, corner radii) are sampled finely: the arcs the job
+// gives with its profiles, else those centered on the axis as the spheres the material simulation
+// fits to them (Material::Tool), as profiles approximate arcs by a few edges.
 //
 // The evaluation measures the mesh of the stock against it:
 // - surface error: points sampled uniformly on the mesh triangles, the distance along the mesh

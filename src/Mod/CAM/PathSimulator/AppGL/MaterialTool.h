@@ -32,6 +32,16 @@
 namespace CAMSimulator::Material
 {
 
+// An arc of the profile of a tool: its points first to last (indices of radius/height pairs) are
+// on the circle around (r, z) in the (radius, height) half plane
+struct ProfileArc
+{
+    int first = 0;
+    int last = 0;
+    double r = 0;
+    double z = 0;
+};
+
 // A rotationally symmetric cutter: the solid of revolution of its profile around the tool axis.
 // Coordinates are relative to the tool tip, z along the axis from the tip towards the shank.
 //
@@ -62,8 +72,17 @@ public:
 
     // profile: radius/height pairs from the top of the tool down to its tip, the cross section of
     // the tool solid. cuts: false for tools that never remove material, like probes; profiles
-    // without material above the tip are probes too.
-    explicit Tool(const std::vector<float>& profile, bool cuts = true);
+    // without material above the tip are probes too. arcs: the arcs of the profile, divided
+    // again into lines within ArcTolerance, at most 32 per quarter circle, instead of the points
+    // between their ends.
+    explicit Tool(
+        const std::vector<float>& profile,
+        bool cuts = true,
+        const std::vector<ProfileArc>& arcs = {}
+    );
+
+    // Largest distance of the lines of arcs of the profile from the arcs, mm
+    static constexpr double ArcTolerance = 0.001;
 
     bool Cuts() const
     {

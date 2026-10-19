@@ -68,7 +68,8 @@ public:
         const std::vector<float>& toolProfilePoints,
         int toolNumber,
         float diameter,
-        float resolution
+        float resolution,
+        const std::vector<Material::ProfileArc>& arcs = {}
     );
     void SetBaseShape(const Part::TopoShape& baseShape, float resolution);
     void AddCommand(Command* cmd);

@@ -35,7 +35,7 @@ namespace CAMSimulator::Material
 namespace
 {
 
-constexpr char Magic[8] = "CAMJOB2";
+constexpr char Magic[8] = "CAMJOB3";
 
 using File = std::unique_ptr<FILE, int (*)(FILE*)>;
 
@@ -60,9 +60,19 @@ bool SaveJob(const std::string& path, const Job& job)
     write(Magic, sizeof(Magic));
     write(&job.quality, 4);
     u32((uint32_t)job.profiles.size());
-    for (const auto& p : job.profiles) {
+    for (size_t t = 0; t < job.profiles.size(); t++) {
+        const auto& p = job.profiles[t];
         u32((uint32_t)p.size());
         write(p.data(), 4 * p.size());
+        static const std::vector<ProfileArc> none;
+        const auto& arcs = t < job.arcs.size() ? job.arcs[t] : none;
+        u32((uint32_t)arcs.size());
+        for (const ProfileArc& a : arcs) {
+            i32(a.first);
+            i32(a.last);
+            write(&a.r, 8);
+            write(&a.z, 8);
+        }
     }
     u32((uint32_t)job.segments.size());
     for (const Segment& s : job.segments) {
@@ -128,10 +138,19 @@ bool LoadJob(const std::string& path, Job& job)
     }
     Job j;
     read(&j.quality, 4);
-    j.profiles.resize(count(4));
-    for (auto& p : j.profiles) {
+    j.profiles.resize(count(8));
+    j.arcs.resize(j.profiles.size());
+    for (size_t t = 0; t < j.profiles.size(); t++) {
+        auto& p = j.profiles[t];
         p.resize(count(4));
         read(p.data(), 4 * p.size());
+        j.arcs[t].resize(count(24));
+        for (ProfileArc& a : j.arcs[t]) {
+            a.first = i32();
+            a.last = i32();
+            read(&a.r, 8);
+            read(&a.z, 8);
+        }
     }
     j.segments.resize(count(156));
     for (Segment& s : j.segments) {

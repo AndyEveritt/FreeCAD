@@ -42,9 +42,19 @@ class CAMSim(BaseClass):
         """
         ...
 
-    def AddTool(self, shape: TopoShape, toolnumber: int, diameter: float, resolution: float) -> Any:
+    def AddTool(
+        self,
+        shape: list,
+        toolnumber: int,
+        diameter: float,
+        resolution: float,
+        arcs: list | None = None,
+    ) -> Any:
         """
-        Set the shape of the tool to be used for simulation
+        Set the shape of the tool to be used for simulation: its profile, radius/height pairs from
+        its top down to its tip. arcs: the arcs of the profile, (first, last, r, z): the points
+        first to last of the profile (indices of pairs) are on the circle around (r, z), the
+        simulator follows them exactly.
         """
         ...
 

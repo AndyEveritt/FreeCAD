@@ -24,16 +24,15 @@
 Command and task window handler for the OpenGL based CAM simulator
 """
 
-import math
 import os
 import FreeCAD
 import Path.Base.Util as PathUtil
 import Path.Dressup.Utils as PathDressup
-from Path.Main.SimulatorFeed import SimulatorFeed
+from Path.Main.SimulatorFeed import SimulatorFeed, toolProfile
 from PathScripts import PathUtils
 import CAMSimulator
 
-from FreeCAD import Vector, Placement, Rotation
+from FreeCAD import Vector
 
 # lazily loaded modules
 from lazy_loader.lazy_loader import LazyLoader
@@ -98,18 +97,6 @@ def OperationColors(ops):
     ]
 
 
-def IsSame(x, y):
-    """Check if two floats are the same within an epsilon"""
-    return abs(x - y) < 0.0001
-
-
-def RadiusAt(edge, p):
-    """Find the tool radius within a point on its circumference"""
-    x = edge.valueAt(p).x
-    y = edge.valueAt(p).y
-    return math.sqrt(x * x + y * y)
-
-
 class CAMSimTaskUi:
     """Handles the simulator task panel"""
 
@@ -162,104 +149,9 @@ class CAMSimulation:
         """Connect task panel buttons"""
         QtCore.QObject.connect(but, QtCore.SIGNAL("clicked()"), sig)
 
-    def FindClosestEdge(self, edges, px, pz):
-        """Convert tool shape to tool profile needed by GL simulator"""
-        for edge in edges:
-            p1 = edge.FirstParameter
-            p2 = edge.LastParameter
-            rad1 = RadiusAt(edge, p1)
-            z1 = edge.valueAt(p1).z
-            if IsSame(px, rad1) and IsSame(pz, z1):
-                return edge, p1, p2
-            rad2 = RadiusAt(edge, p2)
-            z2 = edge.valueAt(p2).z
-            if IsSame(px, rad2) and IsSame(pz, z2):
-                return edge, p2, p1
-            # sometimes a flat circle is without edge, so return edge with
-            # same height and later a connecting edge will be interpolated
-            if IsSame(pz, z1):
-                return edge, p1, p2
-            if IsSame(pz, z2):
-                return edge, p2, p1
-        return None, 0.0, 0.0
-
-    def FindTopMostEdge(self, edges):
-        """Examine tool solid edges and find the top most one"""
-        maxz = -99999999.0
-        topedge = None
-        top_p1 = 0.0
-        top_p2 = 0.0
-        for edge in edges:
-            p1 = edge.FirstParameter
-            p2 = edge.LastParameter
-            z = edge.valueAt(p1).z
-            if z > maxz:
-                topedge = edge
-                top_p1 = p1
-                top_p2 = p2
-                maxz = z
-            z = edge.valueAt(p2).z
-            if z > maxz:
-                topedge = edge
-                top_p1 = p2
-                top_p2 = p1
-                maxz = z
-        return topedge, top_p1, top_p2
-
     def GetToolProfile(self, tool, resolution):
-        """Get the edge profile of a tool solid. Basically locating the
-        side edge that OCC creates on any revolved object
-        """
-        shape = tool.Shape.copy()
-        shape.Placement = Placement()
-        sideEdgeList = []
-        for _i, edge in enumerate(shape.Edges):
-            if not edge.isClosed():
-                # v1 = edge.firstVertex()
-                # v2 = edge.lastVertex()
-                # tp = "arc" if type(edge.Curve) is Part.Circle else "line"
-                sideEdgeList.append(edge)
-
-        # sort edges as a single 3d line on the x-z plane
-
-        # first find the topmost edge
-        edge, p1, p2 = self.FindTopMostEdge(sideEdgeList)
-        profile = [RadiusAt(edge, p1), edge.valueAt(p1).z]
-        endrad = 0.0
-        # one by one find all connecting edges
-        while edge is not None:
-            sideEdgeList.remove(edge)
-            if isinstance(edge.Curve, Part.Circle):
-                # if edge is curved, approximate it with lines based on resolution, and with at
-                # least 16 lines per quarter circle, so the arcs of small tools stay smooth
-                nsegments = max(
-                    int(edge.Length / resolution) + 1,
-                    math.ceil(abs(p2 - p1) / (math.pi / 32)),
-                )
-                step = (p2 - p1) / nsegments
-                location = p1 + step
-                while nsegments > 0:
-                    endrad = RadiusAt(edge, location)
-                    endz = edge.valueAt(location).z
-                    profile.append(endrad)
-                    profile.append(endz)
-                    location += step
-                    nsegments -= 1
-            else:
-                endrad = RadiusAt(edge, p2)
-                endz = edge.valueAt(p2).z
-                profile.append(endrad)
-                profile.append(endz)
-            edge, p1, p2 = self.FindClosestEdge(sideEdgeList, endrad, endz)
-            if edge is None:
-                break
-            startrad = RadiusAt(edge, p1)
-            if not IsSame(startrad, endrad):
-                profile.append(startrad)
-                startz = edge.valueAt(p1).z
-                profile.append(startz)
-
-        return profile
+        """The profile of a tool solid, radius/height pairs from its top down to its tip"""
+        return toolProfile(tool.Shape, resolution)[0]
 
     def Activate(self):
         """Invoke the simulator task panel"""
@@ -516,20 +408,21 @@ class CAMSimulation:
     def SimulationSteps(self, ops, stock, colors):
         """SimulationSteps(ops, stock, colors) ... the calls that give ops to the
         simulator, in order: ("command", cmd), ("operation", label, color) and
-        ("tool", profile, number, diameter). colors are those of ops."""
+        ("tool", profile, number, diameter, extras), extras the keyword arguments
+        of AddTool. colors are those of ops."""
         feed = SimulatorFeed(stock.BoundBox)
         for op, color in zip(ops, colors):
             # an operation without a tool controller, a Custom one say, runs
             # with the tool already in the spindle
             tc = PathDressup.toolController(op)
-            toolProfile = self.GetToolProfile(tc.Tool, 0.5) if tc is not None else None
-            toolLength = max(toolProfile[1::2]) - min(toolProfile[1::2]) if toolProfile else None
+            profile, arcs = toolProfile(tc.Tool.Shape, 0.5) if tc is not None else (None, None)
+            toolLength = max(profile[1::2]) - min(profile[1::2]) if profile else None
             retract, opCommands = feed.add(op, toolLength)
             for cmd in retract:
                 yield ("command", cmd)
             yield ("operation", op.Label, color)
             if tc is not None:
-                yield ("tool", toolProfile, tc.ToolNumber, tc.Tool.Diameter)
+                yield ("tool", profile, tc.ToolNumber, tc.Tool.Diameter, {"arcs": arcs})
             for cmd in opCommands:
                 yield ("command", cmd)
 
@@ -544,7 +437,7 @@ class CAMSimulation:
             elif step[0] == "operation":
                 self.millSim.AddOperation(step[1], step[2])
             else:
-                self.millSim.AddTool(step[1], step[2], step[3], 1)
+                self.millSim.AddTool(step[1], step[2], step[3], 1, **step[4])
         self.millSim.BeginSimulation(self.stock, self.quality)
         self.millSim.SetOperationPickedCallback(self.onOperationPicked)
         if self.baseShape is not None:

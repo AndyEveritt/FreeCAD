@@ -50,10 +50,11 @@ void CAMSim::addTool(
     const std::vector<float>& toolProfilePoints,
     int toolNumber,
     float diameter,
-    float resolution
+    float resolution,
+    const std::vector<Material::ProfileArc>& arcs
 )
 {
-    DlgCAMSimulator::instance()->addTool(toolProfilePoints, toolNumber, diameter, resolution);
+    DlgCAMSimulator::instance()->addTool(toolProfilePoints, toolNumber, diameter, resolution, arcs);
 }
 
 void CAMSim::SetBaseShape(const Part::TopoShape& baseShape, float resolution)

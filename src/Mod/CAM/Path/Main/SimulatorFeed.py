@@ -313,6 +313,97 @@ class SimulatorFeed:
         return retract, approach
 
 
+def _radiusAt(edge, p):
+    """The distance of a point of an edge from the tool axis."""
+    v = edge.valueAt(p)
+    return math.hypot(v.x, v.y)
+
+
+def _isSame(x, y):
+    return abs(x - y) < 0.0001
+
+
+def _topMostEdge(edges):
+    """The edge with the highest end, and its parameters from that end."""
+    best, top = (None, 0.0, 0.0), -math.inf
+    for edge in edges:
+        p1, p2 = edge.FirstParameter, edge.LastParameter
+        for a, b in ((p1, p2), (p2, p1)):
+            z = edge.valueAt(a).z
+            if z > top:
+                best, top = (edge, a, b), z
+    return best
+
+
+def _closestEdge(edges, r, z):
+    """The edge starting at (r, z) in the profile, and its parameters from there. A flat circle
+    may have no edge: then an edge at the same height, joined to it by a line."""
+    for edge in edges:
+        p1, p2 = edge.FirstParameter, edge.LastParameter
+        r1, z1 = _radiusAt(edge, p1), edge.valueAt(p1).z
+        if _isSame(r, r1) and _isSame(z, z1):
+            return edge, p1, p2
+        r2, z2 = _radiusAt(edge, p2), edge.valueAt(p2).z
+        if _isSame(r, r2) and _isSame(z, z2):
+            return edge, p2, p1
+        if _isSame(z, z1):
+            return edge, p1, p2
+        if _isSame(z, z2):
+            return edge, p2, p1
+    return None, 0.0, 0.0
+
+
+def toolProfile(shape, resolution):
+    """toolProfile(shape, resolution) ... (profile, arcs) of the solid of revolution of a tool
+    around its Z axis, as the simulator takes them.
+
+    profile is the side of the solid from its top down to its tip as radius/height pairs
+    [r0, z0, r1, z1, ...], arcs divided into lines of at most resolution and at most 1/32 of a
+    half circle. arcs are the circles of the side, (first, last, r, z): the points first to last
+    of the profile are on the circle around (r, z), the simulator follows them exactly."""
+    import Part
+
+    shape = shape.copy()
+    shape.Placement = FreeCAD.Placement()
+    # the edges of the side, along the seam of the revolution
+    edges = [e for e in shape.Edges if not e.isClosed()]
+    edge, p1, p2 = _topMostEdge(edges)
+    if edge is None:
+        return [], []
+    profile = [_radiusAt(edge, p1), edge.valueAt(p1).z]
+    arcs = []
+    r, z = profile
+    while edge is not None:
+        edges.remove(edge)
+        if isinstance(edge.Curve, Part.Circle):
+            n = max(int(edge.Length / resolution) + 1, math.ceil(abs(p2 - p1) / (math.pi / 32)))
+            first = len(profile) // 2 - 1
+            for k in range(1, n + 1):
+                p = p1 + (p2 - p1) * k / n
+                r, z = _radiusAt(edge, p), edge.valueAt(p).z
+                profile += [r, z]
+            # the center in the plane of the seam: its distance from the axis towards the edge
+            mid = edge.valueAt((p1 + p2) / 2)
+            length = math.hypot(mid.x, mid.y)
+            center = edge.Curve.Center
+            if length > 1e-12:
+                cr = (center.x * mid.x + center.y * mid.y) / length
+            else:
+                cr = math.hypot(center.x, center.y)
+            arcs.append((first, len(profile) // 2 - 1, cr, center.z))
+        else:
+            r, z = _radiusAt(edge, p2), edge.valueAt(p2).z
+            profile += [r, z]
+        edge, p1, p2 = _closestEdge(edges, r, z)
+        if edge is None:
+            break
+        start = _radiusAt(edge, p1)
+        if not _isSame(start, r):
+            r, z = start, edge.valueAt(p1).z
+            profile += [r, z]
+    return profile, arcs
+
+
 def _slerp(d0, d1, angle, t):
     """The unit vector a fraction t of the way from d0 to d1 on a great circle."""
     if angle < 1e-9:

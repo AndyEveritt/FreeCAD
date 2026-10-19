@@ -83,7 +83,13 @@ public:
     void Clear();
     void InitSimulation(float quality, float maxStockDimension);
     void AddTool(EndMill* tool);
-    void AddTool(const std::vector<float>& toolProfile, int toolid, float diameter);
+    // arcs: of the profile, see Material::Tool
+    void AddTool(
+        const std::vector<float>& toolProfile,
+        int toolid,
+        float diameter,
+        const std::vector<Material::ProfileArc>& arcs = {}
+    );
     bool ToolExists(int toolid);
     void RenderSimulation();
     void RenderTool();
@@ -230,6 +236,7 @@ protected:
     std::vector<uint32_t> mStockTriangles;
     std::vector<Material::Segment> mSegments;  // one per MillPathSegment, tools by id
     std::vector<MillMotion> mSegmentMotions;   // the motion to the end of each segment
+    std::map<int, std::vector<Material::ProfileArc>> mToolArcs;  // by tool id
     std::vector<SimOperation> mOperations;
     StockColoring mColoring;
     bool mThinWalls = false;

@@ -286,6 +286,52 @@ std::vector<float> FineProfile(const Material::Tool& tool)
     return profile;
 }
 
+// The profile of a tool with its arcs, as the job gives them, finely sampled: the exact tool
+std::vector<float> ArcProfile(const std::vector<float>& profile, const std::vector<Material::ProfileArc>& arcs)
+{
+    const int n = (int)profile.size() / 2;
+    std::vector<Material::ProfileArc> sorted(arcs.begin(), arcs.end());
+    std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) {
+        return a.first < b.first;
+    });
+    std::vector<float> out;
+    int next = 0;
+    auto point = [&](int i) {
+        return std::make_pair((double)profile[2 * i], (double)profile[2 * i + 1]);
+    };
+    for (const auto& a : sorted) {
+        if (a.first < next || a.last <= a.first || a.last >= n) {
+            continue;
+        }
+        for (; next <= a.first; next++) {
+            out.insert(out.end(), {profile[2 * next], profile[2 * next + 1]});
+        }
+        const auto [r0, z0] = point(a.first);
+        const auto [r1, z1] = point(a.last);
+        const auto [rm, zm] = point((a.first + a.last) / 2);
+        const double radius = std::hypot(r0 - a.r, z0 - a.z);
+        const double t0 = std::atan2(z0 - a.z, r0 - a.r);
+        double sweep = std::atan2(z1 - a.z, r1 - a.r) - t0;
+        double mid = std::atan2(zm - a.z, rm - a.r) - t0;
+        // both in (-pi, pi]: the arc goes the way of the point in its middle
+        sweep = std::atan2(std::sin(sweep), std::cos(sweep));
+        mid = std::atan2(std::sin(mid), std::cos(mid));
+        if (a.last - a.first >= 2 && (mid * sweep < 0 || std::abs(mid) > std::abs(sweep))) {
+            sweep += sweep > 0 ? -2 * M_PI : 2 * M_PI;
+        }
+        for (int k = 1; k < 2000; k++) {
+            const double t = t0 + sweep * k / 2000;
+            out.push_back((float)std::max(0.0, a.r + radius * std::cos(t)));
+            out.push_back((float)(a.z + radius * std::sin(t)));
+        }
+        next = a.last;
+    }
+    for (; next < n; next++) {
+        out.insert(out.end(), {profile[2 * next], profile[2 * next + 1]});
+    }
+    return out;
+}
+
 // A piece of a motion: the tool moves straight and turns about a fixed axis
 struct Piece
 {
@@ -671,7 +717,13 @@ struct Oracle::Data
 Oracle::Oracle(const Material::Job& job, long upToStep, bool polylineTools)
     : d(new Data)
 {
-    for (const auto& profile : job.profiles) {
+    for (size_t t = 0; t < job.profiles.size(); t++) {
+        const auto& profile = job.profiles[t];
+        // the arcs of the job, else the arcs the material simulation fits
+        if (!polylineTools && t < job.arcs.size() && !job.arcs[t].empty()) {
+            d->tools.emplace_back(ArcProfile(profile, job.arcs[t]));
+            continue;
+        }
         const Material::Tool fitted(profile);
         const bool fine = !polylineTools && fitted.Cuts() && !fitted.Spheres().empty();
         d->tools.emplace_back(fine ? FineProfile(fitted) : profile);
@@ -964,8 +1016,10 @@ Mesh SimulateMaterial(const Material::Job& job, float quality, long step, RunSta
 {
     using clock = std::chrono::steady_clock;
     std::vector<std::shared_ptr<const Material::Tool>> tools;
-    for (const auto& profile : job.profiles) {
-        tools.push_back(std::make_shared<Material::Tool>(profile));
+    for (size_t t = 0; t < job.profiles.size(); t++) {
+        static const std::vector<Material::ProfileArc> none;
+        const auto& arcs = t < job.arcs.size() ? job.arcs[t] : none;
+        tools.push_back(std::make_shared<Material::Tool>(job.profiles[t], true, arcs));
     }
     Material::Simulation sim;
     const auto start = clock::now();

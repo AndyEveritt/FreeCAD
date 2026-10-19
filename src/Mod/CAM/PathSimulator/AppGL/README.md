@@ -19,7 +19,10 @@ including undercuts (dovetail, slitting saw, thread mill) and cuts with tilted a
   sweeps along a straight motion meet every line in one interval: spheres, the arcs of the
   profile centered on the axis (ball ends, the tips of engravers), and frustums, the straight
   edges (cylinders and cones). An arc given as edges is fitted by a sphere if the rest of the
-  sphere is inside the tool. The normals of frustums are interpolated between neighboring edges
+  sphere is inside the tool. The task panel also gives the arcs of the profiles of the tool
+  solids (`toolProfile` in `Path/Main/SimulatorFeed.py`, `CAMSim.AddTool(arcs=...)`): their edges
+  are made again from the circle, within 1 um and at most 32 per quarter circle, so arcs on the
+  axis are exact spheres and corner radii follow their circle. The normals of frustums are interpolated between neighboring edges
   where the profile is smooth, so a bull nose corner given as edges cuts smoothly shaded surfaces.
   Probes (all of their solid below the tip) don't cut. `Sweep` intersects the volume a tool sweeps
   along a motion with lines, exactly:

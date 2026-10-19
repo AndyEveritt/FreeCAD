@@ -33,7 +33,7 @@ from FreeCAD import Vector
 
 import Path
 import CAMTests.PathTestUtils as PathTestUtils
-from Path.Main.SimulatorFeed import SimulatorFeed, rotaryForAxis, toolAxis
+from Path.Main.SimulatorFeed import SimulatorFeed, rotaryForAxis, toolAxis, toolProfile
 
 # a 100 x 80 x 40 block
 BOUNDS = FreeCAD.BoundBox(0, 0, 0, 100, 80, 40)
@@ -321,3 +321,24 @@ class TestPathSimulatorFeed(PathTestUtils.PathTestBase):
         # in the Job's XY the arc keeps its feed rate
         _, cmds = SimulatorFeed(BOUNDS).add(_Op("G0 X0 Y0 Z0\nG3 X10 Y0 I5 J0 F4"), TOOL_LENGTH)
         self.assertRoughly(cmds[1].Parameters["F"], 4)
+
+    def test12(self):
+        """The profile of a tool solid has its arcs, with their centers in the profile."""
+        import Part
+
+        bullnose = Part.makeCylinder(5, 30)
+        bottom = [e for e in bullnose.Edges if e.isClosed() and e.BoundBox.ZMax < 1e-9]
+        bullnose = bullnose.makeFillet(2, bottom)
+        profile, arcs = toolProfile(bullnose, 0.5)
+        points = list(zip(profile[0::2], profile[1::2]))
+        self.assertRoughly(points[0][0], 5)
+        self.assertRoughly(points[0][1], 30)
+        self.assertEqual(len(arcs), 1)
+        first, last, r, z = arcs[0]
+        self.assertRoughly(r, 3)
+        self.assertRoughly(z, 2)
+        self.assertGreaterEqual(last - first, 8)
+        for pr, pz in points[first : last + 1]:
+            self.assertRoughly(math.hypot(pr - 3, pz - 2), 2, 1e-6)
+        self.assertRoughly(points[first][0], 5)
+        self.assertRoughly(points[last][1], 0)

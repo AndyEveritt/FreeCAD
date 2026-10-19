@@ -101,6 +101,7 @@ void MillSimulation::Clear()
         delete mToolTable[i];
     }
     mToolTable.clear();
+    mToolArcs.clear();
 
     mStockObject.Clear();
     mMaterial.reset();
@@ -258,12 +259,18 @@ void MillSimulation::AddTool(EndMill* tool)
     mToolTable.push_back(tool);
 }
 
-void MillSimulation::AddTool(const std::vector<float>& toolProfile, int toolid, float diameter)
+void MillSimulation::AddTool(
+    const std::vector<float>& toolProfile,
+    int toolid,
+    float diameter,
+    const std::vector<Material::ProfileArc>& arcs
+)
 {
     // if we have another tool with same id, remove it
     RemoveTool(toolid);
     EndMill* tool = new EndMill(toolProfile, toolid, diameter);
     mToolTable.push_back(tool);
+    mToolArcs[toolid] = arcs;
 }
 
 bool MillSimulation::ToolExists(int toolid)
@@ -1148,6 +1155,8 @@ Material::Job MillSimulation::MaterialJob() const
     std::vector<int> toolIds;
     for (EndMill* tool : mToolTable) {
         job.profiles.push_back(tool->rawProfile);
+        const auto arcs = mToolArcs.find(tool->toolId);
+        job.arcs.push_back(arcs != mToolArcs.end() ? arcs->second : std::vector<Material::ProfileArc>());
         toolIds.push_back(tool->toolId);
     }
     job.segments = mSegments;
@@ -1172,8 +1181,8 @@ void MillSimulation::StartMaterialSimulation()
         Material::SaveJob(dumpPath, job);
     }
     std::vector<std::shared_ptr<const Material::Tool>> tools;
-    for (const auto& profile : job.profiles) {
-        tools.push_back(std::make_shared<Material::Tool>(profile));
+    for (size_t t = 0; t < job.profiles.size(); t++) {
+        tools.push_back(std::make_shared<Material::Tool>(job.profiles[t], true, job.arcs[t]));
     }
     if (!mMaterial) {
         mMaterial = std::make_unique<Material::View>();

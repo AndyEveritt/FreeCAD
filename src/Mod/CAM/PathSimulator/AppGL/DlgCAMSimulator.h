@@ -46,6 +46,7 @@
 #include <QOpenGLContext>
 
 #include <Base/Parameter.h>
+#include "MaterialTool.h"
 #include <Mod/Part/App/TopoShape.h>
 
 class SoCamera;
@@ -91,7 +92,7 @@ public:
     std::vector<float> profile;
     int id;
     float diameter;
-    float resolution;
+    std::vector<Material::ProfileArc> arcs;
 };
 
 class DlgCAMSimulator: public QOpenGLWidget
@@ -119,11 +120,13 @@ public:
     // the commands added from now on belong to a new operation of this name, and of this color
     // if given (rgb from 0 to 1)
     void addOperation(const char* name, const float* color = nullptr);
+    // arcs: of the profile, see Material::Tool
     void addTool(
         const std::vector<float>& toolProfilePoints,
         int toolNumber,
         float diameter,
-        float resolution
+        float resolution,
+        const std::vector<Material::ProfileArc>& arcs = {}
     );
 
     void setStockShape(const Part::TopoShape& shape, float resolution);

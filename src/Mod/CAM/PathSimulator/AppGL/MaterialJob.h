@@ -41,6 +41,7 @@ struct Job
 {
     float quality = 10;
     std::vector<std::vector<float>> profiles;
+    std::vector<std::vector<ProfileArc>> arcs;  // of the profiles, empty or one list per profile
     std::vector<Segment> segments;
     std::vector<float> stockXyz;
     std::vector<uint32_t> stockTriangles;
