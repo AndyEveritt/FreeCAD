@@ -50,6 +50,18 @@ struct StockColoring
     vec3 thinColor = {0.9f, 0.08f, 0.08f};
 };
 
+// The object at a position of the view, see SimDisplay::RequestPick
+struct PickResult
+{
+    int x = -1, y = -1;
+    bool pending = false;
+    bool done = false;
+    bool stockInLayer = false;  // found in a transparent layer
+    bool stock = false;         // the stock is there, else nothing or another object
+    int tag = 0;                // operation tag of its face (0 for uncut)
+    float position[3] = {0, 0, 0};
+};
+
 struct Point3D
 {
     float x, y, z;
@@ -109,6 +121,11 @@ public:
     void UpdateCamera(const SoCamera& camera);
 
     void SetPathColor(const vec3& normal, const vec3& rapid);
+
+    // The object at a pixel of the view (from the bottom left) in the next frame, which is drawn
+    // completely; TakePick gives it after that frame
+    void RequestPick(int x, int y);
+    bool TakePick(PickResult& result);
 
 public:
     bool updateDisplay = false;
@@ -194,6 +211,8 @@ protected:
     bool mTransparentLayer = false;
     float mOpacity = 1;
     void ComposeTransparentLayer();
+    PickResult mPick;
+    void ReadPick(unsigned int fbo, bool transparent);
 
     unsigned int mFbo = 0;
     unsigned int mFboColTexture = 0;

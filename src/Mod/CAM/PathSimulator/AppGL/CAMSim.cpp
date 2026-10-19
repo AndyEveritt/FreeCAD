@@ -96,4 +96,14 @@ std::map<std::string, std::string> CAMSim::GetRendererInfo()
     return DlgCAMSimulator::instance()->rendererInfo();
 }
 
+void CAMSim::GoToOperation(int index)
+{
+    DlgCAMSimulator::instance()->goToOperation(index);
+}
+
+void CAMSim::SetOperationPickedHandler(std::function<void(int)> handler)
+{
+    DlgCAMSimulator::instance()->setOperationPickedHandler(std::move(handler));
+}
+
 }  // namespace CAMSimulator

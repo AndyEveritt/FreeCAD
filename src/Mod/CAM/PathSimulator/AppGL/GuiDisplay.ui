@@ -25,11 +25,32 @@
     </spacer>
    </item>
    <item>
-    <widget class="QSlider" name="stageSlider">
-     <property name="orientation">
-      <enum>Qt::Orientation::Horizontal</enum>
-     </property>
-    </widget>
+    <layout class="QHBoxLayout" name="sliderLayout">
+     <item>
+      <widget class="QSlider" name="stageSlider">
+       <property name="orientation">
+        <enum>Qt::Orientation::Horizontal</enum>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QToolButton" name="stockModelButton">
+       <property name="toolTip">
+        <string>Show the simulated stock, the model, or both</string>
+       </property>
+       <property name="icon">
+        <iconset resource="../../Gui/Resources/Path.qrc">
+         <normaloff>:/gl_simulator/View.png</normaloff>:/gl_simulator/View.png</iconset>
+       </property>
+       <property name="checkable">
+        <bool>true</bool>
+       </property>
+       <property name="autoRaise">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+    </layout>
    </item>
    <item>
     <layout class="QHBoxLayout" name="horizontalLayout">
@@ -179,23 +200,6 @@
        <property name="icon">
         <iconset resource="../../Gui/Resources/Path.qrc">
          <normaloff>:/gl_simulator/Home.png</normaloff>:/gl_simulator/Home.png</iconset>
-       </property>
-       <property name="autoRaise">
-        <bool>true</bool>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QToolButton" name="stockModelButton">
-       <property name="toolTip">
-        <string>Toggle view simulation/model</string>
-       </property>
-       <property name="icon">
-        <iconset resource="../../Gui/Resources/Path.qrc">
-         <normaloff>:/gl_simulator/View.png</normaloff>:/gl_simulator/View.png</iconset>
-       </property>
-       <property name="checkable">
-        <bool>true</bool>
        </property>
        <property name="autoRaise">
         <bool>true</bool>

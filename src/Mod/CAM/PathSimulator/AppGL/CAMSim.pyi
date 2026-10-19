@@ -91,6 +91,20 @@ class CAMSim(BaseClass):
         """
         ...
 
+    def GoToOperation(self, index: int, /) -> None:
+        """
+        Go to the start of an operation, by its index in the order the operations were added.
+        """
+        ...
+
+    def SetOperationPickedCallback(self, callback: Any, /) -> None:
+        """
+        Call callback(index) when a face of the stock is clicked in the simulator view, with the
+        index of the operation that cut it (in the order the operations were added), or -1 for
+        none (uncut stock, or no stock there). None removes the callback.
+        """
+        ...
+
     @no_args
     def GetRendererInfo(self) -> dict:
         """

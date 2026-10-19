@@ -24,6 +24,7 @@
 
 #pragma once
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
@@ -77,6 +78,9 @@ public:
     std::vector<double> TakeFrameTimes();
     bool IsRenderPending();
     std::map<std::string, std::string> GetRendererInfo();
+    void GoToOperation(int index);
+    // the handler gets the index of the operation of a stock face clicked in the view, -1 for none
+    void SetOperationPickedHandler(std::function<void(int)> handler);
 };
 
 }  // namespace CAMSimulator

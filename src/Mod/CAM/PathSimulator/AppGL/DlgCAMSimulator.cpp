@@ -89,12 +89,46 @@ DlgCAMSimulator::DlgCAMSimulator(QWidget* parent)
     setMouseTracking(true);
 
     mMillSimulator.reset(new MillSimulation);
+
+    // the handler runs after painting, it may change other widgets
+    connect(
+        this,
+        &DlgCAMSimulator::operationPicked,
+        this,
+        [this](int operation) {
+            if (mOperationPicked) {
+                mOperationPicked(operation);
+            }
+        },
+        Qt::QueuedConnection
+    );
 }
 
 DlgCAMSimulator::~DlgCAMSimulator()
 {
     makeCurrent();
     mMillSimulator = nullptr;
+}
+
+void DlgCAMSimulator::goToOperation(int index)
+{
+    mMillSimulator->GoToOperationIndex(index);
+    updateGui();
+    update();
+}
+
+void DlgCAMSimulator::pickAt(const QPoint& pos)
+{
+    const qreal ratio = devicePixelRatioF();
+    const int x = (int)(pos.x() * ratio);
+    const int y = (int)((height() - 1 - pos.y()) * ratio);
+    mMillSimulator->RequestPick(x, y);
+    update();
+}
+
+void DlgCAMSimulator::setOperationPickedHandler(std::function<void(int)> handler)
+{
+    mOperationPicked = std::move(handler);
 }
 
 void DlgCAMSimulator::connectTo(GuiDisplay& gui, Dummy3DViewer& dv)
@@ -230,6 +264,7 @@ void DlgCAMSimulator::cloneFrom(const DlgCAMSimulator& from)
 
     const auto state = from.mMillSimulator->GetState();
     mState = std::make_unique<MillSimulationState>(state);
+    mOperationPicked = from.mOperationPicked;
 }
 
 DlgCAMSimulator* DlgCAMSimulator::instance(Gui::Document* doc)
@@ -668,6 +703,14 @@ void DlgCAMSimulator::paintGL()
     mMillSimulator->ProcessSim(elapsed);
 
     mLastProcessSim = now;
+
+    // the operation picked, handled after painting
+    int operation = -1;
+    bool stock = false;
+    float position[3];
+    if (mMillSimulator->TakePick(operation, stock, position)) {
+        Q_EMIT operationPicked(operation);
+    }
 
     if (mFrameTiming) {
         glFinish();

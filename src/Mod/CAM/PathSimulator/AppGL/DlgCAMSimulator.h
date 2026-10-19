@@ -141,8 +141,16 @@ public:
     bool isRenderPending() const;
     std::map<std::string, std::string> rendererInfo() const;
 
+    // Go to the start of the operation with this index (in the order they were added)
+    void goToOperation(int index);
+    // Pick the stock face at a position of the view (widget coordinates): the handler gets the
+    // index of the operation that cut it, -1 for none, after the next frame
+    void pickAt(const QPoint& pos);
+    void setOperationPickedHandler(std::function<void(int)> handler);
+
 Q_SIGNALS:
     void simulationStarted();
+    void operationPicked(int operation);
 
 protected:
     void timerEvent(QTimerEvent* event) override;
@@ -158,6 +166,7 @@ protected:
     void updateGui();
 
 private:
+    std::function<void(int)> mOperationPicked;
     bool mFrameTiming = false;
     std::vector<double> mFrameTimes;  // milliseconds
     std::string mGlVendor, mGlRenderer, mGlVersion;

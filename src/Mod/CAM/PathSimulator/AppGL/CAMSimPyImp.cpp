@@ -23,6 +23,7 @@
  ***************************************************************************/
 
 
+#include <Base/Interpreter.h>
 #include <Base/PlacementPy.h>
 #include <Base/PyWrapParseTupleAndKeywords.h>
 
@@ -226,6 +227,52 @@ PyObject* CAMSimPy::TakeFrameTimes()
 PyObject* CAMSimPy::IsRenderPending()
 {
     return Py::new_reference_to(Py::Boolean(getCAMSimPtr()->IsRenderPending()));
+}
+
+PyObject* CAMSimPy::GoToOperation(PyObject* args)
+{
+    int index;
+    if (!PyArg_ParseTuple(args, "i", &index)) {
+        return nullptr;
+    }
+    getCAMSimPtr()->GoToOperation(index);
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+PyObject* CAMSimPy::SetOperationPickedCallback(PyObject* args)
+{
+    PyObject* callback;
+    if (!PyArg_ParseTuple(args, "O", &callback)) {
+        return nullptr;
+    }
+    if (callback == Py_None) {
+        getCAMSimPtr()->SetOperationPickedHandler(nullptr);
+        Py_INCREF(Py_None);
+        return Py_None;
+    }
+    if (!PyCallable_Check(callback)) {
+        PyErr_SetString(PyExc_TypeError, "callback must be callable or None");
+        return nullptr;
+    }
+    // the callable is kept and released with the Python interpreter locked
+    Py_INCREF(callback);
+    std::shared_ptr<PyObject> held(callback, [](PyObject* object) {
+        Base::PyGILStateLocker lock;
+        Py_DECREF(object);
+    });
+    getCAMSimPtr()->SetOperationPickedHandler([held](int operation) {
+        Base::PyGILStateLocker lock;
+        PyObject* result = PyObject_CallFunction(held.get(), "i", operation);
+        if (!result) {
+            Base::PyException exception;
+            exception.reportException();
+            return;
+        }
+        Py_DECREF(result);
+    });
+    Py_INCREF(Py_None);
+    return Py_None;
 }
 
 PyObject* CAMSimPy::GetRendererInfo()

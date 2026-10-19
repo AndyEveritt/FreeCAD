@@ -73,6 +73,9 @@ ViewCAMSimulator::ViewCAMSimulator(Gui::Document* pcDocument, QWidget* parent, Q
     mDummyViewer = new Dummy3DViewer;
 
     mDlg->connectTo(*mGui, *mDummyViewer);
+    mDummyViewer->onClick = [this](const QPoint& global) {
+        mDlg->pickAt(mDlg->mapFromGlobal(global));
+    };
 
     connect(mDlg, &DlgCAMSimulator::simulationStarted, this, &ViewCAMSimulator::onSimulationStarted);
 

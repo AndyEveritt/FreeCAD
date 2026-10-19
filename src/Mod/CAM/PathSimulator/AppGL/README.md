@@ -122,6 +122,12 @@ while the shown stock is behind the tool. The view is only rendered when somethi
 The task panel (`Path/Main/Gui/SimulatorGL.py`) passes the operations to the simulator
 (`CAMSim.AddOperation`) with their colors. The view shows the operation in progress, with buttons
 to go to the start and the end, and to the start of the next or the current or previous operation.
+A click on an operation in the task panel goes to its start (`CAMSim.GoToOperation`). A click on
+the stock in the view (not a drag) selects the operation that cut the face there in the task
+panel (`CAMSim.SetOperationPickedCallback`): the stock shader writes the operation tag of its
+faces with their position in the G-buffer, read at the pixel after the next frame
+(`SimDisplay::RequestPick`), from the front-most transparent layer with the stock, else the opaque
+objects. Beside the slider, a button shows the stock, the model or both.
 Toggles color the stock by operation (the path color of an operation where it has been set,
 otherwise a color of a palette, shown in the task panel) and show thin walls; the task panel sets
 the thin wall threshold and the opacities. These display options are the parameters below, the

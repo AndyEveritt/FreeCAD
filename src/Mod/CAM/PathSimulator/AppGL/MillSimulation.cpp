@@ -944,6 +944,32 @@ void MillSimulation::GoToOperation(int direction)
     SetSimulationStep(target);
 }
 
+void MillSimulation::GoToOperationIndex(int index)
+{
+    if (index < 0 || index >= (int)mOperations.size()) {
+        return;
+    }
+    SetSimulationStep(mOperations[index].firstStep);
+}
+
+void MillSimulation::RequestPick(int x, int y)
+{
+    simDisplay.RequestPick(x, y);
+}
+
+bool MillSimulation::TakePick(int& operation, bool& stock, float position[3])
+{
+    PickResult pick;
+    if (!simDisplay.TakePick(pick)) {
+        return false;
+    }
+    stock = pick.stock;
+    // operations share the tags beyond Material::MaxTag
+    operation = pick.stock && pick.tag > 0 && pick.tag <= (int)mOperations.size() ? pick.tag - 1 : -1;
+    std::copy(pick.position, pick.position + 3, position);
+    return true;
+}
+
 void MillSimulation::SetPlaying(bool b)
 {
     if (b == mSimPlaying) {

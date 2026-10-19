@@ -26,6 +26,8 @@
 
 #include "Dummy3DViewer.h"
 
+#include <QMouseEvent>
+
 using namespace Gui;
 
 namespace CAMSimulator
@@ -64,6 +66,28 @@ void Dummy3DViewer::setBaseShape(const Part::TopoShape& shape)
 void Dummy3DViewer::setBaseVisible(bool b)
 {
     baseViewProvider.setShapeVisible(b);
+}
+
+bool Dummy3DViewer::viewportEvent(QEvent* event)
+{
+    // the events go on to the navigation
+    if (event->type() == QEvent::MouseButtonPress) {
+        auto mouse = static_cast<QMouseEvent*>(event);
+        if (mouse->button() == Qt::LeftButton) {
+            mPress = mouse->globalPosition().toPoint();
+            mPressTime.start();
+        }
+    }
+    else if (event->type() == QEvent::MouseButtonRelease) {
+        auto mouse = static_cast<QMouseEvent*>(event);
+        const QPoint at = mouse->globalPosition().toPoint();
+        if (mouse->button() == Qt::LeftButton && mPressTime.isValid()
+            && (at - mPress).manhattanLength() <= 4 && mPressTime.elapsed() < 500 && onClick) {
+            onClick(at);
+        }
+        mPressTime.invalidate();
+    }
+    return View3DInventorViewer::viewportEvent(event);
 }
 
 void Dummy3DViewer::paintEvent(QPaintEvent* event)

@@ -179,7 +179,8 @@ bool SimDisplay::CreateGBufferFbo(
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colTex, 0);
 
     // a position texture for the frame buffer
-    CreateGBufTex(GL_TEXTURE1, GL_RGB32F, GL_RGBA, GL_FLOAT, posTex);
+    // position, and the object in alpha: 0 for others, 1 + the operation tag for the stock
+    CreateGBufTex(GL_TEXTURE1, GL_RGBA32F, GL_RGBA, GL_FLOAT, posTex);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, posTex, 0);
 
     // a normal texture for the frame buffer
@@ -643,8 +644,67 @@ bool SimDisplay::StartTransparentLayer()
 
 void SimDisplay::EndTransparentLayer()
 {
+    ReadPick(mTransFbo, true);
     mTargetFbo = mFbo;
     mOpacity = 1;
+}
+
+void SimDisplay::RequestPick(int x, int y)
+{
+    mPick = {};
+    mPick.x = x;
+    mPick.y = y;
+    mPick.pending = true;
+    updateDisplay = true;
+}
+
+// The object at the pick position in a frame buffer: the first transparent layer with the stock
+// there, else the opaque objects
+void SimDisplay::ReadPick(unsigned int fbo, bool transparent)
+{
+    if (!mPick.pending || fbo == 0 || mPick.x < 0 || mPick.y < 0 || mPick.x >= mWidth
+        || mPick.y >= mHeight) {
+        return;
+    }
+    if (transparent && mPick.stockInLayer) {
+        return;
+    }
+    float value[4] = {0, 0, 0, 0};
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+    glReadBuffer(GL_COLOR_ATTACHMENT1);
+    glReadPixels(mPick.x, mPick.y, 1, 1, GL_RGBA, GL_FLOAT, value);
+    glReadBuffer(GL_COLOR_ATTACHMENT0);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, mTargetFbo);
+    if (value[3] < 0.5f) {
+        return;
+    }
+    if (transparent) {
+        mPick.stockInLayer = true;
+    }
+    else if (mPick.stockInLayer) {
+        return;
+    }
+    mPick.stock = true;
+    mPick.tag = (int)std::lround(value[3]) - 1;
+    // the position in the world, from the view
+    vec4 view = {value[0], value[1], value[2], 1};
+    mat4x4 inverse;
+    mat4x4_invert(inverse, mMatLookAt);
+    vec4 world;
+    mat4x4_mul_vec4(world, inverse, view);
+    for (int k = 0; k < 3; k++) {
+        mPick.position[k] = world[k];
+    }
+}
+
+bool SimDisplay::TakePick(PickResult& result)
+{
+    if (!mPick.done) {
+        return false;
+    }
+    result = mPick;
+    mPick = {};
+    return true;
 }
 
 void SimDisplay::ComposeTransparentLayer()
@@ -692,6 +752,11 @@ void SimDisplay::RenderResult(bool recalculate, bool ssao)
 {
     if (!displayInitiated) {
         return;
+    }
+    if (mPick.pending && recalculate) {
+        ReadPick(mFbo, false);
+        mPick.pending = false;
+        mPick.done = true;
     }
 
     if (mSsaoValid && ssao) {

@@ -106,6 +106,13 @@ public:
     // Go to the start of the next operation (direction > 0), or of the operation in progress,
     // or the previous one if already there (direction < 0)
     void GoToOperation(int direction);
+    // Go to the start of the operation with this index (in the order they were added)
+    void GoToOperationIndex(int index);
+    // The operation of the stock face at a pixel of the view (from the bottom left), in the next
+    // frame: TakePick gives it after that frame, -1 for none (no stock there or uncut stock).
+    // 'position' gets the point of the stock there.
+    void RequestPick(int x, int y);
+    bool TakePick(int& operation, bool& stock, float position[3]);
 
     void SetPlaying(bool b);
     void SingleStep();

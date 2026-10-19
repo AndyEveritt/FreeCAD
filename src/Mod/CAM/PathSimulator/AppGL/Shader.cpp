@@ -538,6 +538,7 @@ const char* VertShaderStock = R"(
     varying vec3 Normal;
     varying vec3 Color;
     varying float Thickness;
+    varying float Tag;
 
     uniform mat4 model;
     uniform mat4 view;
@@ -555,6 +556,7 @@ const char* VertShaderStock = R"(
         Position = viewPos.xyz;
         Normal = mat3(view * model) * aNormal;
         float tag = floor(aOperation + 0.5);
+        Tag = tag;
         Color = colorByOperation && tag > 0.0
             ? texture2DLod(operationColors, vec2((tag - 0.5) / operationCount, 0.5), 0.0).rgb
             : objectColor;
@@ -571,6 +573,7 @@ const char* FragShaderStock = R"(
     varying vec3 Normal;
     varying vec3 Color;
     varying float Thickness;
+    varying float Tag;
 
     uniform float thinThreshold;
     uniform vec3 thinColor;
@@ -580,7 +583,8 @@ const char* FragShaderStock = R"(
     {
         vec3 color = Thickness < thinThreshold ? thinColor : Color;
         gl_FragData[0] = vec4(color, opacity);
-        gl_FragData[1] = vec4(Position, 0.0f);
+        // the stock and the operation of the face, for picking
+        gl_FragData[1] = vec4(Position, 1.0 + floor(Tag + 0.5));
         gl_FragData[2] = vec4(normalize(Normal), 0.0f);
     }
 )";

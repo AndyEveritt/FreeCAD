@@ -26,6 +26,9 @@
 
 #include "TopoShapeViewProvider.h"
 #include <Gui/View3DInventorViewer.h>
+#include <QElapsedTimer>
+#include <QPoint>
+#include <functional>
 
 namespace CAMSimulator
 {
@@ -42,13 +45,20 @@ public:
     void setBaseShape(const Part::TopoShape& shape);
     void setBaseVisible(bool b);
 
+    // A click on the view (the left button pressed and released without moving, unlike
+    // dragging to rotate the view), at a global position
+    std::function<void(const QPoint&)> onClick;
+
 protected:
     void paintEvent(QPaintEvent* event) override;
+    bool viewportEvent(QEvent* event) override;
 
 public:
     bool discardPaintEvent_ = true;
 
 private:
+    QPoint mPress;
+    QElapsedTimer mPressTime;
     TopoShapeViewProvider stockViewProvider;
     TopoShapeViewProvider baseViewProvider;
 };

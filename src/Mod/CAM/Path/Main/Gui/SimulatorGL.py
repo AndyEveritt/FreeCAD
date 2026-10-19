@@ -288,6 +288,8 @@ class CAMSimulation:
         form.comboJobs.currentIndexChanged.connect(self.onJobChange)
         self.onJobChange()
         form.listOperations.itemChanged.connect(self.onOperationItemChange)
+        form.listOperations.itemClicked.connect(self.onOperationClicked)
+        self.toggledItem = None
         FreeCADGui.Control.showDialog(self.taskForm)
         self.disableAnim = False
         self.firstDrill = True
@@ -359,7 +361,9 @@ class CAMSimulation:
         for op in j.Operations.OutList:
             if PathUtil.opProperty(op, "Active"):
                 color = self.operationColors[len(self.operations)]
-                listItem = QtGui.QListWidgetItem(self._legendIcon(op.ViewObject.Icon, color), op.Label)
+                listItem = QtGui.QListWidgetItem(
+                    self._legendIcon(op.ViewObject.Icon, color), op.Label
+                )
                 listItem.setToolTip(
                     QtCore.QT_TRANSLATE_NOOP(
                         "CAM_Simulator",
@@ -377,6 +381,7 @@ class CAMSimulation:
             self.baseShape = Part.makeCompound([o.Shape for o in j.Model.OutList])
         else:
             self.baseShape = None
+        self.toggledItem = None
 
     @staticmethod
     def _legendIcon(icon, color):
@@ -423,8 +428,10 @@ class CAMSimulation:
         prefs.SetBool("SimulatorFollowsVisibility", state)
         self.onJobChange()
 
-    def onOperationItemChange(self, _item):
+    def onOperationItemChange(self, item):
         """Check if at least one operation is selected to enable the Play button"""
+        # a click on the check box toggles it, it does not go to the operation
+        self.toggledItem = item
         playvalid = False
         form = self.taskForm.form
         for i in range(form.listOperations.count()):
@@ -432,6 +439,29 @@ class CAMSimulation:
                 playvalid = True
                 break
         form.toolButtonPlay.setEnabled(playvalid)
+
+    def onOperationClicked(self, item):
+        """Go to the start of the clicked operation in the simulation"""
+        if self.toggledItem is item:
+            self.toggledItem = None
+            return
+        self.toggledItem = None
+        if self.millSim is None:
+            return
+        op = self.operations[self.taskForm.form.listOperations.row(item)]
+        if op in self.activeOps:
+            self.millSim.GoToOperation(self.activeOps.index(op))
+
+    def onOperationPicked(self, index):
+        """A face of the stock was clicked in the simulator: select the operation that cut it"""
+        listOperations = self.taskForm.form.listOperations
+        if 0 <= index < len(self.activeOps) and self.activeOps[index] in self.operations:
+            row = self.operations.index(self.activeOps[index])
+            listOperations.setCurrentRow(row)
+            listOperations.scrollToItem(listOperations.item(row))
+        else:
+            listOperations.clearSelection()
+            listOperations.setCurrentItem(None)
 
     def SimulationSteps(self, ops, stock, colors):
         """SimulationSteps(ops, stock, colors) ... the calls that give ops to the
@@ -466,11 +496,14 @@ class CAMSimulation:
             else:
                 self.millSim.AddTool(step[1], step[2], step[3], 1)
         self.millSim.BeginSimulation(self.stock, self.quality)
+        self.millSim.SetOperationPickedCallback(self.onOperationPicked)
         if self.baseShape is not None:
             self.millSim.SetBaseShape(self.baseShape, 1)
 
     def cancel(self):
         """Cancel the simulation"""
+        if self.millSim is not None:
+            self.millSim.SetOperationPickedCallback(None)
 
 
 class CommandCAMSimulate:
