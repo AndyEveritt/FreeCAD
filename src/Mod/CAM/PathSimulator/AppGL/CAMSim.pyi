@@ -144,9 +144,12 @@ class CAMSim(BaseClass):
         """
         Return the problems found on the toolpath so far, in the order of the path, as dicts:
         kind ("rapid": a rapid move into the stock, "shank": the tool above its flutes meets the
-        material), step (on the timeline), command (the index of
-        the command where it starts, -1 for none), operation (its index, -1 for none), volume (of
-        the material met, mm3) and position (its centroid).
+        material, "gouge": a region of the stock cut into the model, "left": a region of faces cut
+        away from the model), step (on the timeline: where it starts, where the operation that cut
+        a region is done), command (the index of the command where it starts, -1 for none),
+        operation (its index, -1 for none), volume (of the material met, mm3), position (its
+        centroid), depth (regions: the largest distance from the model, mm) and box (regions:
+        (lo, hi)).
         """
         ...
 

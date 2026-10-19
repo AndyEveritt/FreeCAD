@@ -38,6 +38,11 @@ Mistakes the simulator should find:
     gouge         a Custom operation that cuts 1 mm into the top of the model
     rapid         a Custom operation that rapids into the stock (G0)
 
+and what the operations do that the model doesn't have: the slot operation overcuts both ends of
+the slot by the radius of its tool, the drill points leave cones at the bottom of the flat holes
+of the model, the offsets of pocket P1 leave a ridge in its floor, and the finish of the dish
+doesn't reach its rim.
+
 The tool controllers have their feeds and rapid rates, for the cycle time.
 
 Run in the FreeCAD GUI so the document gets the view providers of the CAM objects. Headless (on

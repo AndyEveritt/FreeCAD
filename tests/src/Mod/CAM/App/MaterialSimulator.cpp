@@ -647,6 +647,66 @@ TEST(MaterialSimulation, theToolAboveItsFlutesIsFound)
     EXPECT_TRUE(simulate(0).empty());
 }
 
+TEST(MaterialSimulation, regionsCutIntoTheModelOrLeftAreFound)
+{
+    // the model 1 mm below the top of the stock; a wide end mill cuts 0.5 mm into it on the left,
+    // and leaves 0.3 mm on the right
+    std::vector<std::shared_ptr<const Tool>> tools = {std::make_shared<Tool>(FlatProfile(12))};
+    const double lo[3] = {0, 0, -10}, hi[3] = {40, 20, 0};
+    std::vector<float> xyz, modelXyz;
+    std::vector<uint32_t> triangles, modelTriangles;
+    MakeBox(lo, hi, xyz, triangles);
+    const double modelHi[3] = {40, 20, -1};
+    MakeBox(lo, modelHi, modelXyz, modelTriangles);
+    const float p[][3] = {
+        {-15, 10, 5},
+        {-15, 10, -1.5f},
+        {8, 10, -1.5f},
+        {8, 10, -0.7f},
+        {55, 10, -0.7f},
+        {55, 10, 5},
+    };
+    std::vector<Segment> segments;
+    for (int i = 1; i < 6; i++) {
+        segments.push_back(Line(0, p[i - 1], p[i]));
+        segments.back().operation = i < 3 ? 0 : 1;
+    }
+    Simulation sim;
+    sim.SetModel(std::make_shared<ModelDistance>(modelXyz, modelTriangles, 1.0f), 0.05);
+    sim.Start(tools, segments, xyz, triangles, 6);
+    sim.WaitFrontier();
+    std::vector<Event> events;
+    for (int i = 0; i < 500 && events.size() < 2; i++) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        events = sim.Events();
+    }
+    ASSERT_EQ(events.size(), 2u);
+    const Event& gouge = events[0];
+    const Event& left = events[1];
+    EXPECT_EQ(gouge.kind, Event::Gouge);
+    EXPECT_EQ(gouge.operation, 0);
+    EXPECT_EQ(gouge.firstSegment, -1);
+    EXPECT_NEAR(gouge.depth, 0.5, 0.02);
+    EXPECT_LT(gouge.position[0], 20);
+    EXPECT_EQ(left.kind, Event::MaterialLeft);
+    EXPECT_EQ(left.operation, 1);
+    EXPECT_NEAR(left.depth, 0.3, 0.02);
+    EXPECT_GT(left.position[0], 20);
+    EXPECT_NEAR(left.hi[0], 40, 0.5);
+
+    // another tolerance finds them again, a larger one than the material left only the gouge
+    sim.SetModel(std::make_shared<ModelDistance>(modelXyz, modelTriangles, 1.0f), 0.4);
+    for (int i = 0; i < 500; i++) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        events = sim.Events();
+        if (events.size() == 1) {
+            break;
+        }
+    }
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].kind, Event::Gouge);
+}
+
 TEST(MaterialSimulation, seeksMatchTheWholePath)
 {
     // a pocket with arcs and ramps, cut by two tools

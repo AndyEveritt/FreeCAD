@@ -24,6 +24,7 @@
 
 #include "MaterialSimulation.h"
 
+#include "MaterialModel.h"
 #include "ThreadPool.h"
 
 #include <algorithm>
@@ -282,6 +283,7 @@ void Simulation::Start(
         mFrontierStep = 0;
         mDisplayStep = -1;
         mEvents.clear();
+        mRegionsPending = mModel != nullptr;
     }
     mWorker = std::thread([this] { Worker(); });
 }
@@ -878,6 +880,199 @@ void Simulation::AddEvent(Event::Kind kind, int segment, const CutStats& stats)
     mEvents.push_back(e);
 }
 
+void Simulation::SetModel(std::shared_ptr<const ModelDistance> model, double tolerance)
+{
+    {
+        std::lock_guard<std::mutex> lock(mMutex);
+        if (model == mModel && tolerance == mTolerance) {
+            return;
+        }
+        mModel = std::move(model);
+        mTolerance = tolerance;
+        mRegionsPending = true;
+    }
+    mWake.notify_all();
+}
+
+void Simulation::FindRegions()
+{
+    std::shared_ptr<const ModelDistance> model;
+    double tolerance;
+    {
+        std::lock_guard<std::mutex> lock(mMutex);
+        model = mModel;
+        tolerance = mTolerance;
+        mRegionsPending = false;
+        // the regions found for another model
+        mEvents.erase(
+            std::remove_if(
+                mEvents.begin(),
+                mEvents.end(),
+                [](const Event& e) { return e.firstSegment < 0; }
+            ),
+            mEvents.end()
+        );
+    }
+    if (!model || model->Empty()) {
+        return;
+    }
+
+    // points of the faces the toolpath cut, at the ends of the material along the lines, about
+    // every RegionSpacing: cut into the model beyond the tolerance, or away from it, closer than
+    // the range of the distance (farther, like the far side of a groove around the part, it is
+    // not the part)
+    struct Sample
+    {
+        float p[3];
+        float distance;
+        int tag;
+    };
+    const Layout& layout = *mLayout;
+    const float range = model->Range();
+    std::vector<std::vector<Sample>> found(mPool->Size() + 1);
+    std::atomic<int> next {0};
+    mPool->Run([&](int thread) {
+        std::vector<Sample>& out = found[thread];
+        for (int leaf; (leaf = next.fetch_add(1)) < layout.LeafCount();) {
+            if (mFrontier.IsEmpty(leaf) || mFrontier.IsSolid(leaf)) {
+                continue;
+            }
+            const Layout::Leaf& lf = layout.GetLeaf(leaf);
+            const double cell = lf.cell * layout.Unit();
+            const int stride = std::max(1, (int)std::floor(RegionSpacing / cell + 1e-9));
+            for (int line = 0; line < BrickLines; line++) {
+                const int axis = line / AxisLines;
+                const int i = line % AxisLines % (Cells + 1), j = line % AxisLines / (Cells + 1);
+                // the lines of the brick, every stride, its last ones are those of its neighbors
+                if (i == Cells || j == Cells || i % stride != 0 || j % stride != 0) {
+                    continue;
+                }
+                Span scratch;
+                const Span* spans;
+                const int n = mFrontier.Line(leaf, line, spans, scratch);
+                if (n == 0) {
+                    continue;
+                }
+                double origin[3];
+                mFrontier.LineOrigin(leaf, line, origin);
+                const double lo = origin[axis], hi = lo + Cells * cell;
+                for (int s = 0; s < n; s++) {
+                    for (int end = 0; end < 2; end++) {
+                        const double at = end ? spans[s].hi : spans[s].lo;
+                        const uint32_t packed = end ? spans[s].nhi : spans[s].nlo;
+                        if (!IsCut(packed) || at < lo || at >= hi) {
+                            continue;
+                        }
+                        Sample sample;
+                        for (int k = 0; k < 3; k++) {
+                            sample.p[k] = (float)(k == axis ? at : origin[k]);
+                        }
+                        sample.distance = model->SignedDistance(sample.p);
+                        sample.tag = TagOf(packed);
+                        if (sample.distance < -tolerance
+                            || (sample.distance > tolerance && sample.distance < 0.98f * range)) {
+                            out.push_back(sample);
+                        }
+                    }
+                }
+            }
+        }
+    });
+    std::vector<Sample> samples;
+    for (auto& f : found) {
+        samples.insert(samples.end(), f.begin(), f.end());
+    }
+
+    // regions: the samples of a kind in cells of a hash, joined to their 26 neighbors
+    const double hashCell = 4 * RegionSpacing;
+    auto keyOf = [](long x, long y, long z) {
+        return ((uint64_t)(x & 0x1FFFFF)) | ((uint64_t)(y & 0x1FFFFF) << 21)
+            | ((uint64_t)(z & 0x1FFFFF) << 42);
+    };
+    std::vector<Event> regions;
+    for (const Event::Kind kind : {Event::Gouge, Event::MaterialLeft}) {
+        std::unordered_map<uint64_t, std::vector<int>> cells;
+        for (int i = 0; i < (int)samples.size(); i++) {
+            if ((samples[i].distance < 0) != (kind == Event::Gouge)) {
+                continue;
+            }
+            const Sample& s = samples[i];
+            cells[keyOf(
+                      (long)std::floor(s.p[0] / hashCell),
+                      (long)std::floor(s.p[1] / hashCell),
+                      (long)std::floor(s.p[2] / hashCell)
+                  )]
+                .push_back(i);
+        }
+        std::unordered_map<uint64_t, bool> seen;
+        for (const auto& [start, _] : cells) {
+            if (seen[start]) {
+                continue;
+            }
+            std::vector<uint64_t> stack = {start};
+            seen[start] = true;
+            std::vector<int> members;
+            while (!stack.empty()) {
+                const uint64_t key = stack.back();
+                stack.pop_back();
+                const std::vector<int>& in = cells[key];
+                members.insert(members.end(), in.begin(), in.end());
+                const Sample& s = samples[in.front()];
+                const long cx = (long)std::floor(s.p[0] / hashCell),
+                           cy = (long)std::floor(s.p[1] / hashCell),
+                           cz = (long)std::floor(s.p[2] / hashCell);
+                for (long dz = -1; dz <= 1; dz++) {
+                    for (long dy = -1; dy <= 1; dy++) {
+                        for (long dx = -1; dx <= 1; dx++) {
+                            const uint64_t k = keyOf(cx + dx, cy + dy, cz + dz);
+                            if (cells.count(k) && !seen[k]) {
+                                seen[k] = true;
+                                stack.push_back(k);
+                            }
+                        }
+                    }
+                }
+            }
+            if (members.size() < 3) {
+                continue;  // a few points: noise
+            }
+            Event e;
+            e.kind = kind;
+            std::unordered_map<int, int> tags;
+            for (int k = 0; k < 3; k++) {
+                e.lo[k] = 1e300;
+                e.hi[k] = -1e300;
+            }
+            for (int m : members) {
+                const Sample& s = samples[m];
+                for (int k = 0; k < 3; k++) {
+                    e.position[k] += s.p[k] / members.size();
+                    e.lo[k] = std::min(e.lo[k], (double)s.p[k]);
+                    e.hi[k] = std::max(e.hi[k], (double)s.p[k]);
+                }
+                e.depth = std::max(e.depth, (double)std::abs(s.distance));
+                tags[s.tag]++;
+            }
+            // the operation that cut most of it
+            int best = 0, most = 0;
+            for (const auto& [tag, count] : tags) {
+                if (count > most) {
+                    best = tag;
+                    most = count;
+                }
+            }
+            e.operation = best - 1;
+            regions.push_back(e);
+        }
+    }
+    // in the order of the operations, larger first
+    std::sort(regions.begin(), regions.end(), [](const Event& a, const Event& b) {
+        return a.operation != b.operation ? a.operation < b.operation : a.depth > b.depth;
+    });
+    std::lock_guard<std::mutex> lock(mMutex);
+    mEvents.insert(mEvents.end(), regions.begin(), regions.end());
+}
+
 std::vector<Event> Simulation::Events() const
 {
     std::lock_guard<std::mutex> lock(mMutex);
@@ -1192,8 +1387,17 @@ void Simulation::Worker()
             }
             continue;
         }
+        bool regions;
+        {
+            std::lock_guard<std::mutex> lock(mMutex);
+            regions = mRegionsPending;
+        }
+        if (regions) {
+            FindRegions();
+            continue;
+        }
         std::unique_lock<std::mutex> lock(mMutex);
-        mWake.wait(lock, [&] { return mStop || mTarget != target; });
+        mWake.wait(lock, [&] { return mStop || mTarget != target || mRegionsPending; });
     }
 }
 

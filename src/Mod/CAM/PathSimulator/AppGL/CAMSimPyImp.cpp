@@ -354,6 +354,10 @@ static const char* EventKindName(Material::Event::Kind kind)
             return "rapid";
         case Material::Event::ShankContact:
             return "shank";
+        case Material::Event::Gouge:
+            return "gouge";
+        case Material::Event::MaterialLeft:
+            return "left";
     }
     return "";
 }
@@ -368,6 +372,14 @@ PyObject* CAMSimPy::GetEvents()
         d.setItem("command", Py::Long(e.command));
         d.setItem("operation", Py::Long(e.event.operation));
         d.setItem("volume", Py::Float(e.event.volume));
+        d.setItem("depth", Py::Float(e.event.depth));
+        d.setItem(
+            "box",
+            Py::TupleN(
+                Py::TupleN(Py::Float(e.event.lo[0]), Py::Float(e.event.lo[1]), Py::Float(e.event.lo[2])),
+                Py::TupleN(Py::Float(e.event.hi[0]), Py::Float(e.event.hi[1]), Py::Float(e.event.hi[2]))
+            )
+        );
         d.setItem(
             "position",
             Py::TupleN(

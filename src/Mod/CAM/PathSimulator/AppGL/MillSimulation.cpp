@@ -1032,6 +1032,7 @@ void MillSimulation::SetDeviation(bool enabled, float tolerance)
     // the distance is only measured while it is shown, it costs time
     if (mMaterial) {
         mMaterial->SetDeviation(mDeviation ? mDeviationModel : nullptr);
+        mMaterial->SetModel(mDeviationModel, tolerance);
     }
     simDisplay.updateDisplay = true;
 }
@@ -1041,6 +1042,7 @@ void MillSimulation::SetDeviationModel(std::shared_ptr<const Material::ModelDist
     mDeviationModel = std::move(model);
     if (mMaterial) {
         mMaterial->SetDeviation(mDeviation ? mDeviationModel : nullptr);
+        mMaterial->SetModel(mDeviationModel, mColoring.tolerance);
     }
     simDisplay.updateDisplay = true;
 }
@@ -1167,7 +1169,8 @@ std::vector<SimEvent> MillSimulation::GetEvents() const
             se.command = mSegmentMotions[e.firstSegment].source;
         }
         else if (e.operation >= 0 && e.operation < (int)mOperations.size()) {
-            se.step = mOperations[e.operation].firstStep;
+            // regions of the final stock: where the operation that cut them is done
+            se.step = mOperations[e.operation].endStep;
         }
         events.push_back(se);
     }
@@ -1344,6 +1347,7 @@ void MillSimulation::StartMaterialSimulation()
         mMaterial = std::make_unique<Material::View>();
     }
     mMaterial->SetFluteHeights(job.flutes);
+    mMaterial->SetModel(mDeviationModel, mColoring.tolerance);
     mMaterial->SetMeasureThickness(mThinWalls);
     mMaterial->SetDeviation(mDeviation ? mDeviationModel : nullptr);
     ApplyInspect();

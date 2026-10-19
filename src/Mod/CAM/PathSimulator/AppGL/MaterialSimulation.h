@@ -78,15 +78,23 @@ struct Event
     {
         RapidIntoStock,  // a rapid move (G0) removes material
         ShankContact,    // the tool above its flutes meets material
+        Gouge,           // a region of the final stock cut into the model
+        MaterialLeft,    // a region of faces the toolpath cut, away from the model
     };
     Kind kind = RapidIntoStock;
-    // the segments of the moves, one after the other
+    // the segments of the moves, one after the other, -1 for the regions of the final stock
     int firstSegment = -1;
     int lastSegment = -1;
-    int operation = -1;
+    int operation = -1;              // regions: the operation that cut most of it
     double volume = 0;               // of the material met, mm3
-    double position[3] = {0, 0, 0};  // the centroid of the material met
+    double position[3] = {0, 0, 0};  // the centroid of the material met or of the region
+    // regions: the largest distance from the model, mm, and the box of the region
+    double depth = 0;
+    double lo[3] = {0, 0, 0};
+    double hi[3] = {0, 0, 0};
 };
+
+class ModelDistance;
 
 // Simulation of the stock material along the toolpath.
 //
@@ -113,6 +121,14 @@ public:
     }
     // How far the tool above its flutes is grown to find it rubbing walls cut by the flutes, mm
     static constexpr double ShankMargin = 0.01;
+
+    // The model of the job, null for none, and the tolerance of the distance of the stock from it:
+    // once the whole path is simulated, the faces the toolpath cut are measured against it, and
+    // the regions cut into the model or left away from it are events (Gouge, MaterialLeft).
+    // Can be set at any time, the regions are found again.
+    void SetModel(std::shared_ptr<const ModelDistance> model, double tolerance);
+    // Spacing of the points of the surface measured against the model, mm
+    static constexpr double RegionSpacing = 0.25;
 
     // Start a simulation. xyz/triangles: closed stock mesh. quality: 1 (coarse) to 10 (fine).
     // Tools that don't cut (probes) are null.
@@ -198,6 +214,8 @@ private:
     long CutBatch(Grid& grid, long from, long to, bool check = false);
     // A motion of a segment meets material in a way the kind of event reports
     void AddEvent(Event::Kind kind, int segment, const CutStats& stats);
+    // The regions of the final stock (the frontier at the end) cut into the model or left
+    void FindRegions();
     // Motions done and the partial segment parameter at a step
     void Locate(long step, long& motions, long& partialMotion, double& partialT) const;
     // The step at which a number of motions are done
@@ -264,6 +282,10 @@ private:
     std::function<void()> mNotify;
     Stats mStats;
     std::vector<Event> mEvents;  // guarded by mMutex
+    // guarded by mMutex: the model, and the regions to find for it
+    std::shared_ptr<const ModelDistance> mModel;
+    double mTolerance = 0.05;
+    bool mRegionsPending = false;
 };
 
 }  // namespace CAMSimulator::Material

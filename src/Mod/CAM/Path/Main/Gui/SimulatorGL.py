@@ -68,6 +68,8 @@ OPERATION_COLORS = [
 EVENT_COLORS = {
     "rapid": (255, 110, 20),
     "shank": (190, 80, 240),
+    "gouge": (220, 30, 30),
+    "left": (60, 120, 255),
 }
 
 
@@ -84,6 +86,17 @@ def EventText(event, factor=1.0, unit="mm"):
         return QtCore.QT_TRANSLATE_NOOP(
             "CAM_Simulator", "Tool above its flutes meets the material at %s"
         ) % where
+    # regions: the distance from the model is measured up to 1 mm
+    depth = event["depth"]
+    amount = ("%.3g %s" % (depth / factor, unit)) if depth < 0.98 else ("> %.3g %s" % (1 / factor, unit))
+    if event["kind"] == "gouge":
+        return QtCore.QT_TRANSLATE_NOOP(
+            "CAM_Simulator", "Cut into the model by %s at %s"
+        ) % (amount, where)
+    if event["kind"] == "left":
+        return QtCore.QT_TRANSLATE_NOOP(
+            "CAM_Simulator", "Material left, up to %s, at %s"
+        ) % (amount, where)
     return where
 
 
@@ -567,7 +580,7 @@ class CAMSimulation:
             text = EventText(event, factor, unit)
             op = event["operation"]
             if 0 <= op < len(self.operationLabels):
-                text += " - " + self.operationLabels[op]
+                text = self.operationLabels[op] + ": " + text
             item = QtGui.QListWidgetItem(text)
             item.setIcon(self._eventIcon(event["kind"]))
             item.setToolTip(text)

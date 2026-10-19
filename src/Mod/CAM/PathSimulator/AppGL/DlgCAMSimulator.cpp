@@ -29,6 +29,7 @@
 #include "GuiDisplay.h"
 #include "MaterialModel.h"
 #include "MillSimulation.h"
+#include "ThreadPool.h"
 #include "ViewCAMSimulator.h"
 #include <App/Application.h>
 #include <Gui/View3DInventorViewer.h>
@@ -201,6 +202,10 @@ static QColor EventColor(Material::Event::Kind kind)
             return QColor(255, 110, 20);
         case Material::Event::ShankContact:
             return QColor(190, 80, 240);
+        case Material::Event::Gouge:
+            return QColor(220, 30, 30);
+        case Material::Event::MaterialLeft:
+            return QColor(60, 120, 255);
     }
     return QColor(255, 255, 255);
 }
@@ -521,9 +526,8 @@ void DlgCAMSimulator::setBaseShape(const Part::TopoShape& shape, float resolutio
     mBaseShape = shape;
     mDeviationGeneration++;
     mMillSimulator->SetDeviationModel(nullptr);
-    if (mDeviation) {
-        startDeviationModel();
-    }
+    // for the distance colors, and for the regions of the stock cut into the model or left
+    startDeviationModel();
 
     if (mDummyViewer) {
         mDummyViewer->setBaseShape(shape);
@@ -653,6 +657,8 @@ void DlgCAMSimulator::startDeviationModel()
     mDeviationModelGeneration = generation;
     const TopoDS_Shape copy = BRepBuilderAPI_Copy(mBaseShape.getShape()).Shape();
     mDeviationModel = std::async(std::launch::async, [copy]() {
+        // made whenever the job has a model, it yields to the display
+        ThreadPool::LowerCurrentThreadPriority();
         std::vector<Base::Vector3d> points;
         std::vector<Data::ComplexGeoData::Facet> facets;
         Part::TopoShape(copy).getFaces(points, facets, 0.002);
@@ -685,7 +691,7 @@ void DlgCAMSimulator::startDeviationModel()
             mMillSimulator->SetDeviationModel(model);
             update();
         }
-        else if (mDeviation) {
+        else {
             startDeviationModel();
         }
     };

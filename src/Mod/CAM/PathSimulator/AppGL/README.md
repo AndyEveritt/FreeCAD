@@ -98,6 +98,17 @@ operation on motions following each other (up to 3 segments apart) make one even
   tool in mm2 is an event. Only motions where the planner finds the material higher than the
   flutes above the tip are probed.
 
+- cut into the model, material left: once the whole path is simulated, and the model of the job
+  is there (`Simulation::SetModel`, the distance model of the distance colors, made whenever the
+  job has a model), the faces the toolpath cut are measured against it: points of the final stock
+  at the ends of the material along the lines, about every 0.25 mm (`RegionSpacing`), cut into
+  the model by more than the tolerance (`SimulatorDeviationTolerance`), or away from it by more,
+  closer than the 1 mm range of the distance (farther, like the far side of a groove around the
+  part, it is not the part). They are joined into regions (in cells of 1 mm, with their 26
+  neighbors, 3 points at least): an event each, with the largest distance, its box and the
+  operation that cut most of it, at the end of that operation on the timeline. Changing the
+  tolerance or the model finds them again.
+
 The view marks the events on the timeline in the color of their kind, with buttons to go to the
 previous and the next one; the task panel lists them (`CAMSim.GetEvents`,
 `SetEventsChangedCallback`), a click goes to the start of one (`CAMSim.GoToEvent`). Seeking and

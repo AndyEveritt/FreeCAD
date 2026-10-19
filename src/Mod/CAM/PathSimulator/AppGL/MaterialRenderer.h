@@ -78,6 +78,11 @@ public:
         return mSimulation.GlobalStep(segment, step);
     }
     void SetTarget(long step);
+    // see Simulation::SetModel
+    void SetModel(std::shared_ptr<const ModelDistance> model, double tolerance)
+    {
+        mSimulation.SetModel(std::move(model), tolerance);
+    }
     // see Simulation::SetFluteHeights, for the next start
     void SetFluteHeights(std::vector<double> heights)
     {
