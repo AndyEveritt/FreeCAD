@@ -144,17 +144,38 @@ void MillSimulation::InitSimulation(float quality, float maxStockDimension)
         const MillMotion curMotion = mCodeParser.Operations[i];
         const EndMill* tool = GetTool(curMotion.tool);
         if (tool != nullptr) {
-            auto segment = new MillPathSegment(*tool, prevMotion, curMotion);
+            Material::Segment cut = MotionSegment(prevMotion, curMotion);
+            // arcs outside the XY plane: a line for the stencil renderer, the path along the arc
+            const bool otherArc = cut.arc && curMotion.plane != 17;
+            MillMotion straight = curMotion;
+            if (otherArc) {
+                straight.cmd = eMoveLiner;
+            }
+            auto segment = new MillPathSegment(*tool, prevMotion, straight);
             segment->indexInArray = i;
             segment->segmentIndex = segId++;
             MillPathSegments.push_back(segment);
             const size_t firstPoint = millPathLine.MillPathPointsBuffer.size();
-            segment->AppendPathPoints(millPathLine.MillPathPointsBuffer);
+            if (otherArc) {
+                const int n = std::max(2, (int)std::ceil(std::abs(cut.sweep) / (M_PI / 32)));
+                for (int k = 1; k <= n; k++) {
+                    double p[3];
+                    cut.PositionAt((double)k / n, p);
+                    MillPathPosition point;
+                    point.X = (float)p[0];
+                    point.Y = (float)p[1];
+                    point.Z = (float)p[2];
+                    point.SegmentId = segment->segmentIndex;
+                    millPathLine.MillPathPointsBuffer.push_back(point);
+                }
+            }
+            else {
+                segment->AppendPathPoints(millPathLine.MillPathPointsBuffer);
+            }
             for (size_t p = firstPoint; p < millPathLine.MillPathPointsBuffer.size(); p++) {
                 millPathLine.MillPathPointsBuffer[p].Rapid = curMotion.rapid ? 1.0f : 0.0f;
             }
 
-            Material::Segment cut = MotionSegment(prevMotion, curMotion);
             cut.tool = curMotion.tool;  // tool id, replaced by the index when starting
             const auto rates = mToolRates.find(curMotion.tool);
             double axisRapid[3] = {0, 0, 0};

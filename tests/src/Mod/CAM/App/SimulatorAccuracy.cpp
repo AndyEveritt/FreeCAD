@@ -567,12 +567,17 @@ struct Oracle::Data
         auto position = [&](double t) -> V3 {
             const double z = seg.start[2] + t * ((double)seg.end[2] - seg.start[2]);
             if (seg.arc) {
+                // in the plane of arcU, arcV, moving along their normal from the start to the end
+                const V3 u = {seg.arcU[0], seg.arcU[1], seg.arcU[2]};
+                const V3 v = {seg.arcV[0], seg.arcV[1], seg.arcV[2]};
+                const V3 n = {u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]};
+                const V3 c = {seg.center[0], seg.center[1], seg.center[2]};
+                const V3 s0 = {seg.start[0], seg.start[1], seg.start[2]};
+                const V3 s1 = {seg.end[0], seg.end[1], seg.end[2]};
+                const double along = Dot(n, s0) + t * (Dot(n, s1) - Dot(n, s0)) - Dot(n, c);
                 const double angle = seg.startAngle + t * seg.sweep;
-                return {
-                    seg.center[0] - std::sin(angle) * seg.radius,
-                    seg.center[1] + std::cos(angle) * seg.radius,
-                    z
-                };
+                const V3 onPlane = Add(Mul(u, -std::sin(angle) * seg.radius), Mul(v, std::cos(angle) * seg.radius));
+                return Add(Add(c, onPlane), Mul(n, along));
             }
             return {
                 seg.start[0] + t * ((double)seg.end[0] - seg.start[0]),

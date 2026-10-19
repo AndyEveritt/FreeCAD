@@ -52,12 +52,15 @@ struct Segment
     bool rapid = false;    // a rapid move (G0)
     double start[3] = {};  // tool tip at the start and the end
     double end[3] = {};
-    // arcs: angle(t) = startAngle + t * sweep,
-    // position = (center.x - sin(angle) * radius, center.y + cos(angle) * radius)
-    double center[2] = {};
+    // arcs in the plane of the unit vectors arcU, arcV (XY by default): angle(t) = startAngle +
+    // t * sweep, position = center - sin(angle) radius arcU + cos(angle) radius arcV, moving along
+    // their normal arcU x arcV from start to end (helices)
+    double center[3] = {};
     double radius = 0;
     double startAngle = 0;
     double sweep = 0;
+    double arcU[3] = {1, 0, 0};
+    double arcV[3] = {0, 1, 0};
     double axis0[3] = {0, 0, 1};  // tool axis at the start and the end
     double axis1[3] = {0, 0, 1};
     int steps = 1;       // steps on the timeline

@@ -33,24 +33,30 @@ namespace CAMSimulator
 Material::Segment MotionSegment(const MillMotion& from, const MillMotion& to)
 {
     Material::Segment cut;
+    // the axes of the plane of an arc: u, v, counterclockwise from u to v about their normal
+    const int u = to.plane == 18 ? 2 : to.plane == 19 ? 1 : 0;
+    const int v = to.plane == 18 ? 0 : to.plane == 19 ? 2 : 1;
+    const double from3[3] = {from.x, from.y, from.z};
+    const double to3[3] = {to.x, to.y, to.z};
+    const double offset[3] = {to.i, to.j, to.k};
     // an arc around a center away from the start, as MillPathSegment has it
     cut.arc = (to.cmd == eRotateCW || to.cmd == eRotateCCW)
-        && (std::abs(to.i) > 1e-5 || std::abs(to.j) > 1e-5);
+        && (std::abs(offset[u]) > 1e-5 || std::abs(offset[v]) > 1e-5);
     cut.rapid = to.rapid;
     cut.operation = to.operation;
-    cut.start[0] = from.x;
-    cut.start[1] = from.y;
-    cut.start[2] = from.z;
-    cut.end[0] = to.x;
-    cut.end[1] = to.y;
-    cut.end[2] = to.z;
+    std::copy(from3, from3 + 3, cut.start);
+    std::copy(to3, to3 + 3, cut.end);
     if (cut.arc) {
-        cut.center[0] = from.x + to.i;
-        cut.center[1] = from.y + to.j;
-        cut.radius = std::hypot(to.i, to.j);
+        for (int k = 0; k < 3; k++) {
+            cut.center[k] = from3[k] + offset[k];
+            cut.arcU[k] = k == u ? 1 : 0;
+            cut.arcV[k] = k == v ? 1 : 0;
+        }
+        const double cu = cut.center[u], cv = cut.center[v];
+        cut.radius = std::hypot(offset[u], offset[v]);
         const double direction = to.cmd == eRotateCCW ? -1 : 1;
-        cut.startAngle = std::atan2(cut.center[0] - from.x, from.y - cut.center[1]);
-        const double endAngle = std::atan2(cut.center[0] - to.x, to.y - cut.center[1]);
+        cut.startAngle = std::atan2(cu - from3[u], from3[v] - cv);
+        const double endAngle = std::atan2(cu - to3[u], to3[v] - cv);
         double sweep = (cut.startAngle - endAngle) * direction;
         if (sweep < 1e-5) {
             sweep += 2 * M_PI;  // a full circle
@@ -75,9 +81,18 @@ double MotionSeconds(
     const double* axisRapid
 )
 {
-    const double dz = std::abs(to.z - from.z);
-    const double horizontal = cut.arc ? cut.radius * std::abs(cut.sweep)
-                                      : std::hypot(to.x - from.x, to.y - from.y);
+    // arcs: along their arc, and along their normal for helices
+    double dz = std::abs(to.z - from.z);
+    double horizontal = std::hypot(to.x - from.x, to.y - from.y);
+    if (cut.arc) {
+        const double n[3] = {
+            cut.arcU[1] * cut.arcV[2] - cut.arcU[2] * cut.arcV[1],
+            cut.arcU[2] * cut.arcV[0] - cut.arcU[0] * cut.arcV[2],
+            cut.arcU[0] * cut.arcV[1] - cut.arcU[1] * cut.arcV[0],
+        };
+        horizontal = cut.radius * std::abs(cut.sweep);
+        dz = std::abs(n[0] * (to.x - from.x) + n[1] * (to.y - from.y) + n[2] * (to.z - from.z));
+    }
     const double turn = std::max({std::abs(to.a - from.a), std::abs(to.b - from.b), std::abs(to.c - from.c)});
     double seconds;
     if (to.rapid && rates.horizRapid <= 0 && axisRapid) {

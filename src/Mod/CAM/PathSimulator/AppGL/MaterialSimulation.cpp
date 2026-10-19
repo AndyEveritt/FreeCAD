@@ -202,9 +202,20 @@ void Segment::PositionAt(double t, double pos[3]) const
 {
     if (arc) {
         const double angle = startAngle + t * sweep;
-        pos[0] = center[0] - std::sin(angle) * radius;
-        pos[1] = center[1] + std::cos(angle) * radius;
-        pos[2] = start[2] + t * (end[2] - start[2]);
+        const double u = -std::sin(angle) * radius, v = std::cos(angle) * radius;
+        // along the normal: from the start to the end, whatever the center has
+        const double n[3] = {
+            arcU[1] * arcV[2] - arcU[2] * arcV[1],
+            arcU[2] * arcV[0] - arcU[0] * arcV[2],
+            arcU[0] * arcV[1] - arcU[1] * arcV[0],
+        };
+        const double nc = n[0] * center[0] + n[1] * center[1] + n[2] * center[2];
+        const double n0 = n[0] * start[0] + n[1] * start[1] + n[2] * start[2];
+        const double n1 = n[0] * end[0] + n[1] * end[1] + n[2] * end[2];
+        const double along = n0 + t * (n1 - n0) - nc;
+        for (int k = 0; k < 3; k++) {
+            pos[k] = center[k] + u * arcU[k] + v * arcV[k] + along * n[k];
+        }
         return;
     }
     for (int k = 0; k < 3; k++) {
@@ -398,7 +409,8 @@ void Simulation::Plan(const std::vector<float>& xyz, float quality)
             seg.AxisAt(0, axis0);
             seg.AxisAt(1, axis1);
             const bool exactArc = seg.arc && seg.radius > 0 && seg.start[2] == seg.end[2]
-                && std::abs(axis0[2]) > 1 - 1e-12 && axis0[2] * axis1[2] > 1 - 1e-12;
+                && seg.arcU[0] == 1 && seg.arcV[1] == 1 && std::abs(axis0[2]) > 1 - 1e-12
+                && axis0[2] * axis1[2] > 1 - 1e-12;
             if (exactArc) {
                 pieces = std::max(1, (int)std::ceil(std::abs(seg.sweep) / (M_PI / 2) - 1e-9));
             }

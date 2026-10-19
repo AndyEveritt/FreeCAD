@@ -428,6 +428,7 @@ bool GCodeParser::Apply(const std::vector<Word>& words, double feedScale, int so
     MillMotion target = mProgram;
     target.cmd = eMoveLiner;
     target.i = target.j = target.k = 0;
+    target.plane = 17;
     target.rapid = mMode == ModeRapid;
     target.operation = currentOperation;
     target.source = source;
@@ -517,10 +518,15 @@ bool GCodeParser::Apply(const std::vector<Word>& words, double feedScale, int so
             push(target);  // no arc around the start: a line
             return true;
         }
-        if (mPlane == 17 && !Transforms()) {
+        if (!Transforms()) {
             target.cmd = clockwise ? eRotateCW : eRotateCCW;
-            target.i = cu - start[0];
-            target.j = cv - start[1];
+            target.plane = mPlane;
+            double offset[3] = {0, 0, 0};
+            offset[u] = cu - start[u];
+            offset[v] = cv - start[v];
+            target.i = offset[0];
+            target.j = offset[1];
+            target.k = offset[2];
             push(target);
             return true;
         }

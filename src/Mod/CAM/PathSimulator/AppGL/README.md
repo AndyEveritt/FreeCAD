@@ -37,7 +37,7 @@ including undercuts (dovetail, slitting saw, thread mill) and cuts with tilted a
   - arcs of tools along Z at a constant height (pockets, adaptive clearing): exactly, in pieces of
     up to a quarter circle, lines along the axis by their distance from the arc, lines across it
     by the cross section swept along the arc (an annulus in the wedge of the arc and the disks at
-    its ends). Other arcs are divided into chords.
+    its ends). Other arcs (other planes, helices, tilted tools) are divided into chords.
   - turning tools (5 axis): every primitive in its own pieces, turning about its center by a small
     angle while its center moves on a chord of its path, within a fiftieth of the cells of the
     tool of the exact sweep. A sphere doesn't change turning about its center, so few pieces sweep
@@ -244,7 +244,11 @@ modal), the tool, the operation and the index of the command they come from (`so
 the order the commands were added. Motion modes, the arc plane (G17 to G19), absolute and
 incremental positions (G90, G91) and the units (G20, G21) are modal; drill cycles are the moves of
 the tool (to the hole, rapid to R, down to Z, back to the initial height or R); arcs are given by
-their center or their radius (R), arcs outside the XY plane become lines within 1 um; comments in
+their center or their radius (R), in any plane, one motion each (with the plane, `MillMotion.plane`)
+and helical with a move along the normal of the plane; under a tilted work plane (G68.2) or with
+the rotary axes of a machine they become lines within 1 um. The material simulation cuts arcs in
+the XY plane exactly; arcs in other planes and helices it divides into chords within its tolerance,
+the path display and the timeline follow the circle. Comments in
 parentheses are skipped within a line; home and offset commands (G28, G30, G53, G10, G92) don't
 move. Where the tool is before its first motions is unknown: they take the axes they don't name
 from the first motion that names them (`FillStart`, and `SimulatorFeed` for the first

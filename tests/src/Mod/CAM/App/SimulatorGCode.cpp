@@ -159,28 +159,40 @@ TEST(SimulatorGCode, arcsByTheirRadius)
     EXPECT_NEAR(m[1].j, 10, 1e-12);
 }
 
-TEST(SimulatorGCode, arcsOutsideTheXYPlaneAreLines)
+TEST(SimulatorGCode, arcsInEveryPlane)
 {
-    // G18: a half circle in the XZ plane around (0, 0, 0), from X10 to X-10, over the top: seen
-    // from +Y, counterclockwise from +Z towards +X
+    // G18: a half circle in the XZ plane around (0, 0, 0), from X10 to X-10, one motion; clockwise
+    // seen from +Y goes from +X through +Z
     const auto m = Lines({"G0 X10 Y3 Z0", "G18 G2 X-10 Z0 I-10 K0"});
-    ASSERT_GT(m.size(), 10u);
-    for (size_t i = 1; i < m.size(); i++) {
-        EXPECT_EQ(m[i].cmd, eMoveLiner);
-        EXPECT_NEAR(std::hypot(m[i].x, m[i].z), 10, 1e-9);
-        EXPECT_DOUBLE_EQ(m[i].y, 3);
-        // clockwise in the ZX plane from +X goes through +Z
-        EXPECT_GE(m[i].z, -1e-9);
-        // the chords are within the tolerance of the arc
-        const double mx = (m[i].x + m[i - 1].x) / 2, mz = (m[i].z + m[i - 1].z) / 2;
-        EXPECT_LE(10 - std::hypot(mx, mz), GCodeParser::ArcTolerance + 1e-9);
+    ASSERT_EQ(m.size(), 2u);
+    EXPECT_EQ(m[1].cmd, eRotateCW);
+    EXPECT_EQ(m[1].plane, 18);
+    const Material::Segment arc = MotionSegment(m[0], m[1]);
+    ASSERT_TRUE(arc.arc);
+    EXPECT_NEAR(std::abs(arc.sweep), M_PI, 1e-9);
+    for (int i = 0; i <= 10; i++) {
+        double p[3];
+        arc.PositionAt(i / 10.0, p);
+        EXPECT_NEAR(std::hypot(p[0], p[2]), 10, 1e-9) << i;
+        EXPECT_NEAR(p[1], 3, 1e-12) << i;
+        EXPECT_GE(p[2], -1e-9) << i;
     }
-    EXPECT_DOUBLE_EQ(m.back().x, -10);
-    EXPECT_DOUBLE_EQ(m.back().z, 0);
-    // G19 in the YZ plane, counterclockwise seen from +X: from +Y towards +Z
-    const auto n = Lines({"G0 X0 Y5 Z0", "G19 G3 Y-5 Z0 J-5 K0"});
-    ASSERT_GT(n.size(), 3u);
-    EXPECT_GT(n[n.size() / 2].z, 4);
+    double end[3];
+    arc.PositionAt(1, end);
+    EXPECT_NEAR(end[0], -10, 1e-9);
+    // G19 in the YZ plane, counterclockwise seen from +X: from +Y towards +Z, a helix along X
+    const auto n = Lines({"G0 X0 Y5 Z0", "G19 G3 X4 Y-5 Z0 J-5 K0"});
+    ASSERT_EQ(n.size(), 2u);
+    const Material::Segment helix = MotionSegment(n[0], n[1]);
+    double mid[3];
+    helix.PositionAt(0.5, mid);
+    EXPECT_NEAR(mid[0], 2, 1e-9);
+    EXPECT_NEAR(mid[1], 0, 1e-9);
+    EXPECT_NEAR(mid[2], 5, 1e-9);
+    // its time: the arc of radius 5, half a circle, at 10 mm/s
+    MillMotion feed = n[1];
+    feed.feed = 10;
+    EXPECT_NEAR(MotionSeconds(n[0], feed, helix, ToolRates(), 50), std::hypot(5 * M_PI, 4) / 10, 1e-9);
 }
 
 TEST(SimulatorGCode, theToolStartsWhereTheProgramTakesIt)
