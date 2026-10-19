@@ -247,6 +247,57 @@ void WaitShown(Simulation& sim, long step, Grid& grid)
     FAIL() << "the simulation did not show step " << step;
 }
 
+// Edges of the meshes of all units without their reverse: 0 for a closed, oriented mesh. The
+// signed volume enclosed, if asked for.
+int OpenEdges(const Mesher& mesher, double* volume = nullptr)
+{
+    std::map<std::array<float, 3>, int> ids;
+    std::map<std::pair<int, int>, int> edges;
+    double enclosed = 0;
+    for (int u = 0; u < mesher.UnitCount(); u++) {
+        const UnitMesh& mesh = mesher.Mesh(u);
+        for (const auto* list : {&mesh.stock, &mesh.cut}) {
+            for (size_t t = 0; t + 2 < list->size(); t += 3) {
+                int id[3];
+                const MeshVertex* v[3];
+                for (int k = 0; k < 3; k++) {
+                    v[k] = &mesh.vertices[(*list)[t + k]];
+                    const std::array<float, 3> key = {v[k]->x, v[k]->y, v[k]->z};
+                    id[k] = ids.emplace(key, (int)ids.size()).first->second;
+                }
+                for (int k = 0; k < 3; k++) {
+                    edges[{id[k], id[(k + 1) % 3]}]++;
+                }
+                enclosed += (v[0]->x * (v[1]->y * v[2]->z - v[1]->z * v[2]->y)
+                             - v[0]->y * (v[1]->x * v[2]->z - v[1]->z * v[2]->x)
+                             + v[0]->z * (v[1]->x * v[2]->y - v[1]->y * v[2]->x))
+                    / 6;
+            }
+        }
+    }
+    int open = 0;
+    for (const auto& [e, n] : edges) {
+        auto it = edges.find({e.second, e.first});
+        open += it == edges.end() || it->second != n;
+    }
+    if (volume) {
+        *volume = enclosed;
+    }
+    return open;
+}
+
+// Vertices of the meshes of all units on their cut faces
+template<typename F>
+void ForCutVertices(const Mesher& mesher, F f)
+{
+    for (int u = 0; u < mesher.UnitCount(); u++) {
+        const UnitMesh& mesh = mesher.Mesh(u);
+        for (uint32_t i : mesh.cut) {
+            f(mesh.vertices[i]);
+        }
+    }
+}
+
 }  // namespace
 
 TEST(MaterialTool, primitives)
@@ -516,40 +567,145 @@ TEST(MaterialMesher, closedAndOriented)
     std::vector<int> all;
     mesher.Update(grid, all, pool);
 
-    // vertices by position, every directed edge has its reverse: closed and oriented
-    std::map<std::array<float, 3>, int> ids;
-    std::map<std::pair<int, int>, int> edges;
+    // every directed edge has its reverse: closed and oriented
     double volume = 0;
-    for (int u = 0; u < mesher.UnitCount(); u++) {
-        const UnitMesh& mesh = mesher.Mesh(u);
-        for (const auto* list : {&mesh.stock, &mesh.cut}) {
-            for (size_t t = 0; t + 2 < list->size(); t += 3) {
-                int id[3];
-                const MeshVertex* v[3];
-                for (int k = 0; k < 3; k++) {
-                    v[k] = &mesh.vertices[(*list)[t + k]];
-                    const std::array<float, 3> key = {v[k]->x, v[k]->y, v[k]->z};
-                    id[k] = ids.emplace(key, (int)ids.size()).first->second;
-                }
-                for (int k = 0; k < 3; k++) {
-                    edges[{id[k], id[(k + 1) % 3]}]++;
-                }
-                volume += (v[0]->x * (v[1]->y * v[2]->z - v[1]->z * v[2]->y)
-                           - v[0]->y * (v[1]->x * v[2]->z - v[1]->z * v[2]->x)
-                           + v[0]->z * (v[1]->x * v[2]->y - v[1]->y * v[2]->x))
-                    / 6;
-            }
-        }
-    }
-    int open = 0;
-    for (const auto& [e, n] : edges) {
-        auto it = edges.find({e.second, e.first});
-        open += it == edges.end() || it->second != n;
-    }
-    EXPECT_EQ(open, 0);
+    EXPECT_EQ(OpenEdges(mesher, &volume), 0);
     // less than the box, by more than the slot of the flat end mill alone
     EXPECT_LT(volume, 20.0 * 20 * 6 - 12 * 4 * 2 + 1);
     EXPECT_GT(volume, 20.0 * 20 * 6 - 400);
+}
+
+// The mesh updated with the leaves that changed, going forwards and backwards on the timeline,
+// stays closed
+TEST(MaterialMesher, partialUpdatesAreClosed)
+{
+    ThreadPool pool(4);
+    std::vector<std::shared_ptr<const Tool>> tools = {
+        std::make_shared<Tool>(FlatProfile(1.5f)),
+        std::make_shared<Tool>(BallProfile(1)),
+    };
+    std::vector<Segment> segments;
+    std::mt19937 rng(3);
+    std::uniform_real_distribution<float> U(2, 18);
+    float at[3] = {10, 10, -1};
+    for (int i = 0; i < 40; i++) {
+        const float next[3] = {U(rng), U(rng), -1 - (float)(i % 4)};
+        segments.push_back(Line(i % 2, at, next, 5));
+        std::copy(next, next + 3, at);
+    }
+    const double lo[3] = {0, 0, -6}, hi[3] = {20, 20, 0};
+    std::vector<float> xyz;
+    std::vector<uint32_t> triangles;
+    MakeBox(lo, hi, xyz, triangles);
+    Simulation sim;
+    sim.Start(tools, segments, xyz, triangles, 6);
+    const long total = sim.TotalSteps();
+    Grid grid;
+    WaitShown(sim, 0, grid);
+    Mesher mesher;
+    mesher.Reset(sim.GetLayout(), pool);
+    mesher.Update(grid, {}, pool);
+    for (long step : {total / 4, total / 2, total, total / 3, total / 8 + 1, total}) {
+        sim.SetTarget(step);
+        std::vector<int> changed;
+        for (int i = 0; i < 20000; i++) {
+            if (!sim.Pending() && sim.TakeDisplay(grid, changed) == step) {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        mesher.Update(grid, changed, pool);
+        EXPECT_EQ(OpenEdges(mesher), 0) << "at step " << step;
+    }
+}
+
+// Faces of thin walls get the thickness of the material behind them
+TEST(MaterialMesher, thinWallsAreMeasured)
+{
+    ThreadPool pool(4);
+    std::vector<std::shared_ptr<const Tool>> tools = {std::make_shared<Tool>(FlatProfile(2))};
+    // two slots along Y leave a wall from x = 9 to 9.6 between them
+    const float a[3] = {7, 4, -4}, b[3] = {7, 16, -4}, c[3] = {11.6f, 4, -4}, d[3] = {11.6f, 16, -4};
+    std::vector<Segment> segments = {Line(0, a, b), Line(0, c, d)};
+    const double lo[3] = {0, 0, -6}, hi[3] = {20, 20, 0};
+    std::vector<float> xyz;
+    std::vector<uint32_t> triangles;
+    MakeBox(lo, hi, xyz, triangles);
+    Simulation sim;
+    sim.Start(tools, segments, xyz, triangles, 8);
+    Grid grid;
+    WaitShown(sim, sim.TotalSteps(), grid);
+    Mesher mesher;
+    mesher.SetMeasureThickness(true);
+    mesher.Reset(sim.GetLayout(), pool);
+    mesher.Update(grid, {}, pool);
+
+    int wall = 0, floor = 0;
+    ForCutVertices(mesher, [&](const MeshVertex& v) {
+        // the faces of the wall, away from its ends and its foot
+        const bool onWall = (std::abs(v.x - 9) < 1e-3 || std::abs(v.x - 9.6f) < 1e-3) && v.y > 6
+            && v.y < 14 && v.z > -3.5f && v.z < -0.5f;
+        if (onWall) {
+            wall++;
+            EXPECT_NEAR(v.thickness, 0.6f, 0.02f) << v.x << " " << v.y << " " << v.z;
+        }
+        // the floors of the slots, with the stock below them
+        if (std::abs(v.z + 4) < 1e-3 && v.y > 6 && v.y < 14 && std::abs(v.x - 7) < 1) {
+            floor++;
+            EXPECT_NEAR(v.thickness, 2, 0.02f);
+        }
+    });
+    EXPECT_GT(wall, 4);
+    EXPECT_GT(floor, 2);
+}
+
+// Cut faces have the tag of the operation that cut them, the faces of the stock none
+TEST(MaterialMesher, cutFacesKeepTheirOperation)
+{
+    ThreadPool pool(4);
+    std::vector<std::shared_ptr<const Tool>> tools = {std::make_shared<Tool>(FlatProfile(2))};
+    const float a[3] = {5, 4, -2}, b[3] = {5, 16, -2}, c[3] = {14, 4, -3}, d[3] = {14, 16, -3};
+    std::vector<Segment> segments = {Line(0, a, b), Line(0, c, d)};
+    segments[0].operation = 0;
+    segments[1].operation = 3;
+    const double lo[3] = {0, 0, -6}, hi[3] = {20, 20, 0};
+    std::vector<float> xyz;
+    std::vector<uint32_t> triangles;
+    MakeBox(lo, hi, xyz, triangles);
+    Simulation sim;
+    sim.Start(tools, segments, xyz, triangles, 6);
+    Grid grid;
+    WaitShown(sim, sim.TotalSteps(), grid);
+    Mesher mesher;
+    mesher.Reset(sim.GetLayout(), pool);
+    mesher.Update(grid, {}, pool);
+
+    int first = 0, second = 0;
+    ForCutVertices(mesher, [&](const MeshVertex& v) {
+        if (std::abs(v.z + 2) < 1e-3 && std::abs(v.x - 5) < 1 && v.y > 5 && v.y < 15) {
+            first++;
+            EXPECT_EQ(v.tag, OperationTag(0));
+        }
+        if (std::abs(v.z + 3) < 1e-3 && std::abs(v.x - 14) < 1 && v.y > 5 && v.y < 15) {
+            second++;
+            EXPECT_EQ(v.tag, OperationTag(3));
+        }
+    });
+    EXPECT_GT(first, 0);
+    EXPECT_GT(second, 0);
+    // the faces of the stock are on the faces of the box; the floors of the slots are on grid
+    // planes, where the material only touched by the tool along X and Y is still cut
+    int inside = 0;
+    for (int u = 0; u < mesher.UnitCount(); u++) {
+        const UnitMesh& mesh = mesher.Mesh(u);
+        for (uint32_t i : mesh.stock) {
+            const MeshVertex& v = mesh.vertices[i];
+            EXPECT_EQ(v.tag, 0);
+            inside += v.x > lo[0] + 1e-3 && v.x < hi[0] - 1e-3 && v.y > lo[1] + 1e-3
+                && v.y < hi[1] - 1e-3 && v.z > lo[2] + 1e-3 && v.z < hi[2] - 1e-3;
+        }
+    }
+    EXPECT_EQ(inside, 0);
 }
 
 // NOLINTEND(cppcoreguidelines-*,readability-*)

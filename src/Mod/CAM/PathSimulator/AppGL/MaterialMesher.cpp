@@ -96,7 +96,8 @@ struct Crossing
     uint8_t tag;
 };
 
-// Inside the material at a grid point of a leaf, from its dexel along Z
+// Inside the material at a grid point of a leaf, from its dexel along Z. The material includes its
+// surface, like the dexels along X and Y on a grid plane keep the material a tool only touches.
 bool Inside(const Grid& grid, int leaf, int i, int j, int k)
 {
     const Layout& L = grid.GetLayout();
@@ -109,7 +110,7 @@ bool Inside(const Grid& grid, int leaf, int i, int j, int k)
         if (z < spans[s].lo) {
             return false;
         }
-        if (z < spans[s].hi) {
+        if (z <= spans[s].hi) {
             return true;
         }
     }
@@ -122,18 +123,22 @@ void FindCrossing(const Grid& grid, int leaf, int a, int i, int j, int t, bool s
     const Layout& L = grid.GetLayout();
     const Layout::Leaf& lf = L.GetLeaf(leaf);
     const int u = AxisU(a), v = AxisV(a);
-    const double s0 = L.Coord(a, lf.lo[a] + t * lf.cell), s1 = L.Coord(a, lf.lo[a] + (t + 1) * lf.cell);
+    const double s0 = L.Coord(a, lf.lo[a] + t * lf.cell),
+                 s1 = L.Coord(a, lf.lo[a] + (t + 1) * lf.cell);
     const double mid = 0.5 * (s0 + s1);
     Span scratch;
     const Span* spans;
     const int n = grid.Line(leaf, LineIndex(a, i, j), spans, scratch);
     double best = 1e30, pos = mid;
     uint32_t packed = NoNormal;
+    // the ends of the edge as the inside of its grid points is decided, in single precision: a
+    // surface on a grid plane is at an end of the edge
+    const float f0 = (float)s0, f1 = (float)s1;
     for (int s = 0; s < n; s++) {
         // leaving the material at hi, entering at lo
-        const double e = startInside ? spans[s].hi : spans[s].lo;
+        const float e = startInside ? spans[s].hi : spans[s].lo;
         const uint32_t pn = startInside ? spans[s].nhi : spans[s].nlo;
-        if (e >= s0 && e <= s1 && std::abs(e - mid) < best) {
+        if (e >= f0 && e <= f1 && std::abs(e - mid) < best) {
             best = std::abs(e - mid);
             pos = e;
             packed = pn;
@@ -223,19 +228,28 @@ float Thickness(const Grid& grid, int leaf, int a, int i, int j, double s, bool 
 }
 
 // Distance from a point to a triangle
-double TriangleDistance(const double p[3], const std::array<double, 3>& a, const std::array<double, 3>& b, const std::array<double, 3>& c)
+double TriangleDistance(
+    const double p[3],
+    const std::array<double, 3>& a,
+    const std::array<double, 3>& b,
+    const std::array<double, 3>& c
+)
 {
     auto sub = [](const double* x, const double* y, double* r) {
         for (int k = 0; k < 3; k++) {
             r[k] = x[k] - y[k];
         }
     };
-    auto dot = [](const double* x, const double* y) { return x[0] * y[0] + x[1] * y[1] + x[2] * y[2]; };
+    auto dot = [](const double* x, const double* y) {
+        return x[0] * y[0] + x[1] * y[1] + x[2] * y[2];
+    };
     double ab[3], ac[3], ap[3];
     sub(b.data(), a.data(), ab);
     sub(c.data(), a.data(), ac);
     sub(p, a.data(), ap);
-    auto length = [&](const double* q) { return std::sqrt(dot(q, q)); };
+    auto length = [&](const double* q) {
+        return std::sqrt(dot(q, q));
+    };
     auto toPoint = [&](const std::array<double, 3>& q) {
         double r[3];
         sub(p, q.data(), r);
@@ -294,7 +308,12 @@ double TriangleDistance(const double p[3], const std::array<double, 3>& a, const
 // side of a curved surface, their mass point is on that side too, so faces through such vertices
 // would cut into convex surfaces. The heights of the points above their mean plane are fitted by a
 // quadric of the position in the plane, the vertex goes to its height at the vertex.
-void SmoothVertex(const std::vector<const Crossing*>& points, const double lo[3], const double hi[3], float out[3])
+void SmoothVertex(
+    const std::vector<const Crossing*>& points,
+    const double lo[3],
+    const double hi[3],
+    float out[3]
+)
 {
     if (points.size() < 8) {
         return;
@@ -400,7 +419,12 @@ void SmoothVertex(const std::vector<const Crossing*>& points, const double lo[3]
 // Minimizer of the squared distances to the planes of the points, near their mass point: the
 // eigenvectors of small eigenvalues are left out, so planes in few directions give the point
 // closest to the mass point on their intersection (sharp edges and corners)
-void SolveQef(const std::vector<const Crossing*>& points, const double lo[3], const double hi[3], float out[3])
+void SolveQef(
+    const std::vector<const Crossing*>& points,
+    const double lo[3],
+    const double hi[3],
+    float out[3]
+)
 {
     double mass[3] = {0, 0, 0};
     for (const Crossing* c : points) {
@@ -424,7 +448,8 @@ void SolveQef(const std::vector<const Crossing*>& points, const double lo[3], co
             continue;
         }
         int g = 0;
-        while (g < ngroups && c->n[0] * groups[g][0] + c->n[1] * groups[g][1] + c->n[2] * groups[g][2] < 0.9986f) {
+        while (g < ngroups
+               && c->n[0] * groups[g][0] + c->n[1] * groups[g][1] + c->n[2] * groups[g][2] < 0.9986f) {
             g++;
         }
         if (g == ngroups) {
@@ -477,7 +502,8 @@ void SolveQef(const std::vector<const Crossing*>& points, const double lo[3], co
                         continue;
                     }
                     const double theta = (M[q][q] - M[p][p]) / (2 * M[p][q]);
-                    const double t = (theta >= 0 ? 1 : -1) / (std::abs(theta) + std::sqrt(theta * theta + 1));
+                    const double t = (theta >= 0 ? 1 : -1)
+                        / (std::abs(theta) + std::sqrt(theta * theta + 1));
                     const double c = 1 / std::sqrt(t * t + 1), s = t * c;
                     for (int k = 0; k < 3; k++) {
                         const double mkp = M[k][p], mkq = M[k][q];
@@ -561,7 +587,8 @@ int SharpGroups(const std::vector<const Crossing*>& points, std::vector<int>& gr
             for (int b = a + 1; b < groups; b++) {
                 const double la = std::sqrt(n[a][0] * n[a][0] + n[a][1] * n[a][1] + n[a][2] * n[a][2]);
                 const double lb = std::sqrt(n[b][0] * n[b][0] + n[b][1] * n[b][1] + n[b][2] * n[b][2]);
-                if ((n[a][0] * n[b][0] + n[a][1] * n[b][1] + n[a][2] * n[b][2]) / (la * lb) > SharpCos) {
+                if ((n[a][0] * n[b][0] + n[a][1] * n[b][1] + n[a][2] * n[b][2]) / (la * lb)
+                    > SharpCos) {
                     tight = false;
                 }
             }
@@ -580,7 +607,9 @@ int SharpGroups(const std::vector<const Crossing*>& points, std::vector<int>& gr
             mean[k] += c->n[k];
         }
     }
-    auto dot = [](const float* a, const double* b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; };
+    auto dot = [](const float* a, const double* b) {
+        return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    };
     size_t sa = 0;
     for (size_t i = 1; i < points.size(); i++) {
         if (dot(points[i]->n, mean) < dot(points[sa]->n, mean)) {
@@ -611,7 +640,9 @@ int SharpGroups(const std::vector<const Crossing*>& points, std::vector<int>& gr
             c /= len;
         }
     }
-    const double separation = std::acos(std::clamp(m[0][0] * m[1][0] + m[0][1] * m[1][1] + m[0][2] * m[1][2], -1.0, 1.0));
+    const double separation = std::acos(
+        std::clamp(m[0][0] * m[1][0] + m[0][1] * m[1][1] + m[0][2] * m[1][2], -1.0, 1.0)
+    );
     if (separation < 12 * M_PI / 180) {
         return 0;
     }
@@ -624,7 +655,12 @@ int SharpGroups(const std::vector<const Crossing*>& points, std::vector<int>& gr
     return 2;
 }
 
-bool SharpVertex(const std::vector<const Crossing*>& points, const double lo[3], const double hi[3], float out[3])
+bool SharpVertex(
+    const std::vector<const Crossing*>& points,
+    const double lo[3],
+    const double hi[3],
+    float out[3]
+)
 {
     thread_local std::vector<int> group;
     const int groups = SharpGroups(points, group);
@@ -799,7 +835,11 @@ void Mesher::Reset(std::shared_ptr<const Layout> layout, ThreadPool& pool)
                     if (x > 0 && x < 3 && y > 0 && y < 3 && z > 0 && z < 3) {
                         continue;
                     }
-                    const int n = L.FindLeaf(lf.lo[0] + offsets[x], lf.lo[1] + offsets[y], lf.lo[2] + offsets[z]);
+                    const int n = L.FindLeaf(
+                        lf.lo[0] + offsets[x],
+                        lf.lo[1] + offsets[y],
+                        lf.lo[2] + offsets[z]
+                    );
                     if (n >= 0 && n != leaf && std::find(out.begin(), out.end(), n) == out.end()) {
                         out.push_back(n);
                     }
@@ -850,7 +890,7 @@ void Mesher::ComputeGeometry(const Grid& grid, int leaf)
             int sp = 0;
             for (int k = 0; k <= Cells; k++) {
                 const float z = (float)L.Coord(2, lf.lo[2] + k * lf.cell);
-                while (sp < n && spans[sp].hi <= z) {
+                while (sp < n && spans[sp].hi < z) {
                     sp++;
                 }
                 const bool in = sp < n && spans[sp].lo <= z;
@@ -884,7 +924,9 @@ void Mesher::ComputeGeometry(const Grid& grid, int leaf)
                         Crossing c;
                         FindCrossing(grid, leaf, a, i, j, t, s0, c);
                         crossingOf[EdgeIndex(a, i, j, t)] = (int16_t)g->crossings.size();
-                        g->edges.push_back(((uint32_t)EdgeIndex(a, i, j, t) << 16) | (uint32_t)g->crossings.size());
+                        g->edges.push_back(
+                            ((uint32_t)EdgeIndex(a, i, j, t) << 16) | (uint32_t)g->crossings.size()
+                        );
                         g->crossings.push_back(c);
                     }
                 }
@@ -946,7 +988,9 @@ void Mesher::ComputeGeometry(const Grid& grid, int leaf)
     // block and on each of its faces, and every edge of the block changes inside at most once
     auto oneSheet = [&](int x0, int y0, int z0, int m) {
         const int n = m + 1;
-        auto at = [&](int i, int j, int k) { return inside[z0 + k][y0 + j][x0 + i]; };
+        auto at = [&](int i, int j, int k) {
+            return inside[z0 + k][y0 + j][x0 + i];
+        };
         // components of the points of one kind in a box of the block, 6-connected
         auto components = [&](int i0, int j0, int k0, int ni, int nj, int nk, bool kind) {
             bool seen[Cells + 1][Cells + 1][Cells + 1] = {};
@@ -1090,7 +1134,8 @@ void Mesher::ComputeGeometry(const Grid& grid, int leaf)
                 for (int x = 0; x < count; x++) {
                     bool ok = true;
                     for (int c = 0; c < 8 && ok; c++) {
-                        ok = merged[level - 1][2 * z + (c >> 2 & 1)][2 * y + (c >> 1 & 1)][2 * x + (c & 1)];
+                        ok = merged[level - 1][2 * z + (c >> 2 & 1)][2 * y + (c >> 1 & 1)]
+                                   [2 * x + (c & 1)];
                     }
                     if (ok && !g->crossings.empty()) {
                         points.clear();
@@ -1414,15 +1459,28 @@ void Mesher::BuildUnit(const Grid& grid, int unit, UnitMesh& out) const
                                 const MeshVertex& w = out.vertices[i];
                                 return std::array<double, 3> {w.x, w.y, w.z};
                             };
-                            const std::array<double, 3> p[4] = {at(idx[0]), at(idx[1]), at(idx[2]), at(idx[3])};
+                            const std::array<double, 3> p[4]
+                                = {at(idx[0]), at(idx[1]), at(idx[2]), at(idx[3])};
                             const double c[3] = {cr.p[0], cr.p[1], cr.p[2]};
-                            const double d02 = std::min(TriangleDistance(c, p[0], p[1], p[2]), TriangleDistance(c, p[0], p[2], p[3]));
-                            const double d13 = std::min(TriangleDistance(c, p[1], p[2], p[3]), TriangleDistance(c, p[1], p[3], p[0]));
+                            const double d02 = std::min(
+                                TriangleDistance(c, p[0], p[1], p[2]),
+                                TriangleDistance(c, p[0], p[2], p[3])
+                            );
+                            const double d13 = std::min(
+                                TriangleDistance(c, p[1], p[2], p[3]),
+                                TriangleDistance(c, p[1], p[3], p[0])
+                            );
                             if (d02 <= d13) {
-                                list.insert(list.end(), {idx[0], idx[1], idx[2], idx[0], idx[2], idx[3]});
+                                list.insert(
+                                    list.end(),
+                                    {idx[0], idx[1], idx[2], idx[0], idx[2], idx[3]}
+                                );
                             }
                             else {
-                                list.insert(list.end(), {idx[1], idx[2], idx[3], idx[1], idx[3], idx[0]});
+                                list.insert(
+                                    list.end(),
+                                    {idx[1], idx[2], idx[3], idx[1], idx[3], idx[0]}
+                                );
                             }
                         }
                         else if (nu == 3) {
@@ -1446,7 +1504,8 @@ long Mesher::MemoryBytes() const
         }
     }
     for (const UnitMesh& m : mMeshes) {
-        bytes += (long)(m.vertices.capacity() * sizeof(MeshVertex) + (m.stock.capacity() + m.cut.capacity()) * 4);
+        bytes += (long)(m.vertices.capacity() * sizeof(MeshVertex)
+                        + (m.stock.capacity() + m.cut.capacity()) * 4);
     }
     return bytes;
 }
@@ -1499,7 +1558,9 @@ std::vector<int> Mesher::Update(const Grid& grid, const std::vector<int>& change
         }
     }
     ParallelFor(pool, (int)geometry.size(), 16, [&](int i) { ComputeGeometry(grid, geometry[i]); });
-    ParallelFor(pool, (int)units.size(), 4, [&](int i) { BuildUnit(grid, units[i], mMeshes[units[i]]); });
+    ParallelFor(pool, (int)units.size(), 4, [&](int i) {
+        BuildUnit(grid, units[i], mMeshes[units[i]]);
+    });
     return units;
 }
 
