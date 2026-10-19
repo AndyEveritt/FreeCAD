@@ -82,6 +82,10 @@ public:
     void GoToOperation(int index);
     // the handler gets the index of the operation of a stock face clicked in the view, -1 for none
     void SetOperationPickedHandler(std::function<void(int)> handler);
+    // the commands, numbered in the order they were added, see DlgCAMSimulator::goToCommand
+    void GoToCommand(int index);
+    void StepCommand(int direction);
+    void SetCommandChangedHandler(std::function<void(int)> handler);
 };
 
 }  // namespace CAMSimulator

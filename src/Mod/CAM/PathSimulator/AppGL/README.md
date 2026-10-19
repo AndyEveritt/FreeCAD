@@ -144,6 +144,13 @@ operation tag of its faces with their position in the G-buffer, read at the pixe
 frame (`SimDisplay::RequestPick`), from the front-most transparent layer with the stock, else the
 opaque objects.
 
+The task panel lists the commands the simulator runs (`CommandListModel`, made as shown, in the
+units of the preferences for the size of the stock, the tool directions only if the tool turns):
+the command in progress is selected as the simulation goes (`CAMSim.SetCommandChangedCallback`),
+a click on a command goes to its start (`CAMSim.GoToCommand`), the arrows to the next command
+that moves the tool or to the start of the command in progress or the previous one
+(`CAMSim.StepCommand`). Motions know the command they come from (`MillMotion::source`).
+
 The display options of the task panel are the parameters below, the simulator follows their
 changes (`CAMSettings`): the colors of the stock, the thin wall threshold and the model tolerance,
 and the stock and the model shown, with their opacities. The colors are plain, by operation (the

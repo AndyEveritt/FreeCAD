@@ -28,7 +28,7 @@ import os
 import FreeCAD
 import Path.Base.Util as PathUtil
 import Path.Dressup.Utils as PathDressup
-from Path.Main.SimulatorFeed import SimulatorFeed, toolProfile
+from Path.Main.SimulatorFeed import SimulatorFeed, commandText, toolProfile
 from PathScripts import PathUtils
 import CAMSimulator
 
@@ -95,6 +95,31 @@ def OperationColors(ops):
         OPERATION_COLORS[i % len(OPERATION_COLORS)] if isDefault(color) else color
         for i, color in enumerate(colors)
     ]
+
+
+if FreeCAD.GuiUp:
+
+    class CommandListModel(QtCore.QAbstractListModel):
+        """The commands the simulator runs, their text made when shown: there can be many."""
+
+        def __init__(self, commands, operations, units):
+            super().__init__()
+            self.commands = commands  # (command, index of its operation)
+            self.operations = operations  # labels
+            self.units = units  # see commandText
+
+        def rowCount(self, parent=QtCore.QModelIndex()):
+            return 0 if parent.isValid() else len(self.commands)
+
+        def data(self, index, role=QtCore.Qt.DisplayRole):
+            if not index.isValid():
+                return None
+            cmd, op = self.commands[index.row()]
+            if role == QtCore.Qt.DisplayRole:
+                return "%d  %s" % (index.row() + 1, commandText(cmd, *self.units))
+            if role == QtCore.Qt.ToolTipRole and 0 <= op < len(self.operations):
+                return self.operations[op]
+            return None
 
 
 class CAMSimTaskUi:
@@ -197,6 +222,12 @@ class CAMSimulation:
         self.onJobChange()
         form.listOperations.itemChanged.connect(self.onOperationItemChange)
         form.listOperations.itemClicked.connect(self.onOperationClicked)
+        form.previousCommand.clicked.connect(lambda: self.onStepCommand(-1))
+        form.nextCommand.clicked.connect(lambda: self.onStepCommand(1))
+        form.listCommands.clicked.connect(self.onCommandClicked)
+        font = QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.FixedFont)
+        form.listCommands.setFont(font)
+        self.commandModel = None
         self.toggledItem = None
         FreeCADGui.Control.showDialog(self.taskForm)
         self.disableAnim = False
@@ -438,22 +469,76 @@ class CAMSimulation:
         self.SetupSimulation()
         self.millSim.ResetSimulation(FreeCADGui.getDocument(self.job.Document))
         colors = [self.operationColors[self.operations.index(op)] for op in self.activeOps]
+        commands = []
+        labels = []
         for step in self.SimulationSteps(self.activeOps, self.stock, colors):
             if step[0] == "command":
                 self.millSim.AddCommand(step[1])
+                commands.append((step[1], len(labels) - 1))
             elif step[0] == "operation":
                 self.millSim.AddOperation(step[1], step[2])
+                labels.append(step[1])
             else:
                 self.millSim.AddTool(step[1], step[2], step[3], 1, **step[4])
         self.millSim.BeginSimulation(self.stock, self.quality)
         self.millSim.SetOperationPickedCallback(self.onOperationPicked)
+        self.SetupCommands(commands, labels)
         if self.baseShape is not None:
             self.millSim.SetBaseShape(self.baseShape, 1)
+
+    def SetupCommands(self, commands, labels):
+        """The list of the commands the simulator runs, in the units of the preferences: those of
+        the size of the stock, the same for all commands"""
+        form = self.taskForm.form
+        prefs = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Units")
+        decimals = prefs.GetInt("Decimals", 2)
+        size = max(self.stock.BoundBox.DiagonalLength, 1.0)
+        _, lengthFactor, lengthUnit = FreeCAD.Units.Quantity(size, FreeCAD.Units.Length).getUserPreferred()
+        _, feedFactor, feedUnit = FreeCAD.Units.Quantity(
+            1000.0 / 60, FreeCAD.Units.Velocity
+        ).getUserPreferred()
+        # the tool directions only if the tool turns
+        rotary = any(abs(cmd.Parameters.get(k, 0)) > 1e-9 for cmd, _ in commands for k in "ABC")
+        units = ((lengthFactor, max(decimals, 3)), (feedFactor, decimals), rotary)
+        self.commandModel = CommandListModel(commands, labels, units)
+        form.listCommands.setModel(self.commandModel)
+        form.groupCommands.setTitle(
+            QtCore.QT_TRANSLATE_NOOP("CAM_Simulator", "Commands") + " (%s, %s)" % (lengthUnit, feedUnit)
+        )
+        self.millSim.SetCommandChangedCallback(self.onCommandChanged)
+
+    def onCommandChanged(self, index):
+        """The simulation got to another command: show it in the list"""
+        form = self.taskForm.form
+        if self.commandModel is None:
+            return
+        count = self.commandModel.rowCount()
+        if not 0 <= index < count:
+            form.listCommands.clearSelection()
+            form.commandLabel.setText("")
+            return
+        row = self.commandModel.index(index)
+        form.listCommands.setCurrentIndex(row)
+        form.listCommands.scrollTo(row, QtGui.QAbstractItemView.PositionAtCenter)
+        _, op = self.commandModel.commands[index]
+        label = self.commandModel.operations[op] if op >= 0 else ""
+        form.commandLabel.setText("%d / %d  %s" % (index + 1, count, label))
+
+    def onCommandClicked(self, index):
+        """Go to the start of the clicked command"""
+        if self.millSim is not None and index.isValid():
+            self.millSim.GoToCommand(index.row())
+
+    def onStepCommand(self, direction):
+        """Go to the next command, or to the start of the command in progress or the previous one"""
+        if self.millSim is not None:
+            self.millSim.StepCommand(direction)
 
     def cancel(self):
         """Cancel the simulation"""
         if self.millSim is not None:
             self.millSim.SetOperationPickedCallback(None)
+            self.millSim.SetCommandChangedCallback(None)
 
 
 class CommandCAMSimulate:

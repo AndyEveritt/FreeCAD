@@ -165,10 +165,17 @@ public:
     // index of the operation that cut it, -1 for none, after the next frame
     void pickAt(const QPoint& pos);
     void setOperationPickedHandler(std::function<void(int)> handler);
+    // The commands of the toolpath (numbered as they were added, see addCommand): go to the start
+    // of a command, to the next or previous one (see MillSimulation::StepCommand), and the handler
+    // gets the command in progress when it changes, -1 for none
+    void goToCommand(int index);
+    void stepCommand(int direction);
+    void setCommandChangedHandler(std::function<void(int)> handler);
 
 Q_SIGNALS:
     void simulationStarted();
     void operationPicked(int operation);
+    void commandChanged(int command);
 
 protected:
     void timerEvent(QTimerEvent* event) override;
@@ -185,6 +192,8 @@ protected:
 
 private:
     std::function<void(int)> mOperationPicked;
+    std::function<void(int)> mCommandChanged;
+    int mLastCommandShown = -2;  // the command in progress last reported
     bool mFrameTiming = false;
     std::vector<double> mFrameTimes;  // milliseconds
     std::string mGlVendor, mGlRenderer, mGlVersion;

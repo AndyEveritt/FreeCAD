@@ -427,6 +427,41 @@ def toolProfile(shape, resolution):
     return profile, arcs
 
 
+# the order of the words of a command in its text, the others after them
+_WORD_ORDER = "XYZABCIJKRQFSPT"
+_LENGTH_WORDS = set("XYZIJKRQ")
+_ANGLE_WORDS = set("ABC")
+
+
+def commandText(cmd, length=(1.0, 3), velocity=(1.0, 1), rotary=True):
+    """commandText(cmd, length, velocity, rotary=True) ... the text of a command in
+    units: length and velocity are (factor, decimals), the value of a word in the
+    unit its internal value (mm, mm/s) divided by factor. Angles are in degrees,
+    left out without rotary."""
+    words = sorted(
+        cmd.Parameters.items(),
+        key=lambda kv: (_WORD_ORDER.find(kv[0]) % (len(_WORD_ORDER) + 1), kv[0]),
+    )
+    text = [cmd.Name]
+    for letter, value in words:
+        if letter in _LENGTH_WORDS:
+            value, decimals = value / length[0], length[1]
+        elif letter == "F":
+            value, decimals = value / velocity[0], velocity[1]
+        elif letter in _ANGLE_WORDS:
+            if not rotary:
+                continue
+            decimals = 3
+        else:
+            text.append("%s%g" % (letter, value))
+            continue
+        number = "%.*f" % (decimals, value)
+        if float(number) == 0:
+            number = number.lstrip("-")  # no -0.000
+        text.append(letter + number)
+    return " ".join(text)
+
+
 def _slerp(d0, d1, angle, t):
     """The unit vector a fraction t of the way from d0 to d1 on a great circle."""
     if angle < 1e-9:

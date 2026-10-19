@@ -116,6 +116,27 @@ class CAMSim(BaseClass):
         """
         ...
 
+    def GoToCommand(self, index: int, /) -> None:
+        """
+        Go to the start of a command, by its index in the order the commands were added
+        (AddCommand), or of the first command after it that moves the tool.
+        """
+        ...
+
+    def StepCommand(self, direction: int, /) -> None:
+        """
+        Go to the start of the next command that moves the tool (direction > 0), or of the
+        command in progress, or of the previous one if already there (direction < 0).
+        """
+        ...
+
+    def SetCommandChangedCallback(self, callback: Any, /) -> None:
+        """
+        Call callback(index) when the command in progress changes, with its index in the order the
+        commands were added, or -1 for none. None removes the callback.
+        """
+        ...
+
     @no_args
     def GetRendererInfo(self) -> dict:
         """

@@ -119,6 +119,13 @@ public:
     void GoToOperation(int direction);
     // Go to the start of the operation with this index (in the order they were added)
     void GoToOperationIndex(int index);
+    // The toolpath command (MillMotion::source) in progress at the current step, -1 if none
+    int CurrentCommand() const;
+    // Go to the start of the first command from this index on that moves the tool
+    void GoToCommand(int source);
+    // Go to the start of the next command that moves the tool (direction > 0), or of the command
+    // in progress, or the previous one if already there (direction < 0)
+    void StepCommand(int direction);
     // The operation of the stock face at a pixel of the view (from the bottom left), in the next
     // frame: TakePick gives it after that frame, -1 for none (no stock there or uncut stock).
     // 'position' gets the point of the stock there.
@@ -239,6 +246,7 @@ protected:
     std::vector<uint32_t> mStockTriangles;
     std::vector<Material::Segment> mSegments;  // one per MillPathSegment, tools by id
     std::vector<MillMotion> mSegmentMotions;   // the motion to the end of each segment
+    std::vector<int> mSegmentFirstStep;        // the first step of each segment
     std::map<int, std::vector<Material::ProfileArc>> mToolArcs;  // by tool id
     std::vector<SimOperation> mOperations;
     StockColoring mColoring;

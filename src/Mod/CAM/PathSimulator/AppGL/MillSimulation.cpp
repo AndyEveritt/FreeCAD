@@ -108,6 +108,7 @@ void MillSimulation::Clear()
     mMaterial.reset();
     mSegments.clear();
     mSegmentMotions.clear();
+    mSegmentFirstStep.clear();
     simDisplay.CleanGL();
 
     mCurStep = 0;
@@ -135,6 +136,7 @@ void MillSimulation::InitSimulation(float quality, float maxStockDimension)
     mQuality = quality;
     mSegments.clear();
     mSegmentMotions.clear();
+    mSegmentFirstStep.clear();
 
     for (SimOperation& op : mOperations) {
         op.firstStep = op.endStep = -1;
@@ -182,6 +184,7 @@ void MillSimulation::InitSimulation(float quality, float maxStockDimension)
             cut.sweepSteps = segment->SweepSteps();
             mSegments.push_back(cut);
             mSegmentMotions.push_back(curMotion);
+            mSegmentFirstStep.push_back(mNTotalSteps - segment->numSimSteps);
         }
 
         prevMotion = curMotion;
@@ -1103,6 +1106,48 @@ void MillSimulation::GoToOperationIndex(int index)
         return;
     }
     SetSimulationStep(mOperations[index].firstStep);
+}
+
+int MillSimulation::CurrentCommand() const
+{
+    if (mPathStep < 0 || mPathStep >= (int)mSegmentMotions.size()) {
+        return -1;
+    }
+    return mSegmentMotions[mPathStep].source;
+}
+
+void MillSimulation::GoToCommand(int source)
+{
+    // the commands of the segments are in the order of the toolpath
+    for (size_t s = 0; s < mSegmentMotions.size(); s++) {
+        if (mSegmentMotions[s].source >= source) {
+            SetSimulationStep(mSegmentFirstStep[s]);
+            return;
+        }
+    }
+    SetSimulationStep(mNTotalSteps);
+}
+
+void MillSimulation::StepCommand(int direction)
+{
+    const int current = CurrentCommand();
+    if (direction > 0) {
+        GoToCommand(current + 1);
+        return;
+    }
+    // the first segment of the command in progress
+    int first = std::clamp(mPathStep, 0, (int)mSegmentMotions.size());
+    while (first > 0 && mSegmentMotions[first - 1].source == current) {
+        first--;
+    }
+    if (first >= (int)mSegmentFirstStep.size()) {
+        return;
+    }
+    if (mCurStep > mSegmentFirstStep[first] || first == 0) {
+        SetSimulationStep(mSegmentFirstStep[first]);
+        return;
+    }
+    GoToCommand(mSegmentMotions[first - 1].source);
 }
 
 void MillSimulation::RequestPick(int x, int y)

@@ -106,4 +106,19 @@ void CAMSim::SetOperationPickedHandler(std::function<void(int)> handler)
     DlgCAMSimulator::instance()->setOperationPickedHandler(std::move(handler));
 }
 
+void CAMSim::GoToCommand(int index)
+{
+    DlgCAMSimulator::instance()->goToCommand(index);
+}
+
+void CAMSim::StepCommand(int direction)
+{
+    DlgCAMSimulator::instance()->stepCommand(direction);
+}
+
+void CAMSim::SetCommandChangedHandler(std::function<void(int)> handler)
+{
+    DlgCAMSimulator::instance()->setCommandChangedHandler(std::move(handler));
+}
+
 }  // namespace CAMSimulator

@@ -33,7 +33,13 @@ from FreeCAD import Vector
 
 import Path
 import CAMTests.PathTestUtils as PathTestUtils
-from Path.Main.SimulatorFeed import SimulatorFeed, rotaryForAxis, toolAxis, toolProfile
+from Path.Main.SimulatorFeed import (
+    SimulatorFeed,
+    commandText,
+    rotaryForAxis,
+    toolAxis,
+    toolProfile,
+)
 
 # a 100 x 80 x 40 block
 BOUNDS = FreeCAD.BoundBox(0, 0, 0, 100, 80, 40)
@@ -387,3 +393,12 @@ class TestPathSimulatorFeed(PathTestUtils.PathTestBase):
         self.assertVector(_point(cmds[0]), Vector(5, 0, 50))
         self.assertRoughly(cmds[0].Parameters["B"], 30)
         self.assertRoughly(cmds[0].Parameters["A"], 0)
+
+    def test15(self):
+        """The text of a command in units, its words in order, angles left out on request."""
+        cmd = Path.Command("G1", {"F": 25.0, "Z": -0.00001, "Y": 2.54, "X": 25.4, "B": 30, "S": 1000})
+        self.assertEqual(commandText(cmd), "G1 X25.400 Y2.540 Z0.000 B30.000 F25.0 S1000")
+        # inches, inches per minute
+        self.assertEqual(
+            commandText(cmd, (25.4, 4), (25.4 / 60, 1), rotary=False), "G1 X1.0000 Y0.1000 Z0.0000 F59.1 S1000"
+        )

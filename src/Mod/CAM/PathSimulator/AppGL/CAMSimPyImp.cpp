@@ -267,20 +267,16 @@ PyObject* CAMSimPy::GoToOperation(PyObject* args)
     return Py_None;
 }
 
-PyObject* CAMSimPy::SetOperationPickedCallback(PyObject* args)
+// A Python callable as a handler of an int, called with the interpreter locked; null for None
+static bool IntHandler(PyObject* callback, std::function<void(int)>& handler)
 {
-    PyObject* callback;
-    if (!PyArg_ParseTuple(args, "O", &callback)) {
-        return nullptr;
-    }
     if (callback == Py_None) {
-        getCAMSimPtr()->SetOperationPickedHandler(nullptr);
-        Py_INCREF(Py_None);
-        return Py_None;
+        handler = nullptr;
+        return true;
     }
     if (!PyCallable_Check(callback)) {
         PyErr_SetString(PyExc_TypeError, "callback must be callable or None");
-        return nullptr;
+        return false;
     }
     // the callable is kept and released with the Python interpreter locked
     Py_INCREF(callback);
@@ -288,16 +284,61 @@ PyObject* CAMSimPy::SetOperationPickedCallback(PyObject* args)
         Base::PyGILStateLocker lock;
         Py_DECREF(object);
     });
-    getCAMSimPtr()->SetOperationPickedHandler([held](int operation) {
+    handler = [held](int value) {
         Base::PyGILStateLocker lock;
-        PyObject* result = PyObject_CallFunction(held.get(), "i", operation);
+        PyObject* result = PyObject_CallFunction(held.get(), "i", value);
         if (!result) {
             Base::PyException exception;
             exception.reportException();
             return;
         }
         Py_DECREF(result);
-    });
+    };
+    return true;
+}
+
+PyObject* CAMSimPy::SetOperationPickedCallback(PyObject* args)
+{
+    PyObject* callback;
+    std::function<void(int)> handler;
+    if (!PyArg_ParseTuple(args, "O", &callback) || !IntHandler(callback, handler)) {
+        return nullptr;
+    }
+    getCAMSimPtr()->SetOperationPickedHandler(handler);
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+PyObject* CAMSimPy::SetCommandChangedCallback(PyObject* args)
+{
+    PyObject* callback;
+    std::function<void(int)> handler;
+    if (!PyArg_ParseTuple(args, "O", &callback) || !IntHandler(callback, handler)) {
+        return nullptr;
+    }
+    getCAMSimPtr()->SetCommandChangedHandler(handler);
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+PyObject* CAMSimPy::GoToCommand(PyObject* args)
+{
+    int index;
+    if (!PyArg_ParseTuple(args, "i", &index)) {
+        return nullptr;
+    }
+    getCAMSimPtr()->GoToCommand(index);
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+PyObject* CAMSimPy::StepCommand(PyObject* args)
+{
+    int direction;
+    if (!PyArg_ParseTuple(args, "i", &direction)) {
+        return nullptr;
+    }
+    getCAMSimPtr()->StepCommand(direction);
     Py_INCREF(Py_None);
     return Py_None;
 }

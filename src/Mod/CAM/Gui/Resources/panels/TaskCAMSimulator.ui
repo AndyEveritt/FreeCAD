@@ -141,6 +141,65 @@
     </widget>
    </item>
    <item>
+    <widget class="QGroupBox" name="groupCommands">
+     <property name="title">
+      <string>Commands</string>
+     </property>
+     <layout class="QVBoxLayout" name="layoutCommands">
+      <item>
+       <layout class="QHBoxLayout" name="layoutCommandButtons">
+        <item>
+         <widget class="QToolButton" name="previousCommand">
+          <property name="toolTip">
+           <string>Go to the start of the command in progress, or of the previous one</string>
+          </property>
+          <property name="arrowType">
+           <enum>Qt::ArrowType::UpArrow</enum>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QToolButton" name="nextCommand">
+          <property name="toolTip">
+           <string>Go to the start of the next command that moves the tool</string>
+          </property>
+          <property name="arrowType">
+           <enum>Qt::ArrowType::DownArrow</enum>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="commandLabel">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Ignored" vsizetype="Preferred">
+            <horstretch>1</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QListView" name="listCommands">
+        <property name="toolTip">
+         <string>The commands the simulator runs, in the units of the preferences: a click goes to the start of a command</string>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>16777215</width>
+          <height>200</height>
+         </size>
+        </property>
+        <property name="uniformItemSizes">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
     <widget class="QGroupBox" name="groupDisplay">
      <property name="title">
       <string>Display</string>

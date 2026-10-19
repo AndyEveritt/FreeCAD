@@ -104,6 +104,17 @@ DlgCAMSimulator::DlgCAMSimulator(QWidget* parent)
         },
         Qt::QueuedConnection
     );
+    connect(
+        this,
+        &DlgCAMSimulator::commandChanged,
+        this,
+        [this](int command) {
+            if (mCommandChanged) {
+                mCommandChanged(command);
+            }
+        },
+        Qt::QueuedConnection
+    );
 }
 
 DlgCAMSimulator::~DlgCAMSimulator()
@@ -131,6 +142,26 @@ void DlgCAMSimulator::pickAt(const QPoint& pos)
 void DlgCAMSimulator::setOperationPickedHandler(std::function<void(int)> handler)
 {
     mOperationPicked = std::move(handler);
+}
+
+void DlgCAMSimulator::goToCommand(int index)
+{
+    mMillSimulator->GoToCommand(index);
+    updateGui();
+    update();
+}
+
+void DlgCAMSimulator::stepCommand(int direction)
+{
+    mMillSimulator->StepCommand(direction);
+    updateGui();
+    update();
+}
+
+void DlgCAMSimulator::setCommandChangedHandler(std::function<void(int)> handler)
+{
+    mCommandChanged = std::move(handler);
+    mLastCommandShown = -2;  // reported again
 }
 
 void DlgCAMSimulator::connectTo(GuiDisplay& gui, Dummy3DViewer& dv)
@@ -204,6 +235,12 @@ void DlgCAMSimulator::connectTo(GuiDisplay& gui, Dummy3DViewer& dv)
 
 void DlgCAMSimulator::updateGui()
 {
+    const int command = mMillSimulator->CurrentCommand();
+    if (command != mLastCommandShown && mCommandChanged) {
+        mLastCommandShown = command;
+        Q_EMIT commandChanged(command);
+    }
+
     if (!mGui) {
         return;
     }
@@ -254,6 +291,7 @@ void DlgCAMSimulator::cloneFrom(const DlgCAMSimulator& from)
     const auto state = from.mMillSimulator->GetState();
     mState = std::make_unique<MillSimulationState>(state);
     mOperationPicked = from.mOperationPicked;
+    mCommandChanged = from.mCommandChanged;
 }
 
 DlgCAMSimulator* DlgCAMSimulator::instance(Gui::Document* doc)
