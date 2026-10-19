@@ -95,6 +95,7 @@ public:
     void RenderTool();
     void RenderPath();
     void RenderBaseShape();
+    void RenderOrigin();
     void Render();
     void ProcessSim(const clock::duration& elapsed);
     void SimNext(const clock::duration& elapsed);
@@ -149,6 +150,8 @@ public:
 
     void SetPathVisible(bool b);
     void EnableSsao(bool b);
+    // The origin of the job (of the workpiece coordinates) and its axes
+    void SetOriginVisible(bool b);
 
     // Cut faces in the color of their operation
     void SetColorByOperation(bool b);
@@ -247,6 +250,9 @@ protected:
     float mStockOpacity = 1;
     float mBaseOpacity = 1;
     float mThinThreshold = 0.5f;
+    bool mOriginVisible = true;
+    unsigned int mOriginVbo = 0;
+    float mOriginLength = 0;  // of the axes in mOriginVbo
 
     // protected:
 public:

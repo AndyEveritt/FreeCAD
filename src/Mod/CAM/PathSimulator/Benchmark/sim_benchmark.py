@@ -774,6 +774,8 @@ def main():
         cam.SetBool("SimulatorStockVisible", True)
         cam.SetBool("SimulatorOutlines", True)
         cam.SetBool("SimulatorModelVisible", False)
+        # the references show the stock, without the overlays
+        cam.SetBool("SimulatorOriginVisible", False)
         setup_window()
         for run in CONFIG["runs"]:
             try:

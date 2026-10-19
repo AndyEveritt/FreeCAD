@@ -130,6 +130,8 @@ public:
     void RenderResultSSAO(bool recalculate);
     void SetOutlines(bool enabled);
     void SetupLinePathPass(int curSegment, bool isHidden);
+    // Lines of one color, like the path: opaque where visible, with hiddenAlpha where hidden
+    void SetupLinePass(const vec3& color, bool isHidden, float hiddenAlpha);
     void UpdateWindowScale(int width, int height);
     void UpdateCamera(const SoCamera& camera);
 

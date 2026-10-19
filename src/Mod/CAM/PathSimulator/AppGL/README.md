@@ -114,7 +114,8 @@ from angles, are snapped to them.
   fold by more than about 40 degrees, step far off the plane of each other, and at the background.
   The
   toolpath is drawn a few pixels closer to the camera than it is, so a path on the surface of the
-  stock, like the bottom of a ball end mill groove, is not hidden by it. The model is drawn a
+  stock, like the bottom of a ball end mill groove, is not hidden by it. The origin of the job is drawn
+  as its axes, like the toolpath, and seen through the objects in front of it. The model is drawn a
   little behind the stock: where the stock is cut to the model, the stock and the colors of its
   operations are shown, the model only where the stock is cut deeper. Transparent objects (the
   stock or the model with an opacity below 1) are drawn after the opaque ones in 4 layers (depth
@@ -200,6 +201,8 @@ around Z. This is the place to add machine specific kinematics.
 - `SimulatorStockVisible` (bool, default true), `SimulatorModelVisible` (bool, default false): the
   stock and the model shown.
 - `SimulatorOutlines` (bool, default true): dark lines at the edges of the opaque objects.
+- `SimulatorOriginVisible` (bool, default true): the origin of the job and its axes (X red, Y
+  green, Z blue, a fifth of the size of the stock long), seen through the objects in front of it.
 - `SimulatorInspect` (int, default 0): lines over the stock to inspect it: 0 none, 1 the mesh, 2 the
   normals, 3 the dexels at a click.
 - `SimulatorStockOpacity`, `SimulatorModelOpacity` (float, 0 to 1, default 1): opacity of the

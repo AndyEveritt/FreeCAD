@@ -520,6 +520,12 @@ void DlgCAMSimulator::setOutlines(bool enabled)
     update();
 }
 
+void DlgCAMSimulator::setOriginVisible(bool visible)
+{
+    mMillSimulator->SetOriginVisible(visible);
+    update();
+}
+
 void DlgCAMSimulator::setInspect(int mode)
 {
     mMillSimulator->SetInspect(mode);

@@ -145,6 +145,8 @@ public:
     void setDeviation(bool enabled, float tolerance);
     // dark lines at the edges of the objects
     void setOutlines(bool enabled);
+    // the origin of the job and its axes
+    void setOriginVisible(bool visible);
     // lines over the stock to inspect it, see MillSimulation::SetInspect
     void setInspect(int mode);
     // opacity of the stock and the model, from 0 to 1

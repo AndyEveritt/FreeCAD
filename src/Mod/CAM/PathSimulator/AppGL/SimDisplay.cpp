@@ -1003,6 +1003,23 @@ void SimDisplay::SetupLinePathPass(int curSegment, bool isHidden)
     shaderLinePath.UpdateViewMat(mMatLookAt);
 }
 
+void SimDisplay::SetupLinePass(const vec3& color, bool isHidden, float hiddenAlpha)
+{
+    glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+    glDepthFunc(isHidden ? GL_GREATER : GL_LESS);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glLineWidth(3);
+    shaderLinePath.Activate();
+    // the lines are segment 0 (their index attribute is not set): passed, in objectColor
+    const vec4 alpha = {color[0], color[1], color[2], isHidden ? hiddenAlpha : 1.0f};
+    shaderLinePath.UpdateObjColorAlpha(alpha);
+    shaderLinePath.UpdateObjColor(color);
+    shaderLinePath.UpdateCurSegment(0);
+    shaderLinePath.UpdateViewMat(mMatLookAt);
+}
+
 void SimDisplay::UpdateWindowScale(int width, int height)
 {
     if (!displayInitiated || (width == mWidth && height == mHeight)) {

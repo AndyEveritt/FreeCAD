@@ -104,6 +104,7 @@ void MillSimulation::Clear()
     mToolArcs.clear();
 
     mStockObject.Clear();
+    GLDELETE_BUFFER(mOriginVbo);
     mMaterial.reset();
     mSegments.clear();
     mSegmentMotions.clear();
@@ -641,6 +642,48 @@ void MillSimulation::RenderBaseShape()
     glDisable(GL_POLYGON_OFFSET_FILL);
 }
 
+// The axes of the origin, a fifth of the size of the stock long, X red, Y green, Z blue
+void MillSimulation::RenderOrigin()
+{
+    if (!mOriginVisible) {
+        return;
+    }
+    float size = 0;
+    for (int k = 0; k < 3; k++) {
+        float lo = 1e30f, hi = -1e30f;
+        for (size_t i = k; i < mStockXyz.size(); i += 3) {
+            lo = std::min(lo, mStockXyz[i]);
+            hi = std::max(hi, mStockXyz[i]);
+        }
+        size = std::max(size, hi - lo);
+    }
+    const float length = std::max(2.0f, 0.2f * size);
+    if (mOriginVbo == 0 || length != mOriginLength) {
+        const float lines[] = {0, 0, 0, length, 0, 0, 0, 0, 0, 0, length, 0, 0, 0, 0, 0, 0, length};
+        if (mOriginVbo == 0) {
+            glGenBuffers(1, &mOriginVbo);
+        }
+        glBindBuffer(GL_ARRAY_BUFFER, mOriginVbo);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(lines), lines, GL_STATIC_DRAW);
+        mOriginLength = length;
+    }
+    const vec3 colors[3] = {{0.9f, 0.15f, 0.15f}, {0.15f, 0.75f, 0.2f}, {0.2f, 0.4f, 1.0f}};
+    glBindBuffer(GL_ARRAY_BUFFER, mOriginVbo);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void*)0);
+    glDisableVertexAttribArray(1);
+    glDisableVertexAttribArray(2);
+    for (bool hidden : {true, false}) {
+        for (int axis = 0; axis < 3; axis++) {
+            // seen through the stock too, which hides it at a corner of the stock
+            simDisplay.SetupLinePass(colors[axis], hidden, 0.6f);
+            glDrawArrays(GL_LINES, 2 * axis, 2);
+        }
+    }
+    glDepthMask(GL_TRUE);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
 void MillSimulation::Render()
 {
     if (!simulationInitiated) {
@@ -678,6 +721,7 @@ void MillSimulation::Render()
             RenderBaseShape();
         }
         RenderPath();
+        RenderOrigin();
         simDisplay.ClearTransparentLayer();
         if (transparentStock || transparentBase) {
             for (int layer = 0; simDisplay.StartTransparentLayer(layer); layer++) {
@@ -881,6 +925,12 @@ void MillSimulation::SetPathVisible(bool b)
     }
 
     mViewPath = b;
+    simDisplay.updateDisplay = true;
+}
+
+void MillSimulation::SetOriginVisible(bool b)
+{
+    mOriginVisible = b;
     simDisplay.updateDisplay = true;
 }
 

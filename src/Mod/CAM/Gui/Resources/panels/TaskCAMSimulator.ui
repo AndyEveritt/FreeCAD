@@ -214,13 +214,26 @@
         </item>
        </widget>
       </item>
-      <item row="2" column="0" colspan="2">
+      <item row="2" column="0">
        <widget class="QCheckBox" name="outlines">
         <property name="toolTip">
          <string>Dark lines at the edges of the stock and the model in the simulator view</string>
         </property>
         <property name="text">
          <string>Outlines</string>
+        </property>
+        <property name="checked">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <widget class="QCheckBox" name="originVisible">
+        <property name="toolTip">
+         <string>The origin of the job and its axes: X red, Y green, Z blue</string>
+        </property>
+        <property name="text">
+         <string>Origin</string>
         </property>
         <property name="checked">
          <bool>true</bool>

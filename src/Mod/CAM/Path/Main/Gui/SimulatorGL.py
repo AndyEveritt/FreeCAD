@@ -181,6 +181,8 @@ class CAMSimulation:
         form.inspect.currentIndexChanged.connect(self.onInspectChange)
         form.outlines.setChecked(prefs.GetBool("SimulatorOutlines", True))
         form.outlines.toggled.connect(self.onOutlinesChange)
+        form.originVisible.setChecked(prefs.GetBool("SimulatorOriginVisible", True))
+        form.originVisible.toggled.connect(self.onOriginChange)
         form.stockVisible.setChecked(prefs.GetBool("SimulatorStockVisible", True))
         form.modelVisible.setChecked(prefs.GetBool("SimulatorModelVisible", False))
         form.stockVisible.toggled.connect(self.onVisibilityChange)
@@ -334,6 +336,11 @@ class CAMSimulation:
         """Dark lines at the edges of the stock and the model"""
         prefs = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/CAM")
         prefs.SetBool("SimulatorOutlines", self.taskForm.form.outlines.isChecked())
+
+    def onOriginChange(self, *_args):
+        """The origin of the job and its axes in the simulator view"""
+        prefs = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/CAM")
+        prefs.SetBool("SimulatorOriginVisible", self.taskForm.form.originVisible.isChecked())
 
     def onInspectChange(self, *_args):
         """Lines over the stock to inspect it: its mesh, its normals or its dexels at a click"""
