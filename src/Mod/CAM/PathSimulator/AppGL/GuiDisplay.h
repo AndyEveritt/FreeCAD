@@ -45,6 +45,8 @@ public:
     void setPlaying(bool b);
     void setSpeed(int s);
     void setStage(float f, int total);
+    // the time of the machine at the tool and in all, s
+    void setTime(double current, double total);
     // the operation in progress, index -1 for none
     void setOperation(const QString& name, int index, int count);
     // the scale of the colors of the distance from the model, while they are shown

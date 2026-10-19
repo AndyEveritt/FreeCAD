@@ -71,8 +71,12 @@ public:
         float diameter,
         float resolution,
         const std::vector<Material::ProfileArc>& arcs = {},
-        double flutes = 0
+        double flutes = 0,
+        const ToolRates& rates = {}
     );
+    // the time of the machine in all and of each operation, s
+    double GetTotalSeconds();
+    std::vector<double> GetOperationSeconds();
     void SetBaseShape(const Part::TopoShape& baseShape, float resolution);
     void AddCommand(Command* cmd);
     void AddOperation(const std::string& name, const float* color = nullptr);

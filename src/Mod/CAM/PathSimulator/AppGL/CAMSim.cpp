@@ -52,11 +52,22 @@ void CAMSim::addTool(
     float diameter,
     float resolution,
     const std::vector<Material::ProfileArc>& arcs,
-    double flutes
+    double flutes,
+    const ToolRates& rates
 )
 {
     DlgCAMSimulator::instance()
-        ->addTool(toolProfilePoints, toolNumber, diameter, resolution, arcs, flutes);
+        ->addTool(toolProfilePoints, toolNumber, diameter, resolution, arcs, flutes, rates);
+}
+
+double CAMSim::GetTotalSeconds()
+{
+    return DlgCAMSimulator::instance()->totalSeconds();
+}
+
+std::vector<double> CAMSim::GetOperationSeconds()
+{
+    return DlgCAMSimulator::instance()->operationSeconds();
 }
 
 void CAMSim::SetBaseShape(const Part::TopoShape& baseShape, float resolution)

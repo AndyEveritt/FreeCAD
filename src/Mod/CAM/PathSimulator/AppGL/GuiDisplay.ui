@@ -148,7 +148,7 @@
      <item>
       <widget class="QToolButton" name="slowerButton">
        <property name="toolTip">
-        <string>Decrease simulation speed</string>
+        <string>Slower: fewer times the time of the machine</string>
        </property>
        <property name="icon">
         <iconset resource="../../Gui/Resources/Path.qrc">
@@ -162,7 +162,7 @@
      <item>
       <widget class="QToolButton" name="fasterButton">
        <property name="toolTip">
-        <string>Increase simulation speed</string>
+        <string>Faster: more times the time of the machine</string>
        </property>
        <property name="icon">
         <iconset resource="../../Gui/Resources/Path.qrc">
@@ -180,6 +180,16 @@
        </property>
        <property name="text">
         <string>x1</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="timeLabel">
+       <property name="toolTip">
+        <string>Time of the machine, at the tool and of the whole toolpath</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">color:white; padding-left:12px</string>
        </property>
       </widget>
      </item>

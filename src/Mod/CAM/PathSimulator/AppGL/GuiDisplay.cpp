@@ -206,7 +206,7 @@ GuiDisplay::GuiDisplay(QWidget* parent)
     setPlaying(false);
 
     speed = 0;
-    setSpeed(1);
+    setSpeed(10);
 
     connect(ui->slowerButton, &QToolButton::clicked, this, &GuiDisplay::onSlowerFasterButtonClicked);
     connect(ui->fasterButton, &QToolButton::clicked, this, &GuiDisplay::onSlowerFasterButtonClicked);
@@ -304,7 +304,8 @@ void GuiDisplay::setSpeed(int s)
     ui->speedLabel->setText(tr("x%1").arg(speed));
 }
 
-static const std::vector<int> speeds = {1, 2, 5, 10, 25, 50};
+// times the time of the machine
+static const std::vector<int> speeds = {1, 2, 5, 10, 25, 50, 100, 250, 500, 1000};
 
 std::vector<int>::const_iterator findNearestSpeed(int speed)
 {
@@ -344,6 +345,28 @@ void GuiDisplay::setStage(float f, int total)
 {
     ui->stageSlider->setMaximum(total);
     ui->stageSlider->setValue(f * total);
+}
+
+// h:mm:ss, m:ss below an hour
+static QString TimeText(double seconds)
+{
+    const long s = std::lround(std::max(0.0, seconds));
+    if (s >= 3600) {
+        return QString::fromLatin1("%1:%2:%3")
+            .arg(s / 3600)
+            .arg(s / 60 % 60, 2, 10, QLatin1Char('0'))
+            .arg(s % 60, 2, 10, QLatin1Char('0'));
+    }
+    return QString::fromLatin1("%1:%2").arg(s / 60).arg(s % 60, 2, 10, QLatin1Char('0'));
+}
+
+void GuiDisplay::setTime(double current, double total)
+{
+    const QString text = total > 0 ? TimeText(current) + QString::fromLatin1(" / ") + TimeText(total)
+                                   : QString();
+    if (ui->timeLabel->text() != text) {
+        ui->timeLabel->setText(text);
+    }
 }
 
 void GuiDisplay::setOperation(const QString& name, int index, int count)

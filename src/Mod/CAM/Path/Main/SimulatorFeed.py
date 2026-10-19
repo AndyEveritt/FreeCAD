@@ -464,6 +464,12 @@ def commandText(cmd, length=(1.0, 3), velocity=(1.0, 1), rotary=True):
     return " ".join(text)
 
 
+def _speed(tc, name):
+    """A speed of a tool controller in mm/s, 0 if it has none."""
+    value = getattr(tc, name, None)
+    return float(getattr(value, "Value", value or 0))
+
+
 def simulationSteps(ops, stock, colors):
     """simulationSteps(ops, stock, colors) ... the calls that give ops to the
     simulator, in order: ("command", cmd), ("operation", label, color) and
@@ -488,6 +494,9 @@ def simulationSteps(ops, stock, colors):
             flutes = getattr(tc.Tool, "CuttingEdgeHeight", None)
             if flutes is not None and float(getattr(flutes, "Value", flutes)) > 0:
                 extras["flutes"] = float(getattr(flutes, "Value", flutes))
+            # for the time of the machine, mm/s
+            extras["feeds"] = (_speed(tc, "HorizFeed"), _speed(tc, "VertFeed"))
+            extras["rapids"] = (_speed(tc, "HorizRapid"), _speed(tc, "VertRapid"))
             yield ("tool", profile, tc.ToolNumber, tc.Tool.Diameter, extras)
         for cmd in opCommands:
             yield ("command", cmd)

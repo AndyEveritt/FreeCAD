@@ -141,6 +141,13 @@
     </widget>
    </item>
    <item>
+    <widget class="QLabel" name="cycleTime">
+     <property name="toolTip">
+      <string>The time of the machine for the operations simulated, by their feed rates and the rapid rates of their tool controllers</string>
+     </property>
+    </widget>
+   </item>
+   <item>
     <widget class="QGroupBox" name="groupEvents">
      <property name="title">
       <string>Problems</string>

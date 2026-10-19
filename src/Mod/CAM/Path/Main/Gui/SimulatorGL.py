@@ -63,6 +63,14 @@ OPERATION_COLORS = [
 ]
 
 
+def TimeText(seconds):
+    """h:mm:ss, m:ss below an hour"""
+    s = int(round(max(0.0, seconds)))
+    if s >= 3600:
+        return "%d:%02d:%02d" % (s // 3600, s // 60 % 60, s % 60)
+    return "%d:%02d" % (s // 60, s % 60)
+
+
 # The colors of the kinds of problems, as the marks on the timeline of the simulator view
 EVENT_COLORS = {
     "rapid": (255, 110, 20),
@@ -503,6 +511,8 @@ class CAMSimulation:
         self.operationLabels = labels
         self.taskForm.form.listEvents.clear()
         self.millSim.SetEventsChangedCallback(self.onEventsChanged)
+        self.taskForm.form.cycleTime.setText("")
+        self.showTimes(50)
 
     def onCommandChanged(self, index):
         """The simulation got to another command: show it in the list"""
@@ -520,6 +530,24 @@ class CAMSimulation:
         _, op = self.commandModel.commands[index]
         label = self.commandModel.operations[op] if op >= 0 else ""
         form.commandLabel.setText("%d / %d  %s" % (index + 1, count, label))
+
+    def showTimes(self, tries):
+        """The time of the machine in all and of each operation, once the simulation has it"""
+        if self.millSim is None:
+            return
+        times = self.millSim.GetTimes()
+        if times["total"] <= 0:
+            if tries > 0:
+                QtCore.QTimer.singleShot(200, lambda: self.showTimes(tries - 1))
+            return
+        form = self.taskForm.form
+        form.cycleTime.setText(
+            QtCore.QT_TRANSLATE_NOOP("CAM_Simulator", "Cycle time") + " " + TimeText(times["total"])
+        )
+        for op, seconds in zip(self.activeOps, times["operations"]):
+            if op in self.operations:
+                item = form.listOperations.item(self.operations.index(op))
+                item.setText("%s  (%s)" % (op.Label, TimeText(seconds)))
 
     def onEventsChanged(self, count):
         """The simulation found problems on the toolpath: list them"""

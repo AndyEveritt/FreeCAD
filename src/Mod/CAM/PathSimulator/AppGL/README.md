@@ -232,6 +232,19 @@ move. Where the tool is before its first motions is unknown: they take the axes 
 from the first motion that names them (`FillStart`, and `SimulatorFeed` for the first
 operation), so the tool starts where the program takes it, not at the origin.
 
+## Time
+
+The timeline is in the time of the machine (`MotionSeconds`): feed moves at their programmed
+feed rate (modal, also across operations, as on the machine), else at the feed rate of their tool
+controller (the vertical one for moves more vertical than horizontal), rapid moves at the rapid
+rates of their tool controller, else at `SimulatorRapidRate`, the axes at once: the longer of the
+horizontal and the vertical. Turns of the tool take at least their largest angle at 30 degrees a
+second feeding, 90 rapid. Accelerations are not modeled. A step is a millisecond, every motion has
+at least one (`MillSimulation::StepsPerSecond`); the playback speed is in times the time of the
+machine (x1 to x1000, x10 at first). The view shows the time at the tool and in all, the task
+panel the cycle time and the time of every operation (`CAMSim.GetTimes`). The stencil renderer
+has steps of its own, by the length of the motions (`ApplyTimeline` when it is switched).
+
 ## 5 axis toolpaths
 
 `GCodeParser` reads the rotary axes A, B and C. `MotionToolAxis` in `MillMotion.h` turns them into
@@ -260,6 +273,8 @@ around Z. This is the place to add machine specific kinematics.
   normals, 3 the dexels at a click.
 - `SimulatorStockOpacity`, `SimulatorModelOpacity` (float, 0 to 1, default 1): opacity of the
   stock (not with the stencil renderer) and of the model.
+- `SimulatorRapidRate` (float, mm/min, default 5000): the rapid rate of tool controllers
+  without one, for the time of the machine.
 - `SanitySimulation` (bool, default true): the Sanity Check report simulates the job and lists the
   problems found, at `SanitySimulationQuality` (int, 1 to 10, default 5).
 

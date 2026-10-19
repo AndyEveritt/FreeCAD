@@ -47,6 +47,7 @@
 
 #include <Base/Parameter.h>
 #include "MaterialTool.h"
+#include "MillMotion.h"
 #include <Mod/Part/App/TopoShape.h>
 
 class SoCamera;
@@ -95,6 +96,7 @@ public:
     float diameter;
     std::vector<Material::ProfileArc> arcs;
     double flutes = 0;
+    ToolRates rates;
 };
 
 class DlgCAMSimulator: public QOpenGLWidget
@@ -129,8 +131,14 @@ public:
         float diameter,
         float resolution,
         const std::vector<Material::ProfileArc>& arcs = {},
-        double flutes = 0
+        double flutes = 0,
+        const ToolRates& rates = {}
     );
+    // the rapid rate of tools without one, mm/s
+    void setRapidRate(double rate);
+    // the time of the machine in all and of each operation, s
+    double totalSeconds() const;
+    std::vector<double> operationSeconds() const;
 
     void setStockShape(const Part::TopoShape& shape, float resolution);
     void setStockVisible(bool b);

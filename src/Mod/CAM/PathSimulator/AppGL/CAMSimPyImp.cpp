@@ -98,25 +98,39 @@ PyObject* CAMSimPy::BeginSimulation(PyObject* args, PyObject* kwds)
 
 PyObject* CAMSimPy::AddTool(PyObject* args, PyObject* kwds)
 {
-    static const std::array<const char*, 7>
-        kwlist {"shape", "toolnumber", "diameter", "resolution", "arcs", "flutes", nullptr};
+    static const std::array<const char*, 9> kwlist {
+        "shape",
+        "toolnumber",
+        "diameter",
+        "resolution",
+        "arcs",
+        "flutes",
+        "feeds",
+        "rapids",
+        nullptr
+    };
     PyObject* pObjToolShape;
     int toolNumber;
     float resolution;
     float diameter;
     PyObject* pyArcs = Py_None;
     double flutes = 0;
+    ToolRates rates;
     if (!Base::Wrapped_ParseTupleAndKeywords(
             args,
             kwds,
-            "Oiff|Od",
+            "Oiff|Od(dd)(dd)",
             kwlist,
             &pObjToolShape,
             &toolNumber,
             &diameter,
             &resolution,
             &pyArcs,
-            &flutes
+            &flutes,
+            &rates.horizFeed,
+            &rates.vertFeed,
+            &rates.horizRapid,
+            &rates.vertRapid
         )) {
         return nullptr;
     }
@@ -154,7 +168,7 @@ PyObject* CAMSimPy::AddTool(PyObject* args, PyObject* kwds)
     }
 
     CAMSim* sim = getCAMSimPtr();
-    sim->addTool(toolProfile, toolNumber, diameter, resolution, arcs, flutes);
+    sim->addTool(toolProfile, toolNumber, diameter, resolution, arcs, flutes, rates);
 
     Py_INCREF(Py_None);
     return Py_None;
@@ -392,6 +406,19 @@ PyObject* CAMSimPy::GetEvents()
         list.append(d);
     }
     return Py::new_reference_to(list);
+}
+
+PyObject* CAMSimPy::GetTimes()
+{
+    Py::Dict d;
+    CAMSim* sim = getCAMSimPtr();
+    d.setItem("total", Py::Float(sim->GetTotalSeconds()));
+    Py::List ops;
+    for (double s : sim->GetOperationSeconds()) {
+        ops.append(Py::Float(s));
+    }
+    d.setItem("operations", ops);
+    return Py::new_reference_to(d);
 }
 
 PyObject* CAMSimPy::GoToCommand(PyObject* args)

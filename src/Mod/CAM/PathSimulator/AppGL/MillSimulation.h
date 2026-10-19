@@ -71,7 +71,7 @@ struct MillSimulationState
     int mPathStep = -1;
     int mSubStep = 0;
     int mNPathSteps = 0;
-    int mSimSpeed = 1;
+    int mSimSpeed = 10;
     int mViewItems = VIEWITEM_SIMULATION;
     bool mViewPath = false;
     bool mViewSSAO = false;
@@ -91,14 +91,27 @@ public:
     void Clear();
     void InitSimulation(float quality, float maxStockDimension);
     void AddTool(EndMill* tool);
-    // arcs: of the profile, see Material::Tool. flutes: their length from the tip, 0 if unknown
+    // arcs: of the profile, see Material::Tool. flutes: their length from the tip, 0 if unknown.
+    // rates: for the time of the moves
     void AddTool(
         const std::vector<float>& toolProfile,
         int toolid,
         float diameter,
         const std::vector<Material::ProfileArc>& arcs = {},
-        double flutes = 0
+        double flutes = 0,
+        const ToolRates& rates = {}
     );
+    // The rapid rate of tools without one, mm/s
+    void SetRapidRate(double rate);
+
+    // The timeline is in the time of the machine: a step a millisecond, at least one a motion.
+    // The stencil renderer has its own steps, by the length of the motions.
+    static constexpr double StepsPerSecond = 1000;
+    // The time of the machine at the current step and in all, s
+    double CurrentSeconds() const;
+    double TotalSeconds() const;
+    // The time of each operation, s
+    std::vector<double> OperationSeconds() const;
     bool ToolExists(int toolid);
     void RenderSimulation();
     void RenderTool();
@@ -209,6 +222,8 @@ public:
 
 protected:
     void InitDisplay(float quality);
+    // The steps of the segments, of the operations and in all, for the renderer in use
+    void ApplyTimeline();
     void GlsimStart();
     void GlsimToolStep1(void);
     void GlsimToolStep2(void);
@@ -265,6 +280,14 @@ protected:
     std::vector<int> mSegmentFirstStep;        // the first step of each segment
     std::map<int, std::vector<Material::ProfileArc>> mToolArcs;  // by tool id
     std::map<int, double> mToolFlutes;                           // by tool id
+    std::map<int, ToolRates> mToolRates;                         // by tool id
+    double mRapidRate = 5000.0 / 60;
+    // of the segments: the time of the machine, its start, and the steps of the stencil renderer
+    std::vector<double> mSegmentSeconds;
+    std::vector<double> mSegmentStartSeconds;
+    std::vector<int> mSegmentStencilSteps;
+    std::vector<int> mSegmentStencilSweepSteps;
+    std::vector<int> mSegmentSteps;  // on the timeline
     std::vector<SimOperation> mOperations;
     StockColoring mColoring;
     bool mThinWalls = false;

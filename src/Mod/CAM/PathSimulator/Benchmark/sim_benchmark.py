@@ -442,8 +442,9 @@ class JobBench:
         """Play the whole job, at a speed that takes about CONFIG["playback_seconds"]."""
         total = self.slider.maximum()
         self.move_to(0)
-        # the simulator advances speed * 60 steps per second
-        speed = max(1, math.ceil(total / (CONFIG["playback_seconds"] * 60)))
+        # the timeline is in the time of the machine, a step a millisecond: the simulator advances
+        # speed * 1000 steps per second
+        speed = max(1, math.ceil(total / (CONFIG["playback_seconds"] * 1000)))
         self.set_speed(speed)
         limit.restart()
         self.sim.TakeFrameTimes()
@@ -466,7 +467,7 @@ class JobBench:
             "steps_per_frame": self.slider.value() / max(1, len(times)),
             "reached_end": reached_end,
         }
-        self.set_speed(1)
+        self.set_speed(10)
         self.settle()
         return result
 
@@ -479,7 +480,7 @@ class JobBench:
             return {"error": "numpy not available"}
         total = self.slider.maximum()
         self.move_to(0)
-        speed = max(1, math.ceil(total / (CONFIG["playback_seconds"] * 60)))
+        speed = max(1, math.ceil(total / (CONFIG["playback_seconds"] * 1000)))
         self.set_speed(speed)
         limit.restart()
         self.toggle_play()
@@ -521,7 +522,7 @@ class JobBench:
                         )
         if self.slider.value() < total:
             self.toggle_play()
-        self.set_speed(1)
+        self.set_speed(10)
         self.settle()
         return {
             "grabs": count,

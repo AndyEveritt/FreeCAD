@@ -43,6 +43,7 @@ using namespace std::literals;
 namespace CAMSimulator
 {
 
+
 MillSimulation::MillSimulation()
 {}
 
@@ -72,6 +73,7 @@ void MillSimulation::Clear()
     mToolTable.clear();
     mToolArcs.clear();
     mToolFlutes.clear();
+    mToolRates.clear();
 
     mStockObject.Clear();
     GLDELETE_BUFFER(mOriginVbo);
@@ -79,6 +81,11 @@ void MillSimulation::Clear()
     mSegments.clear();
     mSegmentMotions.clear();
     mSegmentFirstStep.clear();
+    mSegmentSeconds.clear();
+    mSegmentStartSeconds.clear();
+    mSegmentStencilSteps.clear();
+    mSegmentStencilSweepSteps.clear();
+    mSegmentSteps.clear();
     simDisplay.CleanGL();
 
     mCurStep = 0;
@@ -99,7 +106,7 @@ void MillSimulation::InitSimulation(float quality, float maxStockDimension)
     mPathStep = -1;
     mNTotalSteps = 0;
     mSimPlaying = false;
-    mSimSpeed = 1;
+    mSimSpeed = 10;  // times the time of the machine
     mTotalElapsed = 0s;
 
     MillPathSegment::SetQuality(quality, maxStockDimension);
@@ -107,6 +114,11 @@ void MillSimulation::InitSimulation(float quality, float maxStockDimension)
     mSegments.clear();
     mSegmentMotions.clear();
     mSegmentFirstStep.clear();
+    mSegmentSeconds.clear();
+    mSegmentStartSeconds.clear();
+    mSegmentStencilSteps.clear();
+    mSegmentStencilSweepSteps.clear();
+    mSegmentSteps.clear();
 
     for (SimOperation& op : mOperations) {
         op.firstStep = op.endStep = -1;
@@ -133,14 +145,6 @@ void MillSimulation::InitSimulation(float quality, float maxStockDimension)
             auto segment = new MillPathSegment(*tool, prevMotion, curMotion);
             segment->indexInArray = i;
             segment->segmentIndex = segId++;
-            const int op = curMotion.operation;
-            if (op >= 0 && op < (int)mOperations.size()) {
-                if (mOperations[op].firstStep < 0) {
-                    mOperations[op].firstStep = mNTotalSteps;
-                }
-                mOperations[op].endStep = mNTotalSteps + segment->numSimSteps;
-            }
-            mNTotalSteps += segment->numSimSteps;
             MillPathSegments.push_back(segment);
             const size_t firstPoint = millPathLine.MillPathPointsBuffer.size();
             segment->AppendPathPoints(millPathLine.MillPathPointsBuffer);
@@ -150,26 +154,27 @@ void MillSimulation::InitSimulation(float quality, float maxStockDimension)
 
             Material::Segment cut = MotionSegment(prevMotion, curMotion);
             cut.tool = curMotion.tool;  // tool id, replaced by the index when starting
-            cut.steps = segment->numSimSteps;
-            cut.sweepSteps = segment->SweepSteps();
+            const auto rates = mToolRates.find(curMotion.tool);
+            const double seconds = MotionSeconds(
+                prevMotion,
+                curMotion,
+                cut,
+                rates != mToolRates.end() ? rates->second : ToolRates(),
+                mRapidRate
+            );
+            mSegmentStartSeconds.push_back(
+                mSegmentSeconds.empty() ? 0 : mSegmentStartSeconds.back() + mSegmentSeconds.back()
+            );
+            mSegmentSeconds.push_back(seconds);
+            mSegmentStencilSteps.push_back(segment->numSimSteps);
+            mSegmentStencilSweepSteps.push_back(segment->SweepSteps());
             mSegments.push_back(cut);
             mSegmentMotions.push_back(curMotion);
-            mSegmentFirstStep.push_back(mNTotalSteps - segment->numSimSteps);
         }
 
         prevMotion = curMotion;
     }
-
-    assert(mNTotalSteps >= 0);
-
-    // operations without motion are empty, where the operation before them ends
-    int lastEnd = 0;
-    for (SimOperation& op : mOperations) {
-        if (op.firstStep < 0) {
-            op.firstStep = op.endStep = lastEnd;
-        }
-        lastEnd = op.endStep;
-    }
+    ApplyTimeline();
 
     // colors of the operation tags: of the first operation with the tag, operations without a
     // color of their own get hues far apart
@@ -197,7 +202,6 @@ void MillSimulation::InitSimulation(float quality, float maxStockDimension)
         std::copy(table[sector], table[sector] + 3, rgb);
     }
 
-    mNPathSteps = (int)MillPathSegments.size();
     millPathLine.GenerateModel();
 
     InitDisplay(quality);
@@ -205,6 +209,74 @@ void MillSimulation::InitSimulation(float quality, float maxStockDimension)
     mMaterialNeedsStart = true;
 
     simulationInitiated = true;
+}
+
+void MillSimulation::ApplyTimeline()
+{
+    const size_t n = mSegments.size();
+    mSegmentSteps.resize(n);
+    mSegmentFirstStep.resize(n);
+    for (SimOperation& op : mOperations) {
+        op.firstStep = op.endStep = -1;
+    }
+    mNTotalSteps = 0;
+    for (size_t s = 0; s < n; s++) {
+        int steps, sweepSteps;
+        if (mStencilRendering) {
+            steps = mSegmentStencilSteps[s];
+            sweepSteps = mSegmentStencilSweepSteps[s];
+        }
+        else {
+            steps = sweepSteps = std::max(1, (int)std::lround(mSegmentSeconds[s] * StepsPerSecond));
+        }
+        mSegmentSteps[s] = steps;
+        mSegments[s].steps = steps;
+        mSegments[s].sweepSteps = sweepSteps;
+        mSegmentFirstStep[s] = mNTotalSteps;
+        const int op = mSegmentMotions[s].operation;
+        if (op >= 0 && op < (int)mOperations.size()) {
+            if (mOperations[op].firstStep < 0) {
+                mOperations[op].firstStep = mNTotalSteps;
+            }
+            mOperations[op].endStep = mNTotalSteps + steps;
+        }
+        mNTotalSteps += steps;
+    }
+    // operations without motion are empty, where the operation before them ends
+    int lastEnd = 0;
+    for (SimOperation& op : mOperations) {
+        if (op.firstStep < 0) {
+            op.firstStep = op.endStep = lastEnd;
+        }
+        lastEnd = op.endStep;
+    }
+    mNPathSteps = (int)n;
+}
+
+double MillSimulation::CurrentSeconds() const
+{
+    if (mPathStep < 0 || mPathStep >= (int)mSegmentSeconds.size()) {
+        return 0;
+    }
+    const double part = std::min(1.0, (double)mSubStep / std::max(1, mSegmentSteps[mPathStep]));
+    return mSegmentStartSeconds[mPathStep] + part * mSegmentSeconds[mPathStep];
+}
+
+double MillSimulation::TotalSeconds() const
+{
+    return mSegmentSeconds.empty() ? 0 : mSegmentStartSeconds.back() + mSegmentSeconds.back();
+}
+
+std::vector<double> MillSimulation::OperationSeconds() const
+{
+    std::vector<double> seconds(mOperations.size(), 0.0);
+    for (size_t s = 0; s < mSegmentSeconds.size(); s++) {
+        const int op = mSegmentMotions[s].operation;
+        if (op >= 0 && op < (int)seconds.size()) {
+            seconds[op] += mSegmentSeconds[s];
+        }
+    }
+    return seconds;
 }
 
 EndMill* MillSimulation::GetTool(int toolId)
@@ -243,7 +315,8 @@ void MillSimulation::AddTool(
     int toolid,
     float diameter,
     const std::vector<Material::ProfileArc>& arcs,
-    double flutes
+    double flutes,
+    const ToolRates& rates
 )
 {
     // if we have another tool with same id, remove it
@@ -252,7 +325,14 @@ void MillSimulation::AddTool(
     mToolTable.push_back(tool);
     mToolArcs[toolid] = arcs;
     mToolFlutes[toolid] = flutes;
+    mToolRates[toolid] = rates;
 }
+
+void MillSimulation::SetRapidRate(double rate)
+{
+    mRapidRate = rate > 0 ? rate : 5000.0 / 60;
+}
+
 
 bool MillSimulation::ToolExists(int toolid)
 {
@@ -371,21 +451,21 @@ void MillSimulation::renderSegmentReversed(int iSeg, bool newOnly)
 
 void MillSimulation::CalcSegmentPositions()
 {
-    mSubStep = mCurStep;
-    for (mPathStep = 0; mPathStep < mNPathSteps; mPathStep++) {
-        MillPathSegment* p = MillPathSegments[mPathStep];
-        if (mSubStep < p->numSimSteps) {
-            break;
-        }
-        mSubStep -= p->numSimSteps;
+    if (mNPathSteps <= 0) {
+        mPathStep = -1;
+        mSubStep = 0;
+        return;
     }
-    if (mPathStep >= mNPathSteps) {
+    if (mCurStep >= mNTotalSteps) {
         mPathStep = mNPathSteps - 1;
-        mSubStep = MillPathSegments[mPathStep]->numSimSteps;
+        mSubStep = mSegmentSteps[mPathStep];
+        return;
     }
-    else {
-        mSubStep++;
-    }
+    // the segment of the step
+    mPathStep = (int)(std::upper_bound(mSegmentFirstStep.begin(), mSegmentFirstStep.end(), mCurStep)
+                      - mSegmentFirstStep.begin())
+        - 1;
+    mSubStep = mCurStep - mSegmentFirstStep[mPathStep] + 1;
 }
 
 void MillSimulation::RenderSimulation()
@@ -756,7 +836,8 @@ void MillSimulation::SimNext(const clock::duration& elapsed)
         const float seconds
             = std::chrono::duration_cast<std::chrono::duration<float>>(mTotalElapsed).count();
 
-        const float secondsToSteps = mSimSpeed * 60;
+        // in the time of the machine, the steps of the stencil renderer 60 a second
+        const float secondsToSteps = mSimSpeed * (mStencilRendering ? 60.0f : (float)StepsPerSecond);
         numSteps = seconds * secondsToSteps;
 
         const std::chrono::duration<float> processed {(float)numSteps / secondsToSteps};
@@ -1269,6 +1350,11 @@ void MillSimulation::SetStencilRendering(bool b)
     if (b) {
         mMaterial.reset();
     }
+    // the steps of the other renderer, at the same place
+    const double stage = mNTotalSteps > 0 ? (double)mCurStep / mNTotalSteps : 0;
+    ApplyTimeline();
+    mCurStep = std::clamp((int)std::lround(stage * mNTotalSteps), 0, mNTotalSteps);
+    CalcSegmentPositions();
     simDisplay.simCacheValid = false;
     simDisplay.updateDisplay = true;
 }

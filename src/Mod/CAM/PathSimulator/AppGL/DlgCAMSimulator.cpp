@@ -327,6 +327,7 @@ void DlgCAMSimulator::updateGui()
 
     const float stage = (float)state.mCurStep / state.mNTotalSteps;
     mGui->setStage(stage, state.mNTotalSteps);
+    mGui->setTime(mMillSimulator->CurrentSeconds(), mMillSimulator->TotalSeconds());
 
     const auto& operations = mMillSimulator->GetOperations();
     const int operation = mMillSimulator->OperationAt(state.mCurStep);
@@ -435,13 +436,29 @@ void DlgCAMSimulator::addTool(
     float diameter,
     float resolution,
     const std::vector<Material::ProfileArc>& arcs,
-    double flutes
+    double flutes,
+    const ToolRates& rates
 )
 {
     Q_UNUSED(resolution)
 
     mCommands.push_back({"T" + std::to_string(toolNumber), {}, -1});
-    mTools.push_back({toolProfilePoints, toolNumber, diameter, arcs, flutes});
+    mTools.push_back({toolProfilePoints, toolNumber, diameter, arcs, flutes, rates});
+}
+
+void DlgCAMSimulator::setRapidRate(double rate)
+{
+    mMillSimulator->SetRapidRate(rate);
+}
+
+double DlgCAMSimulator::totalSeconds() const
+{
+    return mMillSimulator->TotalSeconds();
+}
+
+std::vector<double> DlgCAMSimulator::operationSeconds() const
+{
+    return mMillSimulator->OperationSeconds();
 }
 
 static SimShape getMeshData(const Part::TopoShape& shape, float resolution)
@@ -762,7 +779,8 @@ void DlgCAMSimulator::updateResources()
 
     for (const auto& tool : mTools) {
         if (!mMillSimulator->ToolExists(tool.id)) {
-            mMillSimulator->AddTool(tool.profile, tool.id, tool.diameter, tool.arcs, tool.flutes);
+            mMillSimulator
+                ->AddTool(tool.profile, tool.id, tool.diameter, tool.arcs, tool.flutes, tool.rates);
         }
     }
 

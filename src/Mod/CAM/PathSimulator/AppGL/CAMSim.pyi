@@ -50,13 +50,17 @@ class CAMSim(BaseClass):
         resolution: float,
         arcs: list | None = None,
         flutes: float = 0,
+        feeds: tuple = (0, 0),
+        rapids: tuple = (0, 0),
     ) -> Any:
         """
         Set the shape of the tool to be used for simulation: its profile, radius/height pairs from
         its top down to its tip. arcs: the arcs of the profile, (first, last, r, z): the points
         first to last of the profile (indices of pairs) are on the circle around (r, z), the
         simulator follows them exactly. flutes: their length from the tip, 0 if unknown: the
-        simulator finds the tool above them meeting the material.
+        simulator finds the tool above them meeting the material. feeds and rapids: the
+        (horizontal, vertical) feed rates of moves without a programmed one and rapid rates, mm/s,
+        0 for unknown, for the time of the machine.
         """
         ...
 
@@ -136,6 +140,14 @@ class CAMSim(BaseClass):
         """
         Call callback(index) when the command in progress changes, with its index in the order the
         commands were added, or -1 for none. None removes the callback.
+        """
+        ...
+
+    @no_args
+    def GetTimes(self) -> dict:
+        """
+        Return the time of the machine for the toolpath, s, once the simulation started: total,
+        and operations, the time of each operation in the order they were added.
         """
         ...
 

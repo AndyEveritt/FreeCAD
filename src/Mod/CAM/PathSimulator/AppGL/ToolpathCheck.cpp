@@ -24,6 +24,7 @@
 
 #include "ToolpathCheck.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace CAMSimulator
@@ -59,6 +60,43 @@ Material::Segment MotionSegment(const MillMotion& from, const MillMotion& to)
     MotionToolAxis(from, cut.axis0);
     MotionToolAxis(to, cut.axis1);
     return cut;
+}
+
+// The time of the machine for a motion of a segment, s. Feed moves at their programmed feed rate,
+// else at the feed rate of the tool, rapid moves at its rapid rates, the axes at once: the longer
+// of the horizontal and the vertical. Turns of the tool take at least their largest angle at 30
+// degrees a second feeding, 90 rapid.
+double MotionSeconds(
+    const MillMotion& from,
+    const MillMotion& to,
+    const Material::Segment& cut,
+    const ToolRates& rates,
+    double defaultRapid
+)
+{
+    const double dz = std::abs(to.z - from.z);
+    const double horizontal = cut.arc ? cut.radius * std::abs(cut.sweep)
+                                      : std::hypot(to.x - from.x, to.y - from.y);
+    const double turn = std::max({std::abs(to.a - from.a), std::abs(to.b - from.b), std::abs(to.c - from.c)});
+    double seconds;
+    if (to.rapid) {
+        const double h = rates.horizRapid > 0 ? rates.horizRapid : defaultRapid;
+        const double v = rates.vertRapid > 0 ? rates.vertRapid : h;
+        seconds = std::max(horizontal / h, dz / v);
+        seconds = std::max(seconds, turn / 90);
+    }
+    else {
+        double feed = to.feed;
+        if (feed <= 0) {
+            feed = dz > horizontal && rates.vertFeed > 0 ? rates.vertFeed : rates.horizFeed;
+        }
+        if (feed <= 0) {
+            feed = rates.vertFeed > 0 ? rates.vertFeed : 1000.0 / 60;
+        }
+        seconds = std::hypot(horizontal, dz) / feed;
+        seconds = std::max(seconds, turn / 30);
+    }
+    return seconds;
 }
 
 void ToolpathCheck::AddTool(

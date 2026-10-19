@@ -65,6 +65,16 @@ struct MillMotion
     int named = 0;       // the axes named up to the motion, bits 0 to 5: X, Y, Z, A, B, C
 };
 
+// The speeds of a tool, mm/s, 0 for unknown: the feed rates of moves without a programmed one, and
+// the rapid rates, horizontal and vertical
+struct ToolRates
+{
+    double horizFeed = 0;
+    double vertFeed = 0;
+    double horizRapid = 0;
+    double vertRapid = 0;
+};
+
 // Tool axis (unit vector from the tip towards the shank) in workpiece coordinates. Positions are
 // tool tip positions in workpiece coordinates (tool center point programming), and the rotary
 // axes orient the tool: the vertical axis rotated by A around X, then B around Y, then C around Z.

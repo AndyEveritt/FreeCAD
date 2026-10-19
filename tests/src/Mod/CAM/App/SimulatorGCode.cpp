@@ -10,6 +10,7 @@
 #include <gtest/gtest.h>
 
 #include <Mod/CAM/PathSimulator/AppGL/GCodeParser.h>
+#include <Mod/CAM/PathSimulator/AppGL/ToolpathCheck.h>
 
 // NOLINTBEGIN(cppcoreguidelines-*,readability-*)
 
@@ -201,6 +202,45 @@ TEST(SimulatorGCode, theToolStartsWhereTheProgramTakesIt)
     EXPECT_DOUBLE_EQ(m[4].x, 40);
     // axes never named stay at 0
     EXPECT_DOUBLE_EQ(m[0].a, 0);
+}
+
+TEST(SimulatorGCode, theTimeOfTheMachine)
+{
+    // F600 mm/min: 10 mm/s
+    GCodeParser parser;
+    for (const char* line : {"G0 X0 Y0 Z10", "G1 X30 Y40 F600", "G0 X0 Y0 Z40", "G1 Z0", "G2 X20 Y0 I10 J0"}) {
+        parser.AddLine(line);
+    }
+    const auto& m = parser.Operations;
+    ToolRates rates;
+    rates.horizFeed = 5;
+    rates.vertFeed = 2;
+    rates.horizRapid = 100;
+    rates.vertRapid = 20;
+    auto seconds = [&](int i) {
+        return MotionSeconds(m[i - 1], m[i], MotionSegment(m[i - 1], m[i]), rates, 50);
+    };
+    // 50 mm at the programmed feed rate
+    EXPECT_NEAR(seconds(1), 5, 1e-9);
+    // rapid: 50 mm across at 100 mm/s, 30 mm up at 20 mm/s, the axes at once
+    EXPECT_NEAR(seconds(2), 1.5, 1e-9);
+    // feed rates are modal
+    EXPECT_NEAR(seconds(3), 4, 1e-9);
+    // a half circle of radius 10
+    EXPECT_NEAR(seconds(4), M_PI, 1e-9);
+    // without a programmed feed rate: the vertical one of the tool for a plunge, the horizontal
+    // one otherwise; without rapid rates the default
+    GCodeParser bare;
+    for (const char* line : {"G0 X0 Y0 Z10", "G1 Z0", "G1 X10", "G0 X20"}) {
+        bare.AddLine(line);
+    }
+    const auto& b = bare.Operations;
+    auto bareSeconds = [&](int i, const ToolRates& r) {
+        return MotionSeconds(b[i - 1], b[i], MotionSegment(b[i - 1], b[i]), r, 50);
+    };
+    EXPECT_NEAR(bareSeconds(1, rates), 5, 1e-9);
+    EXPECT_NEAR(bareSeconds(2, rates), 2, 1e-9);
+    EXPECT_NEAR(bareSeconds(3, ToolRates()), 0.2, 1e-9);
 }
 
 // NOLINTEND(cppcoreguidelines-*,readability-*)

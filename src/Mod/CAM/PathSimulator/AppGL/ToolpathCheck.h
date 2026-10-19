@@ -39,6 +39,19 @@ namespace CAMSimulator
 // in the XY plane if 'to' is one. Its tool and steps are left to the caller.
 Material::Segment MotionSegment(const MillMotion& from, const MillMotion& to);
 
+// The time of the machine for the motion of a segment, s: feed moves at their programmed feed
+// rate, else at the feed rate of the tool (vertical for moves more vertical than horizontal),
+// rapid moves at the rapid rates of the tool, else at defaultRapid, all axes at once: the longer
+// of the horizontal and the vertical. Turns of the tool take at least their largest angle at 30
+// degrees a second feeding, 90 rapid.
+double MotionSeconds(
+    const MillMotion& from,
+    const MillMotion& to,
+    const Material::Segment& cut,
+    const ToolRates& rates,
+    double defaultRapid
+);
+
 // The problems of a toolpath (Material::Event), found by simulating it without a view: the
 // toolpath as the simulator is given it, then Run.
 class ToolpathCheck
