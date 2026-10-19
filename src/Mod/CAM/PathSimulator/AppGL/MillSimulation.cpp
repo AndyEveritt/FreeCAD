@@ -1232,11 +1232,12 @@ void MillSimulation::SetOutlines(bool enabled)
     simDisplay.updateDisplay = true;
 }
 
-void MillSimulation::SetDeviation(bool enabled, float tolerance)
+void MillSimulation::SetDeviation(bool enabled, float tolerance, int show)
 {
     mDeviation = enabled;
     mColoring.deviation = enabled;
     mColoring.tolerance = tolerance;
+    mColoring.show = std::clamp(show, 0, 2);
     // the distance is only measured while it is shown, it costs time
     if (mMaterial) {
         mMaterial->SetDeviation(mDeviation ? mDeviationModel : nullptr);
@@ -1627,7 +1628,8 @@ void MillSimulation::RenderMaterialStock()
         // the section cuts the stock, its cap in a darker stock color
         simDisplay.sectionOn = true;
         mMaterial->Render(simDisplay, stockColor, cutColor, mColoring);
-        if (simDisplay.SectionEnabled()) {
+        // without the faces hidden by their distance the stock is not closed, no cap
+        if (simDisplay.SectionEnabled() && !mColoring.Filtered()) {
             simDisplay.BeginSectionStencil();
             mMaterial->Render(simDisplay, stockColor, cutColor, mColoring);
             const vec3 cap = {stockColor[0] * 0.75f, stockColor[1] * 0.75f, stockColor[2] * 0.75f};

@@ -307,6 +307,11 @@ around Z. This is the place to add machine specific kinematics.
   walls, faces in front of material thinner than `SimulatorThinWallThreshold` (float, mm, default
   0.5) in red, 3 the distance from the model, within `SimulatorDeviationTolerance` (float, mm,
   default 0.05) green.
+- `SimulatorDeviationShow` (int, default 0): with the distance from the model, the faces of the
+  stock shown: 0 all, 1 beyond the tolerance (material left or cut into the model), 2 cut into the
+  model beyond the tolerance. The others are discarded by the stock shader, by the distance
+  interpolated across the triangles, so the borders follow the tolerance; the stock is then not
+  closed and its section has no cap.
 - `SimulatorStockVisible` (bool, default true), `SimulatorModelVisible` (bool, default false): the
   stock and the model shown.
 - `SimulatorOutlines` (bool, default true): dark lines at the edges of the opaque objects.

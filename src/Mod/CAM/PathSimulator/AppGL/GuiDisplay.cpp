@@ -46,7 +46,8 @@ namespace
 
 // The colors of the distance from the model, as the stock shader shows them (deviationColor in
 // Shader.cpp): within the tolerance green, material left from light to dark blue up to 10
-// tolerances, cut into the model from orange to dark red
+// tolerances, cut into the model from orange to dark red. The bands of the faces hidden (see
+// StockColoring::show) are hatched.
 class DeviationScale: public QWidget
 {
 public:
@@ -56,9 +57,10 @@ public:
         setAttribute(Qt::WA_TransparentForMouseEvents);
         resize(190, 206);
     }
-    void setTolerance(float tolerance)
+    void setTolerance(float tolerance, int show)
     {
         mTolerance = tolerance;
+        mShow = show;
         update();
     }
 
@@ -87,6 +89,16 @@ protected:
         cut.setColorAt(0, color(1.0f, 0.6f, 0.2f));
         cut.setColorAt(1, color(0.75f, 0.0f, 0.05f));
         p.fillRect(barX, top + half + green, barW, height - half - green, cut);
+        auto hide = [&](int y, int h) {
+            p.fillRect(barX, y, barW, h, QColor(20, 20, 24, 210));
+            p.fillRect(barX, y, barW, h, QBrush(QColor(150, 150, 150), Qt::BDiagPattern));
+        };
+        if (mShow == 2) {
+            hide(top, half + green);
+        }
+        else if (mShow == 1) {
+            hide(top + half, green);
+        }
 
         p.setPen(Qt::white);
         QFont font = p.font();
@@ -135,6 +147,7 @@ protected:
 
 private:
     float mTolerance = 0.05f;
+    int mShow = 0;
 };
 
 // Marks on the timeline slider, over it, at the problems found on the toolpath
@@ -236,9 +249,9 @@ GuiDisplay::GuiDisplay(QWidget* parent)
     measureLabel->hide();
 }
 
-void GuiDisplay::setDeviationScale(bool visible, float tolerance)
+void GuiDisplay::setDeviationScale(bool visible, float tolerance, int show)
 {
-    static_cast<DeviationScale*>(deviationScale)->setTolerance(tolerance);
+    static_cast<DeviationScale*>(deviationScale)->setTolerance(tolerance, show);
     deviationScale->setVisible(visible);
     placeDeviationScale();
 }

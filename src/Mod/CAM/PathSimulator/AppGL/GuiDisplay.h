@@ -52,7 +52,7 @@ public:
     // the operation in progress, index -1 for none
     void setOperation(const QString& name, int index, int count);
     // the scale of the colors of the distance from the model, while they are shown
-    void setDeviationScale(bool visible, float tolerance);
+    void setDeviationScale(bool visible, float tolerance, int show);
     // marks on the timeline at the problems found on the toolpath: their place from 0 to 1 and
     // their color
     void setEvents(const std::vector<std::pair<float, QColor>>& marks);

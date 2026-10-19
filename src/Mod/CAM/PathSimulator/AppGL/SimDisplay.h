@@ -52,6 +52,13 @@ struct StockColoring
     // green, material left blue, cut into the model red, darker up to 10 tolerances away
     bool deviation = false;
     float tolerance = 0.05f;
+    // with the deviation, the faces shown: 0 all, 1 beyond the tolerance (material left or cut
+    // into the model), 2 cut into the model beyond the tolerance; the others are hidden
+    int show = 0;
+    bool Filtered() const
+    {
+        return deviation && show != 0;
+    }
 };
 
 // The object at a position of the view, see SimDisplay::RequestPick

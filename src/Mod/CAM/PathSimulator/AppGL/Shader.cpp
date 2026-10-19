@@ -601,6 +601,15 @@ const char* FragShaderStock = R"(
     // model red, darker up to 10 tolerances away
     uniform bool deviationMode;
     uniform float tolerance;
+    // the faces shown by their distance: 0 all, 1 beyond the tolerance, 2 cut into the model
+    // beyond it. Faces without a distance stay, the stock is not hidden without a model.
+    uniform int deviationShow;
+
+    bool deviationShown(float d)
+    {
+        return deviationShow == 0 || d > 1e29
+            || (deviationShow == 1 ? abs(d) > tolerance : d < -tolerance);
+    }
 
     vec3 deviationColor(float d)
     {
@@ -626,6 +635,9 @@ const char* FragShaderStock = R"(
     void main()
     {
         if (peel && gl_FragCoord.z <= texture2D(peelDepth, gl_FragCoord.xy / screenSize).r) {
+            discard;
+        }
+        if (deviationMode && !deviationShown(Deviation)) {
             discard;
         }
         vec3 color = deviationMode ? deviationColor(Deviation)

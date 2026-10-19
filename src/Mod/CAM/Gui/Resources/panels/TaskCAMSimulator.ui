@@ -445,6 +445,35 @@
        </widget>
       </item>
       <item row="5" column="0">
+       <widget class="QLabel" name="labelDeviationShow">
+        <property name="text">
+         <string>Show</string>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="1">
+       <widget class="QComboBox" name="deviationShow">
+        <property name="toolTip">
+         <string>When the colors show the distance from the model: the stock everywhere, only where it is beyond the model tolerance (material left or cut into the model), or only where it is cut into the model</string>
+        </property>
+        <item>
+         <property name="text">
+          <string>Everything</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Out of tolerance</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Cut into the model</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item row="6" column="0">
        <widget class="QCheckBox" name="stockVisible">
         <property name="toolTip">
          <string>Show the simulated stock</string>
@@ -457,7 +486,7 @@
         </property>
        </widget>
       </item>
-      <item row="5" column="1">
+      <item row="6" column="1">
        <widget class="QSlider" name="stockOpacity">
         <property name="toolTip">
          <string>Opacity of the simulated stock, the model and the tool show through a transparent stock</string>
@@ -473,7 +502,7 @@
         </property>
        </widget>
       </item>
-      <item row="6" column="0">
+      <item row="7" column="0">
        <widget class="QCheckBox" name="modelVisible">
         <property name="toolTip">
          <string>Show the model of the job</string>
@@ -483,7 +512,7 @@
         </property>
        </widget>
       </item>
-      <item row="6" column="1">
+      <item row="7" column="1">
        <widget class="QSlider" name="modelOpacity">
         <property name="toolTip">
          <string>Opacity of the model of the job</string>
@@ -499,14 +528,14 @@
         </property>
        </widget>
       </item>
-      <item row="7" column="0">
+      <item row="8" column="0">
        <widget class="QLabel" name="labelSection">
         <property name="text">
          <string>Section</string>
         </property>
        </widget>
       </item>
-      <item row="7" column="1">
+      <item row="8" column="1">
        <widget class="QComboBox" name="sectionAxis">
         <property name="toolTip">
          <string>Cut the stock and the model by a plane across an axis, to see inside</string>
@@ -533,7 +562,7 @@
         </item>
        </widget>
       </item>
-      <item row="8" column="0">
+      <item row="9" column="0">
        <widget class="QCheckBox" name="sectionFlip">
         <property name="toolTip">
          <string>Keep the other side of the section</string>
@@ -543,7 +572,7 @@
         </property>
        </widget>
       </item>
-      <item row="8" column="1">
+      <item row="9" column="1">
        <widget class="QSlider" name="sectionPosition">
         <property name="toolTip">
          <string>Where the section is, across the stock</string>

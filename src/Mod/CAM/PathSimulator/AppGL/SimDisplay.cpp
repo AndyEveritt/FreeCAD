@@ -762,6 +762,7 @@ void SimDisplay::StartStockGeometryPass(const vec3& objColor, const StockColorin
     glUniform3fv(glGetUniformLocation(id, "thinColor"), 1, coloring.thinColor);
     glUniform1i(glGetUniformLocation(id, "deviationMode"), coloring.deviation ? 1 : 0);
     glUniform1f(glGetUniformLocation(id, "tolerance"), std::max(coloring.tolerance, 1e-4f));
+    glUniform1i(glGetUniformLocation(id, "deviationShow"), coloring.deviation ? coloring.show : 0);
     SetPeelState(id);
     glDisable(GL_BLEND);
 }

@@ -225,6 +225,8 @@ class CAMSimulation:
         tolerance = prefs.GetFloat("SimulatorDeviationTolerance", 0.05)
         form.deviationTolerance.setProperty("rawValue", tolerance)
         form.deviationTolerance.valueChanged.connect(self.onDeviationToleranceChange)
+        form.deviationShow.setCurrentIndex(prefs.GetInt("SimulatorDeviationShow", 0))
+        form.deviationShow.currentIndexChanged.connect(self.onDeviationShowChange)
         form.colorMode.setCurrentIndex(prefs.GetInt("SimulatorColorMode", 1))
         form.colorMode.currentIndexChanged.connect(self.onColorModeChange)
         self.onColorModeChange()
@@ -401,6 +403,8 @@ class CAMSimulation:
         form.labelThinWallThreshold.setEnabled(mode == 2)
         form.deviationTolerance.setEnabled(mode == 3)
         form.labelDeviationTolerance.setEnabled(mode == 3)
+        form.deviationShow.setEnabled(mode == 3)
+        form.labelDeviationShow.setEnabled(mode == 3)
         prefs = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/CAM")
         prefs.SetInt("SimulatorColorMode", mode)
 
@@ -447,6 +451,11 @@ class CAMSimulation:
         tolerance = float(self.taskForm.form.deviationTolerance.property("rawValue"))
         prefs = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/CAM")
         prefs.SetFloat("SimulatorDeviationTolerance", tolerance)
+
+    def onDeviationShowChange(self, *_args):
+        """The stock everywhere, only beyond the tolerance of the model, or only cut into it"""
+        prefs = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/CAM")
+        prefs.SetInt("SimulatorDeviationShow", self.taskForm.form.deviationShow.currentIndex())
 
     def onOpacityChange(self, *_args):
         """Opacity of the stock and the model in the simulator"""
