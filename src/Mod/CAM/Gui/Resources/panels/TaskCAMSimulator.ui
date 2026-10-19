@@ -181,13 +181,47 @@
        </widget>
       </item>
       <item row="1" column="0">
+       <widget class="QLabel" name="labelInspect">
+        <property name="text">
+         <string>Inspect</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QComboBox" name="inspect">
+        <property name="toolTip">
+         <string>Lines over the simulated stock to inspect it: the edges of its mesh, the normals of its vertices, or its dexels around a point of the stock clicked in the view (a click then does not go to the operation). Lower the stock opacity to see the dexels inside the material.</string>
+        </property>
+        <item>
+         <property name="text">
+          <string>Nothing</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Mesh</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Normals</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Dexels at a click</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item row="2" column="0">
        <widget class="QLabel" name="labelThinWallThreshold">
         <property name="text">
          <string>Thin wall threshold</string>
         </property>
        </widget>
       </item>
-      <item row="1" column="1">
+      <item row="2" column="1">
        <widget class="Gui::QuantitySpinBox" name="thinWallThreshold">
         <property name="toolTip">
          <string>Material thinner than this is shown in red when the colors show thin walls</string>
@@ -209,14 +243,14 @@
         </property>
        </widget>
       </item>
-      <item row="2" column="0">
+      <item row="3" column="0">
        <widget class="QLabel" name="labelDeviationTolerance">
         <property name="text">
          <string>Model tolerance</string>
         </property>
        </widget>
       </item>
-      <item row="2" column="1">
+      <item row="3" column="1">
        <widget class="Gui::QuantitySpinBox" name="deviationTolerance">
         <property name="toolTip">
          <string>When the colors show the distance from the model: green within this distance, blue where more material is left, red where the stock is cut deeper into the model</string>
@@ -241,7 +275,7 @@
         </property>
        </widget>
       </item>
-      <item row="3" column="0">
+      <item row="4" column="0">
        <widget class="QCheckBox" name="stockVisible">
         <property name="toolTip">
          <string>Show the simulated stock</string>
@@ -254,7 +288,7 @@
         </property>
        </widget>
       </item>
-      <item row="3" column="1">
+      <item row="4" column="1">
        <widget class="QSlider" name="stockOpacity">
         <property name="toolTip">
          <string>Opacity of the simulated stock, the model and the tool show through a transparent stock</string>
@@ -270,7 +304,7 @@
         </property>
        </widget>
       </item>
-      <item row="4" column="0">
+      <item row="5" column="0">
        <widget class="QCheckBox" name="modelVisible">
         <property name="toolTip">
          <string>Show the model of the job</string>
@@ -280,7 +314,7 @@
         </property>
        </widget>
       </item>
-      <item row="4" column="1">
+      <item row="5" column="1">
        <widget class="QSlider" name="modelOpacity">
         <property name="toolTip">
          <string>Opacity of the model of the job</string>

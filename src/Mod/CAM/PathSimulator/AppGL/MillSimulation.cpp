@@ -634,6 +634,9 @@ void MillSimulation::Render()
             if (!transparentStock) {
                 RenderMaterialStock();
             }
+            if (mMaterial && (mViewItems & VIEWITEM_SIMULATION) != 0) {
+                mMaterial->RenderInspection(simDisplay);
+            }
         }
         RenderTool();
         if (!transparentBase) {
@@ -932,6 +935,31 @@ void MillSimulation::SetDeviationModel(std::shared_ptr<const Material::ModelDist
     simDisplay.updateDisplay = true;
 }
 
+void MillSimulation::SetInspect(int mode)
+{
+    mInspect = std::clamp(mode, 0, 3);
+    ApplyInspect();
+    simDisplay.updateDisplay = true;
+}
+
+void MillSimulation::ApplyInspect()
+{
+    if (!mMaterial) {
+        return;
+    }
+    // normals of a length visible on the whole stock
+    float size = 0;
+    for (int k = 0; k < 3; k++) {
+        float lo = 1e30f, hi = -1e30f;
+        for (size_t i = k; i < mStockXyz.size(); i += 3) {
+            lo = std::min(lo, mStockXyz[i]);
+            hi = std::max(hi, mStockXyz[i]);
+        }
+        size = std::max(size, hi - lo);
+    }
+    mMaterial->SetInspect((Material::View::Inspect)mInspect, std::max(size * 0.006f, 0.01f));
+}
+
 int MillSimulation::OperationAt(int step) const
 {
     // the last operation started at the step, empty operations have no steps
@@ -985,6 +1013,10 @@ bool MillSimulation::TakePick(int& operation, bool& stock, float position[3])
         return false;
     }
     stock = pick.stock;
+    if (pick.stock && mInspect == 3 && mMaterial) {
+        mMaterial->InspectAt(pick.position);
+        simDisplay.updateDisplay = true;
+    }
     // operations share the tags beyond Material::MaxTag
     operation = pick.stock && pick.tag > 0 && pick.tag <= (int)mOperations.size() ? pick.tag - 1 : -1;
     std::copy(pick.position, pick.position + 3, position);
@@ -1106,6 +1138,7 @@ void MillSimulation::StartMaterialSimulation()
     }
     mMaterial->SetMeasureThickness(mThinWalls);
     mMaterial->SetDeviation(mDeviation ? mDeviationModel : nullptr);
+    ApplyInspect();
     mMaterial->Start(std::move(tools), std::move(job.segments), mStockXyz, mStockTriangles, mQuality);
     mTargetStep = 0;
 }

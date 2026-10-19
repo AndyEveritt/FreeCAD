@@ -93,6 +93,8 @@ public:
     void StartGeometryPass(const vec3& objColor, bool invertNormals);
     void StartCloserGeometryPass(const vec3& objColor);
     void StartStockGeometryPass(const vec3& objColor, const StockColoring& coloring);
+    // Lines over the opaque objects, in a color: positions in attribute 0
+    void StartOverlayPass(const vec3& color);
 
     // Transparent objects are rendered after the opaque ones, in layers (depth peeling): every
     // layer draws them between StartTransparentLayer and EndTransparentLayer, with the opacity of
@@ -183,6 +185,7 @@ protected:
     Shader shaderGeom, shaderSSAO, shaderSSAOLighting, shaderSSAOBlur;
     Shader shaderGeomCloser;
     Shader shaderStock;
+    Shader shaderOverlay;
     Shader shaderLinePath;
     Shader shaderClearGeom;
 

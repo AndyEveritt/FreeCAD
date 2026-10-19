@@ -53,6 +53,7 @@ void CAMSettings::applySettings()
     OnChange(*hGrp, "SimulatorStencilRendering");
     OnChange(*hGrp, "SimulatorColorMode");
     OnChange(*hGrp, "SimulatorStockVisible");
+    OnChange(*hGrp, "SimulatorInspect");
     OnChange(*hGrp, "SimulatorStockOpacity");
 }
 
@@ -91,6 +92,9 @@ void CAMSettings::OnChange(ParameterGrp::SubjectType& rCaller, ParameterGrp::Mes
         mDlg.setColorByOperation(mode == 1);
         mDlg.setThinWalls(mode == 2, (float)hGrp->GetFloat("SimulatorThinWallThreshold", 0.5));
         mDlg.setDeviation(mode == 3, (float)hGrp->GetFloat("SimulatorDeviationTolerance", 0.05));
+    }
+    else if (Reason == "SimulatorInspect"sv) {
+        mDlg.setInspect((int)hGrp->GetInt("SimulatorInspect", 0));
     }
     else if (Reason == "SimulatorStockVisible"sv || Reason == "SimulatorModelVisible"sv) {
         mDlg.setStockVisible(hGrp->GetBool("SimulatorStockVisible", true));

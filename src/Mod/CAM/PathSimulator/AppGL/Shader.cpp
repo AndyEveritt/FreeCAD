@@ -755,6 +755,44 @@ const char* FragShaderSSAOLighting = R"(
     }
 )";
 
+// Lines over the stock to inspect it (its mesh, normals and dexels): a little towards the camera,
+// so they show on the faces they lie on, facing the camera for the lighting
+const char* VertShaderOverlay = R"(
+    #version 120
+
+    layout(location = 0) attribute vec3 aPosition;
+
+    varying vec3 Position;
+
+    uniform mat4 view;
+    uniform mat4 projection;
+    uniform vec2 depthBias;
+
+    void main(void)
+    {
+        vec4 p = view * vec4(aPosition, 1.0);
+        p.xyz *= 1.0 - depthBias.x;
+        p.z += depthBias.y;
+        Position = p.xyz;
+        gl_Position = projection * p;
+    }
+)";
+
+const char* FragShaderOverlay = R"(
+    #version 120
+
+    varying vec3 Position;
+
+    uniform vec3 objectColor;
+
+    void main()
+    {
+        gl_FragData[0] = vec4(objectColor, 1.0);
+        gl_FragData[1] = vec4(Position, 0.0);
+        gl_FragData[2] = vec4(0.0, 0.0, 1.0, 0.0);
+    }
+)";
+
 const char* VertShader3DLine = R"(
     #version 120
 

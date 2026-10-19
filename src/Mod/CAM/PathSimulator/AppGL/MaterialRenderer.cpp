@@ -30,6 +30,7 @@
 #include "ThreadPool.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 
 // include this last as the defines can mess up other includes
@@ -179,6 +180,9 @@ void View::MesherLoop()
                 mReady[u] = std::move(mesh);
             }
             mReadyStep = step;
+            if (mKeepBricks) {
+                mReadyBricks = std::make_shared<const Grid::Snapshot>(mGrid.Bricks());
+            }
         }
         std::lock_guard<std::mutex> lock(mMutex);
         mBusy = false;
@@ -204,6 +208,7 @@ bool View::Update()
 {
     std::map<int, UnitMesh> ready;
     long step;
+    std::shared_ptr<const Grid::Snapshot> bricks;
     {
         std::lock_guard<std::mutex> lock(mMutex);
         if (mReadyStep < 0 || (mReady.empty() && mReadyStep == mShownStep)) {
@@ -211,6 +216,7 @@ bool View::Update()
         }
         ready.swap(mReady);
         step = mReadyStep;
+        bricks = mReadyBricks;
     }
     if (mUnits.empty()) {
         const std::shared_ptr<const Layout> layout = mSimulation.GetLayout();
@@ -235,7 +241,264 @@ bool View::Update()
         }
     }
     mShownStep = step;
+    if (bricks && bricks != mShownBricks) {
+        mShownBricks = bricks;
+        BuildDexels();
+    }
     return true;
+}
+
+void View::SetInspect(Inspect inspect, float normalLength)
+{
+    if (inspect == mInspect && normalLength == mNormalLength) {
+        return;
+    }
+    mInspect = inspect;
+    mNormalLength = normalLength;
+    for (Chunk& chunk : mChunks) {
+        BuildInspection(chunk);
+    }
+    {
+        // the dexels from the bricks of the meshes, all of them meshed again for those
+        std::lock_guard<std::mutex> lock(mMutex);
+        mKeepBricks = inspect == Inspect::Dexels;
+        if (mKeepBricks && !mReadyBricks) {
+            mWork = true;
+        }
+        if (!mKeepBricks) {
+            mReadyBricks.reset();
+        }
+    }
+    if (inspect != Inspect::Dexels) {
+        mShownBricks.reset();
+    }
+    mWake.notify_all();
+    BuildDexels();
+}
+
+void View::InspectAt(const float point[3])
+{
+    std::copy(point, point + 3, mInspectPoint);
+    mHasInspectPoint = true;
+    BuildDexels();
+}
+
+// The edges of the triangles and the normals of the vertices of a chunk
+void View::BuildInspection(Chunk& chunk)
+{
+    if (mInspect != Inspect::Mesh) {
+        GLDELETE_BUFFER(chunk.edgeIbo);
+        chunk.edgeCount = 0;
+    }
+    if (mInspect != Inspect::Normals) {
+        GLDELETE_BUFFER(chunk.normalVbo);
+        chunk.normalCount = 0;
+    }
+    if (mInspect == Inspect::Mesh) {
+        std::vector<uint32_t> edges;
+        size_t base = 0;
+        for (int u = chunk.firstUnit; u < chunk.endUnit; u++) {
+            const UnitMesh& mesh = mUnits[u];
+            for (const auto* list : {&mesh.stock, &mesh.cut}) {
+                for (size_t t = 0; t + 2 < list->size(); t += 3) {
+                    for (int k = 0; k < 3; k++) {
+                        edges.push_back((uint32_t)(base + (*list)[t + k]));
+                        edges.push_back((uint32_t)(base + (*list)[t + (k + 1) % 3]));
+                    }
+                }
+            }
+            base += mesh.vertices.size();
+        }
+        chunk.edgeCount = (int)edges.size();
+        if (!edges.empty()) {
+            if (chunk.edgeIbo == 0) {
+                glGenBuffers(1, &chunk.edgeIbo);
+            }
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, chunk.edgeIbo);
+            glBufferData(
+                GL_ELEMENT_ARRAY_BUFFER,
+                edges.size() * sizeof(uint32_t),
+                edges.data(),
+                GL_STATIC_DRAW
+            );
+        }
+    }
+    if (mInspect == Inspect::Normals) {
+        std::vector<float> lines;
+        for (int u = chunk.firstUnit; u < chunk.endUnit; u++) {
+            for (const MeshVertex& v : mUnits[u].vertices) {
+                const float n[3] = {v.nx / 127.0f, v.ny / 127.0f, v.nz / 127.0f};
+                lines.insert(
+                    lines.end(),
+                    {v.x,
+                     v.y,
+                     v.z,
+                     v.x + mNormalLength * n[0],
+                     v.y + mNormalLength * n[1],
+                     v.z + mNormalLength * n[2]}
+                );
+            }
+        }
+        chunk.normalCount = (int)(lines.size() / 3);
+        if (!lines.empty()) {
+            if (chunk.normalVbo == 0) {
+                glGenBuffers(1, &chunk.normalVbo);
+            }
+            glBindBuffer(GL_ARRAY_BUFFER, chunk.normalVbo);
+            glBufferData(GL_ARRAY_BUFFER, lines.size() * sizeof(float), lines.data(), GL_STATIC_DRAW);
+        }
+    }
+}
+
+// The dexels of the bricks around the inspected point: the material along them, and their ends
+// as small crosses, with a normal, without (made by a sharp edge of a tool), and not cut
+void View::BuildDexels()
+{
+    std::fill(mDexelCounts, mDexelCounts + 4, 0);
+    const std::shared_ptr<const Layout> layout = mSimulation.GetLayout();
+    if (mInspect != Inspect::Dexels || !mHasInspectPoint || !mShownBricks || !layout) {
+        GLDELETE_BUFFER(mDexelVbo);
+        return;
+    }
+    // the brick at the point and the bricks around it, about 3 bricks of its size across
+    std::vector<int> leaves;
+    {
+        int units[3];
+        for (int k = 0; k < 3; k++) {
+            units[k] = (int)std::floor((mInspectPoint[k] - layout->Origin()[k]) / layout->Unit());
+        }
+        const int leaf = layout->FindLeaf(units[0], units[1], units[2]);
+        if (leaf < 0) {
+            GLDELETE_BUFFER(mDexelVbo);
+            return;
+        }
+        const double size = layout->GetLeaf(leaf).cell * Cells * layout->Unit();
+        double lo[3], hi[3];
+        for (int k = 0; k < 3; k++) {
+            lo[k] = mInspectPoint[k] - 1.5 * size;
+            hi[k] = mInspectPoint[k] + 1.5 * size;
+        }
+        layout->LeavesInBox(lo, hi, leaves);
+    }
+    Grid grid;
+    grid.Init(layout);
+    std::vector<float> groups[4];
+    for (int leaf : leaves) {
+        grid.SetBrick(leaf, (*mShownBricks)[leaf]);
+        const double cell = layout->GetLeaf(leaf).cell * layout->Unit();
+        const float tick = (float)(0.15 * cell);
+        for (int line = 0; line < BrickLines; line++) {
+            Span scratch;
+            const Span* spans;
+            const int n = grid.Line(leaf, line, spans, scratch);
+            if (n == 0) {
+                continue;
+            }
+            const int axis = line / AxisLines;
+            double origin[3], rangeLo, rangeHi;
+            grid.LineOrigin(leaf, line, origin);
+            grid.LineRange(leaf, axis, rangeLo, rangeHi);
+            auto point = [&](double s, float out[3]) {
+                for (int k = 0; k < 3; k++) {
+                    out[k] = (float)origin[k];
+                }
+                out[axis] = (float)s;
+            };
+            for (int i = 0; i < n; i++) {
+                float a[3], b[3];
+                point(spans[i].lo, a);
+                point(spans[i].hi, b);
+                groups[0].insert(groups[0].end(), {a[0], a[1], a[2], b[0], b[1], b[2]});
+                for (int end = 0; end < 2; end++) {
+                    const double s = end ? spans[i].hi : spans[i].lo;
+                    // the ends of the lines are not surfaces
+                    if (s <= rangeLo + 1e-6 || s >= rangeHi - 1e-6) {
+                        continue;
+                    }
+                    const uint32_t packed = end ? spans[i].nhi : spans[i].nlo;
+                    const int group = !IsCut(packed) ? 3 : HasNormal(packed) ? 1 : 2;
+                    float c[3];
+                    point(s, c);
+                    for (int k = 1; k < 3; k++) {
+                        const int across = (axis + k) % 3;
+                        float p0[3] = {c[0], c[1], c[2]}, p1[3] = {c[0], c[1], c[2]};
+                        p0[across] -= tick;
+                        p1[across] += tick;
+                        groups[group].insert(
+                            groups[group].end(),
+                            {p0[0], p0[1], p0[2], p1[0], p1[1], p1[2]}
+                        );
+                    }
+                }
+            }
+        }
+    }
+    std::vector<float> all;
+    for (int g = 0; g < 4; g++) {
+        mDexelCounts[g] = (int)(groups[g].size() / 3);
+        all.insert(all.end(), groups[g].begin(), groups[g].end());
+    }
+    if (all.empty()) {
+        GLDELETE_BUFFER(mDexelVbo);
+        return;
+    }
+    if (mDexelVbo == 0) {
+        glGenBuffers(1, &mDexelVbo);
+    }
+    glBindBuffer(GL_ARRAY_BUFFER, mDexelVbo);
+    glBufferData(GL_ARRAY_BUFFER, all.size() * sizeof(float), all.data(), GL_STATIC_DRAW);
+}
+
+void View::RenderInspection(SimDisplay& display)
+{
+    if (mInspect == Inspect::None) {
+        return;
+    }
+    glEnableVertexAttribArray(0);
+    if (mInspect == Inspect::Mesh) {
+        display.StartOverlayPass({0.1f, 0.1f, 0.12f});
+        for (const Chunk& chunk : mChunks) {
+            if (chunk.edgeCount == 0 || chunk.vbo == 0) {
+                continue;
+            }
+            glBindBuffer(GL_ARRAY_BUFFER, chunk.vbo);
+            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void*)0);
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, chunk.edgeIbo);
+            glDrawElements(GL_LINES, chunk.edgeCount, GL_UNSIGNED_INT, (void*)0);
+        }
+    }
+    else if (mInspect == Inspect::Normals) {
+        display.StartOverlayPass({0.95f, 0.8f, 0.1f});
+        for (const Chunk& chunk : mChunks) {
+            if (chunk.normalCount == 0) {
+                continue;
+            }
+            glBindBuffer(GL_ARRAY_BUFFER, chunk.normalVbo);
+            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void*)0);
+            glDrawArrays(GL_LINES, 0, chunk.normalCount);
+        }
+    }
+    else if (mDexelVbo != 0) {
+        // material blue, ends with a normal green, without red, not cut yellow
+        const vec3 colors[4] = {
+            {0.2f, 0.45f, 0.95f},
+            {0.1f, 0.85f, 0.2f},
+            {0.95f, 0.1f, 0.1f},
+            {0.95f, 0.85f, 0.1f},
+        };
+        glBindBuffer(GL_ARRAY_BUFFER, mDexelVbo);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void*)0);
+        int first = 0;
+        for (int g = 0; g < 4; g++) {
+            if (mDexelCounts[g] > 0) {
+                display.StartOverlayPass(colors[g]);
+                glDrawArrays(GL_LINES, first, mDexelCounts[g]);
+            }
+            first += mDexelCounts[g];
+        }
+    }
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 }
 
 void View::Upload(Chunk& chunk)
@@ -280,6 +543,7 @@ void View::Upload(Chunk& chunk)
     glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(MeshVertex), vertices.data(), GL_STATIC_DRAW);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, chunk.ibo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(uint32_t), indices.data(), GL_STATIC_DRAW);
+    BuildInspection(chunk);
 }
 
 void View::Draw(const Chunk& chunk, bool cut) const
@@ -354,7 +618,11 @@ void View::FreeResources()
     for (Chunk& chunk : mChunks) {
         GLDELETE_BUFFER(chunk.vbo);
         GLDELETE_BUFFER(chunk.ibo);
+        GLDELETE_BUFFER(chunk.edgeIbo);
+        GLDELETE_BUFFER(chunk.normalVbo);
     }
+    GLDELETE_BUFFER(mDexelVbo);
+    mShownBricks.reset();
     mChunks.clear();
     mUnits.clear();
 }

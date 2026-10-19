@@ -148,6 +148,13 @@ public:
     void SetDeviation(bool enabled, float tolerance);
     // The model to measure the distance from, null for none
     void SetDeviationModel(std::shared_ptr<const Material::ModelDistance> model);
+    // Lines over the stock to inspect it, see Material::View::Inspect: 0 none, 1 the mesh, 2 the
+    // normals, 3 the dexels around the point of the stock clicked
+    void SetInspect(int mode);
+    bool InspectsDexels() const
+    {
+        return mInspect == 3;
+    }
     // Opacity of the stock and of the base shape (the model), from 0 to 1. The stock of the
     // stencil renderer is always opaque.
     void SetOpacity(float stock, float base);
@@ -220,6 +227,8 @@ protected:
     StockColoring mColoring;
     bool mThinWalls = false;
     bool mDeviation = false;
+    int mInspect = 0;
+    void ApplyInspect();
     std::shared_ptr<const Material::ModelDistance> mDeviationModel;
     float mStockOpacity = 1;
     float mBaseOpacity = 1;

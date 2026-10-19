@@ -143,6 +143,14 @@ the model tessellated within 2 um in another thread (`MaterialModel`, `ModelDist
 triangles in a grid of the range of 1 mm, the sign by the normals of the nearest triangles, by the
 parity of a ray beyond the range).
 
+Inspect draws lines over the stock (`Material::View::RenderInspection`, a little towards the camera
+so they show on the faces they lie on): the edges of the triangles of its mesh, the normals of its
+vertices, or its dexels in the bricks around a point of the stock clicked in the view, from the
+stock shown: the material along them blue, their ends as small crosses, green with a normal, red
+without (made by a sharp edge of a tool), yellow where not cut. While the dexels are inspected, a
+click chooses where, it doesn't go to the operation; a lower stock opacity shows the dexels inside
+the material.
+
 ## 5 axis toolpaths
 
 `GCodeParser` reads the rotary axes A, B and C. `MotionToolAxis` in `MillMotion.h` turns them into
@@ -164,6 +172,8 @@ around Z. This is the place to add machine specific kinematics. Arcs are in the 
   default 0.05) green.
 - `SimulatorStockVisible` (bool, default true), `SimulatorModelVisible` (bool, default false): the
   stock and the model shown.
+- `SimulatorInspect` (int, default 0): lines over the stock to inspect it: 0 none, 1 the mesh, 2 the
+  normals, 3 the dexels at a click.
 - `SimulatorStockOpacity`, `SimulatorModelOpacity` (float, 0 to 1, default 1): opacity of the
   stock (not with the stencil renderer) and of the model.
 

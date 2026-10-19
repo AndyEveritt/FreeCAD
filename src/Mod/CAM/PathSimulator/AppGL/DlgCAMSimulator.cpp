@@ -508,6 +508,12 @@ void DlgCAMSimulator::setDeviation(bool enabled, float tolerance)
     update();
 }
 
+void DlgCAMSimulator::setInspect(int mode)
+{
+    mMillSimulator->SetInspect(mode);
+    update();
+}
+
 // The model tessellated within 2 um, on a copy so its own tessellation stays, and its triangles
 // sorted for the distance queries, in another thread
 void DlgCAMSimulator::startDeviationModel()
@@ -759,7 +765,8 @@ void DlgCAMSimulator::paintGL()
     int operation = -1;
     bool stock = false;
     float position[3];
-    if (mMillSimulator->TakePick(operation, stock, position)) {
+    // inspecting the dexels, a click chooses where, it doesn't go to the operation
+    if (mMillSimulator->TakePick(operation, stock, position) && !mMillSimulator->InspectsDexels()) {
         Q_EMIT operationPicked(operation);
     }
 

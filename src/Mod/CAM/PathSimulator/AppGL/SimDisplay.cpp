@@ -95,6 +95,7 @@ void SimDisplay::InitShaders()
 
     // Mill Path Line Shader
     shaderLinePath.CompileShader("PathLine", VertShader3DLine, FragShader3DLine);
+    shaderOverlay.CompileShader("Overlay", VertShaderOverlay, FragShaderOverlay);
 
     // clear geometric info texture of fragments that passes the stencil test
     shaderClearGeom.CompileShader("ClearGeom", VertShader2DFbo, FragShaderClearGeom);
@@ -423,6 +424,7 @@ void SimDisplay::CleanGL()
     shaderSimFbo.Destroy();
     shaderGeom.Destroy();
     shaderStock.Destroy();
+    shaderOverlay.Destroy();
     shaderSSAO.Destroy();
     shaderSSAOLighting.Destroy();
     shaderSSAOBlur.Destroy();
@@ -660,6 +662,19 @@ void SimDisplay::StartStockGeometryPass(const vec3& objColor, const StockColorin
     glUniform1f(glGetUniformLocation(id, "tolerance"), std::max(coloring.tolerance, 1e-4f));
     SetPeelState(id);
     glDisable(GL_BLEND);
+}
+
+void SimDisplay::StartOverlayPass(const vec3& color)
+{
+    glBindFramebuffer(GL_FRAMEBUFFER, mTargetFbo);
+    shaderOverlay.Activate();
+    shaderOverlay.UpdateViewMat(mMatLookAt);
+    shaderOverlay.UpdateObjColor(color);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    glLineWidth(1);
 }
 
 // A 'closer' geometry pass is similar to std geometry pass, but render the objects
@@ -1117,12 +1132,14 @@ void SimDisplay::UpdateProjectionMatrix()
     shaderLinePath.UpdateProjectionMat(projmat);
     // a few pixels, more than the distance of the mesh from the exact surface
     constexpr float BiasPixels = 3;
-    if (mCameraPerspective) {
-        shaderLinePath.UpdateDepthBias(BiasPixels * 2 * std::tan(mCameraHeightAngle / 2) / mHeight, 0);
-    }
-    else {
-        shaderLinePath.UpdateDepthBias(0, BiasPixels * mCameraHeight / mHeight);
-    }
+    const float relativeBias = mCameraPerspective
+        ? BiasPixels * 2 * std::tan(mCameraHeightAngle / 2) / mHeight
+        : 0;
+    const float absoluteBias = mCameraPerspective ? 0 : BiasPixels * mCameraHeight / mHeight;
+    shaderLinePath.UpdateDepthBias(relativeBias, absoluteBias);
+    shaderOverlay.Activate();
+    shaderOverlay.UpdateProjectionMat(projmat);
+    shaderOverlay.UpdateDepthBias(relativeBias, absoluteBias);
 
     projmat[2][2] *= 0.99999F;
     shaderGeomCloser.Activate();

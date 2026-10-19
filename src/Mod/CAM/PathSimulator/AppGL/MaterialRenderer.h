@@ -98,6 +98,19 @@ public:
     void SetMeasureThickness(bool b);
     // Measure the distance of the stock from the model, none if null
     void SetDeviation(std::shared_ptr<const ModelDistance> model);
+
+    // Lines to inspect the stock, over it: its mesh, the normals of its vertices (of a length), or
+    // its dexels in the bricks around a point (InspectAt), their material and their ends in colors
+    enum class Inspect
+    {
+        None,
+        Mesh,
+        Normals,
+        Dexels,
+    };
+    void SetInspect(Inspect inspect, float normalLength);
+    void InspectAt(const float point[3]);
+    void RenderInspection(SimDisplay& display);
     void FreeResources();
     long TriangleCount() const;
 
@@ -110,7 +123,14 @@ private:
         int cutCount = 0;
         bool changed = false;
         int firstUnit = 0, endUnit = 0;
+        // inspection: the edges of the triangles, indices into vbo, and the normals, lines
+        unsigned int edgeIbo = 0;
+        int edgeCount = 0;
+        unsigned int normalVbo = 0;
+        int normalCount = 0;
     };
+    void BuildInspection(Chunk& chunk);
+    void BuildDexels();
     void MesherLoop();
     void Upload(Chunk& chunk);
     void Draw(const Chunk& chunk, bool cut) const;
@@ -130,6 +150,8 @@ private:
     bool mThickness = false;
     std::shared_ptr<const ModelDistance> mModel;
     std::map<int, UnitMesh> mReady;  // finished meshes by unit
+    bool mKeepBricks = false;        // the bricks of the meshes, for the dexels
+    std::shared_ptr<const Grid::Snapshot> mReadyBricks;
     long mReadyStep = -1;
     long mTarget = 0;
 
@@ -137,6 +159,13 @@ private:
     std::vector<UnitMesh> mUnits;
     std::vector<Chunk> mChunks;
     long mShownStep = -1;
+    Inspect mInspect = Inspect::None;
+    float mNormalLength = 1;
+    std::shared_ptr<const Grid::Snapshot> mShownBricks;
+    bool mHasInspectPoint = false;
+    float mInspectPoint[3] = {0, 0, 0};
+    unsigned int mDexelVbo = 0;
+    int mDexelCounts[4] = {};  // vertices of the material, the ends with a normal, without, uncut
 };
 
 }  // namespace CAMSimulator::Material

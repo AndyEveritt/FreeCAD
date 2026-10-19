@@ -138,6 +138,8 @@ public:
     void setThinWalls(bool enabled, float threshold);
     // color the stock by its distance from the model, within the tolerance green
     void setDeviation(bool enabled, float tolerance);
+    // lines over the stock to inspect it, see MillSimulation::SetInspect
+    void setInspect(int mode);
     // opacity of the stock and the model, from 0 to 1
     void setOpacity(float stock, float model);
 

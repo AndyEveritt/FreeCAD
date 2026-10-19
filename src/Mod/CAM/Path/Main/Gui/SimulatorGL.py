@@ -285,6 +285,8 @@ class CAMSimulation:
         form.colorMode.setCurrentIndex(prefs.GetInt("SimulatorColorMode", 1))
         form.colorMode.currentIndexChanged.connect(self.onColorModeChange)
         self.onColorModeChange()
+        form.inspect.setCurrentIndex(prefs.GetInt("SimulatorInspect", 0))
+        form.inspect.currentIndexChanged.connect(self.onInspectChange)
         form.stockVisible.setChecked(prefs.GetBool("SimulatorStockVisible", True))
         form.modelVisible.setChecked(prefs.GetBool("SimulatorModelVisible", False))
         form.stockVisible.toggled.connect(self.onVisibilityChange)
@@ -433,6 +435,11 @@ class CAMSimulation:
         form.labelDeviationTolerance.setEnabled(mode == 3)
         prefs = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/CAM")
         prefs.SetInt("SimulatorColorMode", mode)
+
+    def onInspectChange(self, *_args):
+        """Lines over the stock to inspect it: its mesh, its normals or its dexels at a click"""
+        prefs = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/CAM")
+        prefs.SetInt("SimulatorInspect", self.taskForm.form.inspect.currentIndex())
 
     def onVisibilityChange(self, *_args):
         """Show the stock and the model in the simulator"""
