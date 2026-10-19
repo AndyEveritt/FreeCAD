@@ -31,7 +31,9 @@ from Path.Main.SimulatorFeed import (
     commandText,
     eventText,
     machineDescription,
+    postedProgram,
     simulationSteps,
+    toolExtras,
     toolProfile,
 )
 from PathScripts import PathUtils
@@ -139,7 +141,9 @@ if FreeCAD.GuiUp:
                 return None
             cmd, op = self.commands[index.row()]
             if role == QtCore.Qt.DisplayRole:
-                return "%d  %s" % (index.row() + 1, commandText(cmd, *self.units))
+                # a line of a posted program as it is
+                text = cmd if isinstance(cmd, str) else commandText(cmd, *self.units)
+                return "%d  %s" % (index.row() + 1, text)
             if role == QtCore.Qt.ToolTipRole and 0 <= op < len(self.operations):
                 return self.operations[op]
             return None
@@ -498,7 +502,14 @@ class CAMSimulation:
         colors = [self.operationColors[self.operations.index(op)] for op in self.activeOps]
         commands = []
         labels = []
-        for step in self.SimulationSteps(self.activeOps, self.stock, colors):
+        self.millSim.SetMachine(machineDescription(self.job))
+        if self.taskForm.form.postedProgram.isChecked():
+            if not self.SimulatePosted(colors, commands, labels):
+                return
+            steps = []
+        else:
+            steps = self.SimulationSteps(self.activeOps, self.stock, colors)
+        for step in steps:
             if step[0] == "command":
                 self.millSim.AddCommand(step[1])
                 commands.append((step[1], len(labels) - 1))
@@ -507,12 +518,44 @@ class CAMSimulation:
                 labels.append(step[1])
             else:
                 self.millSim.AddTool(step[1], step[2], step[3], 1, **step[4])
-        self.millSim.SetMachine(machineDescription(self.job))
         self.millSim.BeginSimulation(self.stock, self.quality)
         self.millSim.SetOperationPickedCallback(self.onOperationPicked)
         self.SetupCommands(commands, labels)
         if self.baseShape is not None:
             self.millSim.SetBaseShape(self.baseShape, 1)
+
+    def SimulatePosted(self, colors, commands, labels):
+        """Give the simulator the program the post-processor writes for the job: the tools of its
+        tool controllers, its lines, and an operation at every comment naming an active one"""
+        try:
+            text = postedProgram(self.job)
+        except Exception as e:
+            TSError(str(e))
+            return False
+        if text is None:
+            TSError(
+                QtCore.QT_TRANSLATE_NOOP(
+                    "CAM_Simulator", "The job has no machine to post its program for."
+                )
+            )
+            return False
+        for tc in self.job.Tools.Group:
+            if getattr(tc, "Tool", None) is None:
+                continue
+            profile, arcs = toolProfile(tc.Tool.Shape, 0.5)
+            self.millSim.AddTool(profile, tc.ToolNumber, tc.Tool.Diameter, 1, **toolExtras(tc, arcs))
+        # posts write the labels of the operations in comments, in capitals often
+        named = {op.Label.upper(): (op.Label, color) for op, color in zip(self.activeOps, colors)}
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("(") and stripped.endswith(")"):
+                found = named.get(stripped[1:-1].strip().upper())
+                if found:
+                    self.millSim.AddOperation(*found)
+                    labels.append(found[0])
+            self.millSim.AddGCode(line)
+            commands.append((line, len(labels) - 1))
+        return True
 
     def SetupCommands(self, commands, labels):
         """The list of the commands the simulator runs, in the units of the preferences: those of
@@ -526,7 +569,12 @@ class CAMSimulation:
             1000.0 / 60, FreeCAD.Units.Velocity
         ).getUserPreferred()
         # the tool directions only if the tool turns
-        rotary = any(abs(cmd.Parameters.get(k, 0)) > 1e-9 for cmd, _ in commands for k in "ABC")
+        rotary = any(
+            abs(cmd.Parameters.get(k, 0)) > 1e-9
+            for cmd, _ in commands
+            if not isinstance(cmd, str)
+            for k in "ABC"
+        )
         units = ((lengthFactor, max(decimals, 3)), (feedFactor, decimals), rotary)
         self.commandModel = CommandListModel(commands, labels, units)
         form.listCommands.setModel(self.commandModel)

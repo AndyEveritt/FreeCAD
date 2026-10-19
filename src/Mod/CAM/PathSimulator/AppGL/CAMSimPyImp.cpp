@@ -217,6 +217,17 @@ PyObject* CAMSimPy::AddCommand(PyObject* args)
     return Py_None;
 }
 
+PyObject* CAMSimPy::AddGCode(PyObject* args)
+{
+    const char* text;
+    if (!PyArg_ParseTuple(args, "s", &text)) {
+        return nullptr;
+    }
+    getCAMSimPtr()->AddGCode(text);
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
 PyObject* CAMSimPy::AddOperation(PyObject* args)
 {
     const char* name;

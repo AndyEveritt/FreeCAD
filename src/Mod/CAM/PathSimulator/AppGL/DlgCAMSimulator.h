@@ -122,6 +122,9 @@ public:
     // A command of the toolpath, see GCodeParser::AddCommand. The commands are numbered in the
     // order they are added, from 0: the source of their motions.
     void addCommand(const std::string& name, const std::map<std::string, double>& params);
+    // A line of G-code text, a posted program, numbered with the commands; its rotary words are
+    // the angles of the axes of the machine (setMachine)
+    void addGcodeLine(const std::string& line);
     // the commands added from now on belong to a new operation of this name, and of this color
     // if given (rgb from 0 to 1)
     void addOperation(const char* name, const float* color = nullptr);
@@ -240,6 +243,7 @@ private:
         std::string name;
         std::map<std::string, double> params;
         int source;
+        bool text = false;  // name is a line of G-code text
     };
     std::vector<Command> mCommands;
     std::size_t mLastCommand = 0;

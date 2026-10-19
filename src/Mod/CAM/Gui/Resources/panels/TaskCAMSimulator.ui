@@ -98,6 +98,16 @@
       </widget>
      </item>
      <item>
+      <widget class="QCheckBox" name="postedProgram">
+       <property name="toolTip">
+        <string>Simulate the G-code the post-processor of the machine of the job writes, instead of the toolpath of its operations</string>
+       </property>
+       <property name="text">
+        <string>Posted</string>
+       </property>
+      </widget>
+     </item>
+     <item>
       <widget class="QToolButton" name="toolButtonPlay">
        <property name="toolTip">
         <string>Activate/resume simulation</string>

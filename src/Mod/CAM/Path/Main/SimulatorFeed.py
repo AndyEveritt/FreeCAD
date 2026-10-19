@@ -507,6 +507,37 @@ def _speed(tc, name):
     return float(getattr(value, "Value", value or 0))
 
 
+def toolExtras(tc, arcs):
+    """The keyword arguments of PathSim.AddTool for the tool of a tool controller,
+    the arcs of its profile given."""
+    extras = {"arcs": arcs}
+    # the simulator finds the tool above its flutes meeting the material
+    flutes = getattr(tc.Tool, "CuttingEdgeHeight", None)
+    if flutes is not None and float(getattr(flutes, "Value", flutes)) > 0:
+        extras["flutes"] = float(getattr(flutes, "Value", flutes))
+    # for the time of the machine, mm/s
+    extras["feeds"] = (_speed(tc, "HorizFeed"), _speed(tc, "VertFeed"))
+    extras["rapids"] = (_speed(tc, "HorizRapid"), _speed(tc, "VertRapid"))
+    return extras
+
+
+def postedProgram(job):
+    """postedProgram(job) ... the G-code the post-processor of the Machine of the
+    job writes for it, None for a job without a Machine."""
+    name = getattr(job, "Machine", "")
+    if not name:
+        return None
+    from Machine.models.machine import MachineFactory
+    from Path.Post.Processor import PostProcessorFactory
+
+    machine = MachineFactory.get_machine(name)
+    post = PostProcessorFactory.get_post_processor(job, machine.postprocessor_file_name)
+    # no dialog: the settings of the job and the machine
+    post._dialog_handled = True
+    sections = post.export2() or []
+    return "\n".join(gcode for _, gcode in sections if gcode)
+
+
 def simulationSteps(ops, stock, colors):
     """simulationSteps(ops, stock, colors) ... the calls that give ops to the
     simulator, in order: ("command", cmd), ("operation", label, color) and
@@ -526,15 +557,7 @@ def simulationSteps(ops, stock, colors):
             yield ("command", cmd)
         yield ("operation", op.Label, color)
         if tc is not None:
-            extras = {"arcs": arcs}
-            # the simulator finds the tool above its flutes meeting the material
-            flutes = getattr(tc.Tool, "CuttingEdgeHeight", None)
-            if flutes is not None and float(getattr(flutes, "Value", flutes)) > 0:
-                extras["flutes"] = float(getattr(flutes, "Value", flutes))
-            # for the time of the machine, mm/s
-            extras["feeds"] = (_speed(tc, "HorizFeed"), _speed(tc, "VertFeed"))
-            extras["rapids"] = (_speed(tc, "HorizRapid"), _speed(tc, "VertRapid"))
-            yield ("tool", profile, tc.ToolNumber, tc.Tool.Diameter, extras)
+            yield ("tool", profile, tc.ToolNumber, tc.Tool.Diameter, toolExtras(tc, arcs))
         for cmd in opCommands:
             yield ("command", cmd)
 

@@ -77,6 +77,15 @@ class CAMSim(BaseClass):
         """
         ...
 
+    def AddGCode(self, text: str, /) -> None:
+        """
+        Add the lines of G-code text to the simulation, a posted program: numbered with the
+        commands, one a line; feed rates per minute, the units of the program (G20, G21); its
+        rotary words are the angles of the axes of the machine (SetMachine), tilted work planes
+        (G68.2, G268) are followed.
+        """
+        ...
+
     def AddOperation(self, name: str, color: tuple | None = None, /) -> None:
         """
         The commands and tools added from now on belong to a new operation of this name. The

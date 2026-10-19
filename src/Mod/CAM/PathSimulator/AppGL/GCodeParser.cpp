@@ -27,6 +27,8 @@
 
 #include "GCodeParser.h"
 
+#include "MachineKinematics.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -99,6 +101,8 @@ void GCodeParser::Clear()
     mUnit = 1;
     mReturnToR = false;
     mCycleInitial = mCycleR = mCycleDepth = 0;
+    mProgram = {};
+    mTilted = false;
 }
 
 bool GCodeParser::Parse(const char* filename)
@@ -161,7 +165,7 @@ bool GCodeParser::AddLine(const char* line, int source)
     std::vector<Word> words;
     Tokenize(line, words);
     // feed rates of G-code text are per minute
-    return Apply(words, 1.0 / 60, source);
+    return Apply(words, 1.0 / 60, source, true);
 }
 
 bool GCodeParser::AddCommand(
@@ -177,23 +181,74 @@ bool GCodeParser::AddCommand(
             words.push_back({(char)std::toupper((unsigned char)key[0]), value});
         }
     }
-    return Apply(words, 1.0, source);
+    return Apply(words, 1.0, source, false);
 }
 
-bool GCodeParser::Apply(const std::vector<Word>& words, double feedScale, int source)
+bool GCodeParser::Transforms() const
 {
+    return mTilted || (mText && mMachine && mMachine->Known() && !mMachine->Rotaries().empty());
+}
+
+void GCodeParser::Emit(const MillMotion& programmed)
+{
+    mProgram = programmed;
+    MillMotion m = programmed;
+    double axis[3] = {0, 0, 1};
+    bool turned = false;
+    if (mTilted) {
+        // in the plane: the part at origin + R p, the tool along its Z
+        const double p[3] = {programmed.x, programmed.y, programmed.z};
+        double* out[3] = {&m.x, &m.y, &m.z};
+        for (int r = 0; r < 3; r++) {
+            *out[r] = mTiltOrigin[r] + mTilt[r][0] * p[0] + mTilt[r][1] * p[1] + mTilt[r][2] * p[2];
+            axis[r] = mTilt[r][2];
+        }
+        turned = true;
+    }
+    else if (mText && mMachine && mMachine->Known() && !mMachine->Rotaries().empty()) {
+        // the rotary words are the angles of the axes of the machine, of the same names
+        std::vector<double> angles;
+        for (const MachineAxis& a : mMachine->Rotaries()) {
+            const char name = a.name.empty() ? ' ' : a.name[0];
+            angles.push_back(name == 'A' ? programmed.a : name == 'B' ? programmed.b : name == 'C' ? programmed.c : 0.0);
+        }
+        const double p[3] = {programmed.x, programmed.y, programmed.z};
+        double part[3];
+        mMachine->PartPoint(p, angles, part);
+        m.x = part[0];
+        m.y = part[1];
+        m.z = part[2];
+        mMachine->ToolAxis(angles, axis);
+        turned = true;
+    }
+    if (turned) {
+        // the direction as MotionToolAxis has it: Ry(B) Rx(A) z
+        m.a = -std::asin(std::clamp(axis[1], -1.0, 1.0)) * 180 / Pi;
+        m.b = std::abs(axis[1]) < 1 - 1e-12 ? std::atan2(axis[0], axis[2]) * 180 / Pi : lastState.b;
+        m.c = 0;
+    }
+    lastState = m;
+    Operations.push_back(m);
+}
+
+bool GCodeParser::Apply(const std::vector<Word>& words, double feedScale, int source, bool text)
+{
+    mText = text;
     // positions given: X, Y, Z, A, B, C
     static constexpr char Axes[] = "XYZABC";
     bool has[6] = {};
     double value[6] = {};
     bool hasCenter[3] = {};
     double center[3] = {};
+    double angle[3] = {};
     bool hasR = false;
     double r = 0;
     bool cycleStart = false;
     // the axis words of these commands are not positions to move to: home (G28, G30), machine
     // coordinates (G53), offsets (G10, G92)
     bool notAMove = false;
+    bool tilt = false;  // G68.2: X, Y, Z the origin, I, J, K the angles of a work plane
+    bool untilt = false;
 
     for (const Word& w : words) {
         switch (w.letter) {
@@ -245,6 +300,21 @@ bool GCodeParser::Apply(const std::vector<Word>& words, double feedScale, int so
                     case 920:
                         notAMove = true;
                         break;
+                    case 382:
+                    case 383:
+                    case 384:
+                    case 385:
+                        mMode = ModeLine;  // probing
+                        break;
+                    case 682:
+                    case 2680:
+                        tilt = true;
+                        notAMove = true;
+                        break;
+                    case 690:
+                    case 2690:
+                        untilt = true;
+                        break;
                     case 730:
                     case 740:
                     case 760:
@@ -266,16 +336,17 @@ bool GCodeParser::Apply(const std::vector<Word>& words, double feedScale, int so
                 break;
             }
             case 'F':
-                lastState.feed = w.value * mUnit * feedScale;
+                lastState.feed = mProgram.feed = w.value * mUnit * feedScale;
                 break;
             case 'T':
-                lastState.tool = (int)std::lround(w.value);
+                lastState.tool = mProgram.tool = (int)std::lround(w.value);
                 break;
             case 'I':
             case 'J':
             case 'K':
                 hasCenter[w.letter - 'I'] = true;
                 center[w.letter - 'I'] = w.value * mUnit;
+                angle[w.letter - 'I'] = w.value;
                 break;
             case 'R':
                 hasR = true;
@@ -291,11 +362,70 @@ bool GCodeParser::Apply(const std::vector<Word>& words, double feedScale, int so
                 break;
         }
     }
+    // a change of the frame of the program: the control takes the position where the tool is into
+    // the new frame
+    auto toProgram = [this]() {
+        const double part[3] = {lastState.x, lastState.y, lastState.z};
+        double p[3] = {part[0], part[1], part[2]};
+        if (mTilted) {
+            // R^T (part - origin)
+            for (int c = 0; c < 3; c++) {
+                p[c] = 0;
+                for (int r = 0; r < 3; r++) {
+                    p[c] += mTilt[r][c] * (part[r] - mTiltOrigin[r]);
+                }
+            }
+        }
+        else if (mText && mMachine && mMachine->Known() && !mMachine->Rotaries().empty()) {
+            std::vector<double> angles;
+            for (const MachineAxis& a : mMachine->Rotaries()) {
+                const char name = a.name.empty() ? ' ' : a.name[0];
+                angles.push_back(name == 'A' ? mProgram.a : name == 'B' ? mProgram.b : name == 'C' ? mProgram.c : 0.0);
+            }
+            mMachine->MachinePoint(part, angles, p);
+        }
+        mProgram.x = p[0];
+        mProgram.y = p[1];
+        mProgram.z = p[2];
+    };
+    if (untilt && mTilted) {
+        mTilted = false;
+        toProgram();
+    }
+    if (tilt) {
+        // the plane: Rz(I) Rx(J) Rz(K), the origin in the part
+        const double i = angle[0] * Pi / 180, j = angle[1] * Pi / 180, k = angle[2] * Pi / 180;
+        const double z1[3][3] = {{std::cos(i), -std::sin(i), 0}, {std::sin(i), std::cos(i), 0}, {0, 0, 1}};
+        const double x[3][3] = {{1, 0, 0}, {0, std::cos(j), -std::sin(j)}, {0, std::sin(j), std::cos(j)}};
+        const double z2[3][3] = {{std::cos(k), -std::sin(k), 0}, {std::sin(k), std::cos(k), 0}, {0, 0, 1}};
+        double zx[3][3] = {};
+        for (int r = 0; r < 3; r++) {
+            for (int c = 0; c < 3; c++) {
+                for (int n = 0; n < 3; n++) {
+                    zx[r][c] += z1[r][n] * x[n][c];
+                }
+            }
+        }
+        for (int r = 0; r < 3; r++) {
+            for (int c = 0; c < 3; c++) {
+                mTilt[r][c] = 0;
+                for (int n = 0; n < 3; n++) {
+                    mTilt[r][c] += zx[r][n] * z2[n][c];
+                }
+            }
+        }
+        for (int k2 = 0; k2 < 3; k2++) {
+            mTiltOrigin[k2] = value[k2] * mUnit;
+        }
+        mTilted = true;
+        toProgram();
+        return false;
+    }
     if (notAMove || !(has[0] || has[1] || has[2] || has[3] || has[4] || has[5])) {
         return false;
     }
 
-    MillMotion target = lastState;
+    MillMotion target = mProgram;
     target.cmd = eMoveLiner;
     target.i = target.j = target.k = 0;
     target.rapid = mMode == ModeRapid;
@@ -312,16 +442,15 @@ bool GCodeParser::Apply(const std::vector<Word>& words, double feedScale, int so
     }
 
     auto push = [this](const MillMotion& m) {
-        lastState = m;
-        Operations.push_back(m);
+        Emit(m);
     };
 
     if (mMode == ModeCycle) {
         // the hole at target x, y: Z (the depth) and R are modal
         if (cycleStart) {
-            mCycleInitial = lastState.z;
-            mCycleR = lastState.z;
-            mCycleDepth = lastState.z;
+            mCycleInitial = mProgram.z;
+            mCycleR = mProgram.z;
+            mCycleDepth = mProgram.z;
         }
         if (has[2]) {
             mCycleDepth = target.z;
@@ -329,16 +458,16 @@ bool GCodeParser::Apply(const std::vector<Word>& words, double feedScale, int so
         if (hasR) {
             mCycleR = r;
         }
-        const double above = std::max(lastState.z, mCycleR);
+        const double above = std::max(mProgram.z, mCycleR);
         const double back = mReturnToR ? mCycleR : std::max(mCycleInitial, mCycleR);
-        MillMotion m = lastState;
+        MillMotion m = mProgram;
         m.cmd = eMoveLiner;
         m.i = m.j = m.k = 0;
         m.operation = currentOperation;
         m.source = source;
         m.named = target.named;
         m.rapid = true;
-        if (lastState.z < above) {
+        if (mProgram.z < above) {
             m.z = above;
             push(m);
         }
@@ -364,7 +493,7 @@ bool GCodeParser::Apply(const std::vector<Word>& words, double feedScale, int so
         // the plane of the arc: its axes u, v and the axis w along its normal
         const int u = mPlane == 18 ? 2 : mPlane == 19 ? 1 : 0;
         const int v = mPlane == 18 ? 0 : mPlane == 19 ? 2 : 1;
-        const double start[3] = {lastState.x, lastState.y, lastState.z};
+        const double start[3] = {mProgram.x, mProgram.y, mProgram.z};
         const double end[3] = {target.x, target.y, target.z};
         double cu = 0, cv = 0;
         if (hasCenter[u] || hasCenter[v] || !hasR) {
@@ -388,7 +517,7 @@ bool GCodeParser::Apply(const std::vector<Word>& words, double feedScale, int so
             push(target);  // no arc around the start: a line
             return true;
         }
-        if (mPlane == 17) {
+        if (mPlane == 17 && !Transforms()) {
             target.cmd = clockwise ? eRotateCW : eRotateCCW;
             target.i = cu - start[0];
             target.j = cv - start[1];
@@ -429,13 +558,14 @@ void GCodeParser::FillStart()
     }
 }
 
-// An arc outside the XY plane, in lines from the last position to end within ArcTolerance
+// An arc in lines from the programmed position to end within ArcTolerance: outside the XY plane,
+// or in another frame than the part
 void GCodeParser::AddArc(const MillMotion& end, bool clockwise, double ci, double cj, double ck)
 {
-    const int u = mPlane == 18 ? 2 : 1;
-    const int v = mPlane == 18 ? 0 : 2;
-    const int w = mPlane == 18 ? 1 : 0;
-    const MillMotion start = lastState;
+    const int u = mPlane == 18 ? 2 : mPlane == 19 ? 1 : 0;
+    const int v = mPlane == 18 ? 0 : mPlane == 19 ? 2 : 1;
+    const int w = mPlane == 18 ? 1 : mPlane == 19 ? 0 : 2;
+    const MillMotion start = mProgram;
     const double p0[3] = {start.x, start.y, start.z};
     const double p1[3] = {end.x, end.y, end.z};
     const double c[3] = {start.x + ci, start.y + cj, start.z + ck};
@@ -473,8 +603,7 @@ void GCodeParser::AddArc(const MillMotion& end, bool clockwise, double ci, doubl
         }
         m.cmd = eMoveLiner;
         m.i = m.j = m.k = 0;
-        lastState = m;
-        Operations.push_back(m);
+        Emit(m);
     }
 }
 

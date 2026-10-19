@@ -342,6 +342,8 @@ void MillSimulation::AddTool(
 void MillSimulation::SetMachine(const MachineKinematics& machine)
 {
     mMachine = machine;
+    // the rotary words of G-code text are the angles of its axes
+    mCodeParser.SetMachine(&mMachine);
 }
 
 void MillSimulation::SetRapidRate(double rate)
@@ -1129,9 +1131,9 @@ bool MillSimulation::LoadGCodeFile(const char* fileName)
     return false;
 }
 
-bool MillSimulation::AddGcodeLine(const char* line)
+bool MillSimulation::AddGcodeLine(const char* line, int source)
 {
-    return mCodeParser.AddLine(line);
+    return mCodeParser.AddLine(line, source);
 }
 
 bool MillSimulation::AddCommand(

@@ -127,7 +127,7 @@ public:
     void SimNext(const clock::duration& elapsed);
 
     bool LoadGCodeFile(const char* fileName);
-    bool AddGcodeLine(const char* line);
+    bool AddGcodeLine(const char* line, int source = -1);
     // A command of a FreeCAD toolpath, see GCodeParser::AddCommand. source: its index in the
     // toolpath, given to its motions
     bool AddCommand(const std::string& name, const std::map<std::string, double>& params, int source);

@@ -33,6 +33,8 @@
 namespace CAMSimulator
 {
 
+class MachineKinematics;
+
 // Turns a toolpath into motions: commands of a FreeCAD toolpath (AddCommand), or lines of G-code
 // text (AddLine, Parse).
 //
@@ -41,7 +43,14 @@ namespace CAMSimulator
 // cycles (G73, G74, G76, G81 to G89) become the motions of the tool: to the hole at the height it
 // starts from, rapid to R, down to Z and back to the initial height (G98) or R (G99). Arcs are
 // given by their center (I, J, K) or their radius (R); arcs outside the XY plane are divided into
-// lines.
+// lines. Probing moves (G38.2 to G38.5) are feed moves.
+//
+// Posted programs (G-code text) can have the positions in another frame than the part: a tilted
+// work plane (G68.2 X Y Z I J K, G268: the origin and the Euler angles Rz(I) Rx(J) Rz(K); G69,
+// G269 cancel it) has them in the plane, the tool along its Z; with the machine (SetMachine), the
+// rotary words are the angles of its axes, the tool turned by them, the positions in the part
+// turned by its table. Motions are in the part, the tool direction in A, B, C as MotionToolAxis
+// has it; arcs in another frame are divided into lines.
 class GCodeParser
 {
 public:
@@ -72,6 +81,13 @@ public:
     // operation of the lines added from now on, see MillMotion::operation
     int currentOperation = -1;
 
+    // The machine of the rotary words of G-code text, null for none (they are then the angles of
+    // MotionToolAxis); it must outlive the parser
+    void SetMachine(const MachineKinematics* machine)
+    {
+        mMachine = machine;
+    }
+
     // Largest distance of the lines of arcs outside the XY plane from the arc, mm
     static constexpr double ArcTolerance = 0.001;
 
@@ -82,8 +98,13 @@ private:
         double value;
     };
     static void Tokenize(const char* text, std::vector<Word>& words);
-    bool Apply(const std::vector<Word>& words, double feedScale, int source);
+    bool Apply(const std::vector<Word>& words, double feedScale, int source, bool text);
+    // an arc in lines, from the programmed position to end (programmed) around its center offsets
     void AddArc(const MillMotion& end, bool clockwise, double ci, double cj, double ck);
+    // the positions of the program are not those of the part
+    bool Transforms() const;
+    // a programmed motion in the part, added
+    void Emit(const MillMotion& programmed);
 
     enum Mode
     {
@@ -103,6 +124,14 @@ private:
     double mCycleInitial = 0;
     double mCycleR = 0;
     double mCycleDepth = 0;
+    // the position as the program has it, in its frame, and whether it is text
+    MillMotion mProgram;
+    bool mText = false;
+    // a tilted work plane: its origin and rotation (rows)
+    bool mTilted = false;
+    double mTiltOrigin[3] = {0, 0, 0};
+    double mTilt[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+    const MachineKinematics* mMachine = nullptr;
 };
 
 }  // namespace CAMSimulator

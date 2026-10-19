@@ -456,6 +456,11 @@ void DlgCAMSimulator::addCommand(const std::string& name, const std::map<std::st
     mCommands.push_back({name, params, mSourceCount++});
 }
 
+void DlgCAMSimulator::addGcodeLine(const std::string& line)
+{
+    mCommands.push_back({line, {}, mSourceCount++, true});
+}
+
 void DlgCAMSimulator::addOperation(const char* name, const float* color)
 {
     Operation op {mCommands.size(), name, color != nullptr, {0, 0, 0}};
@@ -820,7 +825,12 @@ void DlgCAMSimulator::updateResources()
     for (std::size_t i = mLastCommand; i < mCommands.size(); i++) {
         beginOperations(i);
         const Command& cmd = mCommands[i];
-        mMillSimulator->AddCommand(cmd.name, cmd.params, cmd.source);
+        if (cmd.text) {
+            mMillSimulator->AddGcodeLine(cmd.name.c_str(), cmd.source);
+        }
+        else {
+            mMillSimulator->AddCommand(cmd.name, cmd.params, cmd.source);
+        }
     }
     beginOperations(mCommands.size());
 

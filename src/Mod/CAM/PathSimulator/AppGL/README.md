@@ -271,6 +271,19 @@ axes of the head turn the tool (H_m ... H_0 z, sequence 0 nearest to the tool); 
 in the part is R_0^T ... R_n^T H z. It gives the angles for a tool direction (up to two rotary
 axes, the solutions within the limits of the axes first), and points of the part in the machine.
 
+## Posted programs
+
+Posted (task panel) simulates the G-code the post-processor of the Machine of the job writes for it
+(`postedProgram` in `SimulatorFeed.py`, the post without its dialog) instead of the toolpath of
+its operations: the tools of its tool controllers, its lines (`CAMSim.AddGCode`), an operation at
+every comment naming an active one. The parser reads them in the frame of the part: under a tilted
+work plane (`G68.2`, `G268` with its origin and Euler angles Rz(I) Rx(J) Rz(K); `G69`, `G269`) the
+positions are in the plane and the tool along its Z; else the rotary words are the angles of the
+axes of the machine, the tool turned by them and the positions turned back by its table (dynamic
+work offset); when the frame changes the control takes the position into the new one. The pivots
+and offsets of the machine are not known: positions are about the origin of the part. On the
+manifold demo the posted program shows the stock of the toolpath within 0.12% of the pixels.
+
 ## 5 axis toolpaths
 
 `GCodeParser` reads the rotary axes A, B and C. `MotionToolAxis` in `MillMotion.h` turns them into

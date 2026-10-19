@@ -121,6 +121,25 @@ void CAMSim::AddCommand(Command* cmd)
     DlgCAMSimulator::instance()->addCommand(cmd->Name, cmd->Parameters);
 }
 
+void CAMSim::AddGCode(const std::string& text)
+{
+    size_t start = 0;
+    while (start <= text.size()) {
+        size_t end = text.find('\n', start);
+        if (end == std::string::npos) {
+            end = text.size();
+        }
+        std::string line = text.substr(start, end - start);
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        if (end < text.size() || !line.empty()) {
+            DlgCAMSimulator::instance()->addGcodeLine(line);
+        }
+        start = end + 1;
+    }
+}
+
 void CAMSim::AddOperation(const std::string& name, const float* color)
 {
     DlgCAMSimulator::instance()->addOperation(name.c_str(), color);

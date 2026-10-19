@@ -10,6 +10,7 @@
 #include <gtest/gtest.h>
 
 #include <Mod/CAM/PathSimulator/AppGL/GCodeParser.h>
+#include <Mod/CAM/PathSimulator/AppGL/MachineKinematics.h>
 #include <Mod/CAM/PathSimulator/AppGL/ToolpathCheck.h>
 
 // NOLINTBEGIN(cppcoreguidelines-*,readability-*)
@@ -241,6 +242,108 @@ TEST(SimulatorGCode, theTimeOfTheMachine)
     EXPECT_NEAR(bareSeconds(1, rates), 5, 1e-9);
     EXPECT_NEAR(bareSeconds(2, rates), 2, 1e-9);
     EXPECT_NEAR(bareSeconds(3, ToolRates()), 0.2, 1e-9);
+}
+
+TEST(SimulatorGCode, postedTiltedWorkPlanes)
+{
+    // the back chamfer of the manifold demo: G68.2 with the origin on the chamfer and its normal
+    // (0, 1, 1) / sqrt(2) as Rz(180) Rx(45)
+    const double s = std::sqrt(0.5);
+    const auto m = Lines({
+        "G0 X10 Y10 Z50",
+        "G68.2 X70 Y82.5 Z37.5 I180 J45 K0",
+        "G53.1",
+        "G0 X0 Y0 Z10",
+        "G1 Z0 F600",
+        "G2 X10 Y0 I5 J0",
+        "G69",
+        "G0 X1 Y2 Z60",
+        "G38.2 Z40 F100",
+    });
+    ASSERT_GT(m.size(), 6u);
+    // in the plane: the part at the origin plus R p, the tool along the normal of the chamfer
+    EXPECT_NEAR(m[1].x, 70, 1e-9);
+    EXPECT_NEAR(m[1].y, 82.5 + 10 * s, 1e-9);
+    EXPECT_NEAR(m[1].z, 37.5 + 10 * s, 1e-9);
+    double axis[3];
+    MotionToolAxis(m[1], axis);
+    EXPECT_NEAR(axis[0], 0, 1e-9);
+    EXPECT_NEAR(axis[1], s, 1e-9);
+    EXPECT_NEAR(axis[2], s, 1e-9);
+    // the arc of the plane, in lines on its circle in the chamfer: X of the plane is -X of the part
+    const size_t arcEnd = m.size() - 3;
+    for (size_t i = 3; i <= arcEnd; i++) {
+        // on the plane: along its normal (0, s, s) at the origin; Y of the plane is (0, -s, s)
+        const double dy = m[i].y - 82.5, dz = m[i].z - 37.5;
+        EXPECT_NEAR(dy + dz, 0, 1e-9) << i;
+        EXPECT_NEAR(std::hypot(m[i].x - (70 - 5), (dz - dy) * s), 5, 1e-6) << i;
+    }
+    EXPECT_NEAR(m[arcEnd].x, 60, 1e-9);
+    // G69: back in the part, the tool vertical; probing is a feed move
+    EXPECT_NEAR(m[m.size() - 2].x, 1, 1e-12);
+    EXPECT_NEAR(m[m.size() - 2].z, 60, 1e-12);
+    MotionToolAxis(m.back(), axis);
+    EXPECT_NEAR(axis[2], 1, 1e-12);
+    EXPECT_FALSE(m.back().rapid);
+}
+
+TEST(SimulatorGCode, theControlTakesThePositionIntoANewPlane)
+{
+    // a move naming Z only after G68.2 goes along the normal of the plane from where the tool is,
+    // and after G69 from where it is in the part
+    const double s = std::sqrt(0.5);
+    GCodeParser parser;
+    for (const char* line : {"G0 X10 Y10 Z50", "G68.2 X70 Y82.5 Z37.5 I180 J45 K0", "G0 Z30", "G69", "G0 Z60"}) {
+        parser.AddLine(line);
+    }
+    const auto& m = parser.Operations;
+    ASSERT_EQ(m.size(), 3u);
+    // the plane height of (10, 10, 50): its distance along the normal (0, s, s) from the origin
+    const double height = (10 - 82.5) * s + (50 - 37.5) * s;
+    EXPECT_NEAR(m[1].x, 10, 1e-9);
+    EXPECT_NEAR(m[1].y, 10 + (30 - height) * s, 1e-9);
+    EXPECT_NEAR(m[1].z, 50 + (30 - height) * s, 1e-9);
+    EXPECT_NEAR(m[2].x, m[1].x, 1e-9);
+    EXPECT_NEAR(m[2].y, m[1].y, 1e-9);
+    EXPECT_NEAR(m[2].z, 60, 1e-9);
+}
+
+TEST(SimulatorGCode, postedRotaryWordsAreTheAnglesOfTheMachine)
+{
+    // a C table carried by an A trunnion: A-90 turns the part so the tool is along its -Y, the
+    // program positions in the frame the table turned it to
+    MachineKinematics machine;
+    MachineAxis c, a;
+    c.name = "C";
+    a.name = "A";
+    a.vector[0] = 1;
+    a.vector[2] = 0;
+    a.sequence = 1;
+    a.min = -120;
+    a.max = 30;
+    machine.SetAxes({}, {c, a});
+    GCodeParser parser;
+    parser.SetMachine(&machine);
+    parser.AddLine("G0 A0 C0 X5 Y6 Z7");
+    parser.AddLine("G0 A-90 X5 Y-30 Z20");
+    const auto& m = parser.Operations;
+    ASSERT_EQ(m.size(), 2u);
+    double axis[3];
+    MotionToolAxis(m[0], axis);
+    EXPECT_NEAR(axis[2], 1, 1e-12);
+    EXPECT_NEAR(m[0].y, 6, 1e-12);
+    MotionToolAxis(m[1], axis);
+    EXPECT_NEAR(axis[1], -1, 1e-9);
+    // A -90 puts a point (x, y, z) of the part at (x, z, -y): the point (5, -30, 20) of the
+    // machine is (5, -20, -30) in the part
+    EXPECT_NEAR(m[1].x, 5, 1e-9);
+    EXPECT_NEAR(m[1].y, -20, 1e-9);
+    EXPECT_NEAR(m[1].z, -30, 1e-9);
+    // the commands of a FreeCAD toolpath keep their rotary words as MotionToolAxis has them
+    parser.AddCommand("G0", {{"A", 90}, {"X", 0}});
+    MotionToolAxis(m.back(), axis);
+    EXPECT_NEAR(axis[1], -1, 1e-9);
+    EXPECT_NEAR(m.back().y, -30, 1e-12);
 }
 
 // NOLINTEND(cppcoreguidelines-*,readability-*)

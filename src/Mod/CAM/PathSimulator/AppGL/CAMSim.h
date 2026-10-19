@@ -84,6 +84,8 @@ public:
     std::vector<double> GetOperationSeconds();
     void SetBaseShape(const Part::TopoShape& baseShape, float resolution);
     void AddCommand(Command* cmd);
+    // the lines of a posted program
+    void AddGCode(const std::string& text);
     void AddOperation(const std::string& name, const float* color = nullptr);
 
     void SetFrameTiming(bool enabled);
