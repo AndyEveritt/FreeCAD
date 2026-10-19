@@ -108,9 +108,11 @@ from angles, are snapped to them.
   stock, like the bottom of a ball end mill groove, is not hidden by it. The model is drawn a
   little behind the stock: where the stock is cut to the model, the stock and the colors of its
   operations are shown, the model only where the stock is cut deeper. Transparent objects (the
-  stock or the model with an opacity below 1) are drawn after the opaque ones into a second
-  G-buffer starting with their depth: the front-most transparent surface is lit and blended over
-  the opaque ones.
+  stock or the model with an opacity below 1) are drawn after the opaque ones in 4 layers (depth
+  peeling): every layer draws both sides of their faces into a second G-buffer starting with the
+  depth of the opaque ones, and keeps the surfaces behind those of the layer before. The layers
+  are lit and blended over the opaque objects from the back, so the model shows inside a
+  transparent stock, and the far side of its walls and holes.
 
 Rotating or zooming the view only draws the meshes, independent of the toolpath length, and
 nothing of the simulation or the meshing runs in the GUI thread, so the view stays responsive

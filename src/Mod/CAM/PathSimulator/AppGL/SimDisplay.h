@@ -90,15 +90,21 @@ public:
     void StartCloserGeometryPass(const vec3& objColor);
     void StartStockGeometryPass(const vec3& objColor, const StockColoring& coloring);
 
-    // Transparent objects are rendered after the opaque ones, between StartTransparentLayer and
-    // EndTransparentLayer, with the opacity of SetOpacity: the front-most of their surfaces in
-    // front of the opaque objects is lit and blended over them. Returns false if not supported.
-    bool StartTransparentLayer();
+    // Transparent objects are rendered after the opaque ones, in layers (depth peeling): every
+    // layer draws them between StartTransparentLayer and EndTransparentLayer, with the opacity of
+    // SetOpacity, both sides of their faces, and keeps the surfaces behind those of the layer
+    // before. The layers are lit and blended over the opaque objects from the back, so the
+    // surfaces behind a transparent one show through it, like the model inside the stock and the
+    // far side of a wall. StartTransparentLayer returns false beyond the last layer, or if not
+    // supported.
+    static constexpr int TransparentLayers = 4;
+    bool StartTransparentLayer(int layer);
     void EndTransparentLayer();
     // No transparent objects in the next frames
     void ClearTransparentLayer()
     {
         mTransparentLayer = false;
+        mLayerCount = 0;
     }
     void SetOpacity(float opacity)
     {
@@ -201,14 +207,20 @@ protected:
     SbVec3f mCameraPosition;
     SbRotation mCameraOrientation;
 
-    // base frame buffer
-    // the transparent layer, see StartTransparentLayer
+    // the transparent layers, see StartTransparentLayer: the G-buffer of a layer, with the depth
+    // of the layer and of the one before alternating in two textures, and the lit layers
     unsigned int mTransFbo = 0;
     unsigned int mTransColTexture = 0;
     unsigned int mTransPosTexture = 0;
     unsigned int mTransNormTexture = 0;
-    unsigned int mTransRboDepthStencil = 0;
+    unsigned int mPeelDepth[2] = {0, 0};
+    unsigned int mLayerFbo = 0;
+    unsigned int mLayerTexture[TransparentLayers] = {};
+    int mLayer = -1;      // the layer being drawn, -1 for the opaque objects
+    int mLayerCount = 0;  // layers drawn
     bool mTransparentLayer = false;
+    bool CreateTransparentFbos();
+    void SetPeelState(unsigned int shaderId);
     float mOpacity = 1;
     void ComposeTransparentLayer();
     PickResult mPick;

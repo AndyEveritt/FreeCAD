@@ -514,13 +514,21 @@ const char* FragShaderGeom = R"(
 
     uniform vec3 objectColor;
     uniform float opacity;
+    // transparent layers: the surfaces behind those of the layer before, both sides of the faces
+    uniform bool peel;
+    uniform sampler2D peelDepth;
+    uniform vec2 screenSize;
 
     void main()
     {
+        if (peel && gl_FragCoord.z <= texture2D(peelDepth, gl_FragCoord.xy / screenSize).r) {
+            discard;
+        }
+        vec3 normal = normalize(Normal);
         // Store position, normal, and diffuse color with the opacity in textures
         gl_FragData[0] = vec4(objectColor, opacity);
         gl_FragData[1] = vec4(Position, 0.0f);
-        gl_FragData[2] = vec4(normalize(Normal), 0.0f);
+        gl_FragData[2] = vec4(gl_FrontFacing ? normal : -normal, 0.0f);
     }
 )";
 
@@ -578,14 +586,22 @@ const char* FragShaderStock = R"(
     uniform float thinThreshold;
     uniform vec3 thinColor;
     uniform float opacity;
+    // transparent layers: the surfaces behind those of the layer before, both sides of the faces
+    uniform bool peel;
+    uniform sampler2D peelDepth;
+    uniform vec2 screenSize;
 
     void main()
     {
+        if (peel && gl_FragCoord.z <= texture2D(peelDepth, gl_FragCoord.xy / screenSize).r) {
+            discard;
+        }
         vec3 color = Thickness < thinThreshold ? thinColor : Color;
+        vec3 normal = normalize(Normal);
         gl_FragData[0] = vec4(color, opacity);
         // the stock and the operation of the face, for picking
         gl_FragData[1] = vec4(Position, 1.0 + floor(Tag + 0.5));
-        gl_FragData[2] = vec4(normalize(Normal), 0.0f);
+        gl_FragData[2] = vec4(gl_FrontFacing ? normal : -normal, 0.0f);
     }
 )";
 

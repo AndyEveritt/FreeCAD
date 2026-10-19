@@ -640,19 +640,19 @@ void MillSimulation::Render()
             RenderBaseShape();
         }
         RenderPath();
-        if ((transparentStock || transparentBase) && simDisplay.StartTransparentLayer()) {
-            if (transparentStock && mStockOpacity > 0) {
-                simDisplay.SetOpacity(mStockOpacity);
-                RenderMaterialStock();
+        simDisplay.ClearTransparentLayer();
+        if (transparentStock || transparentBase) {
+            for (int layer = 0; simDisplay.StartTransparentLayer(layer); layer++) {
+                if (transparentStock && mStockOpacity > 0) {
+                    simDisplay.SetOpacity(mStockOpacity);
+                    RenderMaterialStock();
+                }
+                if (transparentBase && mBaseOpacity > 0) {
+                    simDisplay.SetOpacity(mBaseOpacity);
+                    RenderBaseShape();
+                }
+                simDisplay.EndTransparentLayer();
             }
-            if (transparentBase && mBaseOpacity > 0) {
-                simDisplay.SetOpacity(mBaseOpacity);
-                RenderBaseShape();
-            }
-            simDisplay.EndTransparentLayer();
-        }
-        else {
-            simDisplay.ClearTransparentLayer();
         }
         simDisplay.updateDisplay = false;
         simDisplay.RenderResult(true, mViewSSAO);
