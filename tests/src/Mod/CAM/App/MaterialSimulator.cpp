@@ -708,4 +708,91 @@ TEST(MaterialMesher, cutFacesKeepTheirOperation)
     EXPECT_EQ(inside, 0);
 }
 
+// The shading normals follow the faces: at the sharp edges of a pocket and of a V groove (made
+// by the sharp tip of the tool, without normals), and the tip of a V groove narrower than the cells
+// is in place all along it, across the grid
+TEST(MaterialMesher, normalsAndCreasesFollowTheFaces)
+{
+    ThreadPool pool(4);
+    std::vector<std::shared_ptr<const Tool>> tools = {
+        std::make_shared<Tool>(FlatProfile(2)),
+        std::make_shared<Tool>(VBitProfile(3, 45)),
+    };
+    const float a[3] = {4, 4, -2}, b[3] = {8, 4, -2};
+    // a groove 0.8 deep, diagonal to the grid
+    const float c[3] = {3, 8, -0.8f}, d[3] = {15, 20, -0.8f};
+    std::vector<Segment> segments = {Line(0, a, b), Line(1, c, d)};
+    const double lo[3] = {0, 0, -6}, hi[3] = {20, 24, 0};
+    std::vector<float> xyz;
+    std::vector<uint32_t> triangles;
+    MakeBox(lo, hi, xyz, triangles);
+    Simulation sim;
+    sim.Start(tools, segments, xyz, triangles, 10);
+    Grid grid;
+    WaitShown(sim, sim.TotalSteps(), grid);
+    Mesher mesher;
+    mesher.Reset(sim.GetLayout(), pool);
+    mesher.Update(grid, {}, pool);
+
+    double area = 0, offArea = 0, deepest = 0;
+    for (int u = 0; u < mesher.UnitCount(); u++) {
+        const UnitMesh& mesh = mesher.Mesh(u);
+        for (const auto* list : {&mesh.stock, &mesh.cut}) {
+            for (size_t t = 0; t + 2 < list->size(); t += 3) {
+                const MeshVertex* v[3];
+                for (int k = 0; k < 3; k++) {
+                    v[k] = &mesh.vertices[(*list)[t + k]];
+                }
+                const double e1[3] = {v[1]->x - v[0]->x, v[1]->y - v[0]->y, v[1]->z - v[0]->z};
+                const double e2[3] = {v[2]->x - v[0]->x, v[2]->y - v[0]->y, v[2]->z - v[0]->z};
+                double n[3] = {
+                    e1[1] * e2[2] - e1[2] * e2[1],
+                    e1[2] * e2[0] - e1[0] * e2[2],
+                    e1[0] * e2[1] - e1[1] * e2[0],
+                };
+                const double len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+                if (len < 1e-9) {
+                    continue;
+                }
+                area += len / 2;
+                for (int k = 0; k < 3; k++) {
+                    const double dot = (n[0] * v[k]->nx + n[1] * v[k]->ny + n[2] * v[k]->nz) / len
+                        / 127;
+                    if (dot < std::cos(30 * M_PI / 180)) {
+                        offArea += len / 2;
+                        break;
+                    }
+                }
+                // the vertices along the middle of the groove
+                for (int k = 0; k < 3; k++) {
+                    const double along = (v[k]->x - 3 + v[k]->y - 8) / 2;
+                    const double across = (v[k]->x - 3 - (v[k]->y - 8)) / std::sqrt(2.0);
+                    if (along > 3 && along < 9 && std::abs(across) < 0.3 && v[k]->z > -1.5f) {
+                        deepest = std::min(deepest, (double)v[k]->z);
+                    }
+                }
+            }
+        }
+    }
+    EXPECT_LT(offArea, 0.002 * area);
+    EXPECT_NEAR(deepest, -0.8, 0.03);
+    // the bottom of the groove all along it: no vertex near its tip stays far above it
+    std::map<int, double> bottomBySlice;
+    for (int u = 0; u < mesher.UnitCount(); u++) {
+        for (const MeshVertex& v : mesher.Mesh(u).vertices) {
+            const double along = (v.x - 3 + v.y - 8) / 2;
+            const double across = (v.x - 3 - (v.y - 8)) / std::sqrt(2.0);
+            if (along > 3 && along < 9 && std::abs(across) < 0.3 && v.z > -1.5f) {
+                const int slice = (int)std::floor(along / 0.5);
+                auto it = bottomBySlice.emplace(slice, 0.0).first;
+                it->second = std::min(it->second, (double)v.z);
+            }
+        }
+    }
+    EXPECT_GE(bottomBySlice.size(), 10u);
+    for (const auto& [slice, z] : bottomBySlice) {
+        EXPECT_NEAR(z, -0.8, 0.05) << "at slice " << slice;
+    }
+}
+
 // NOLINTEND(cppcoreguidelines-*,readability-*)

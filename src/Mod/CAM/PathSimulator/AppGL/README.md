@@ -87,11 +87,14 @@ from angles, are snapped to them.
   surface gets a vertex: on the edge or corner of the planes of its points at sharp features
   (not of planes facing almost opposite ways, like the faces of a thin wall, where they meet
   depends too much on their normals), else where the planes of its points meet (every plane
-  counting the same), moved onto curved surfaces by a quadric fit. Every edge of the cubes with a change of inside gets a quad of the vertices of
+  counting the same) nearest to their mass point, or to the points without a normal if they are on
+  the planes (made by a sharp edge of a tool, on the crease it cut, like the tip of a V groove
+  narrower than a cell), moved onto curved surfaces by a quadric fit. Every edge of the cubes with a change of inside gets a quad of the vertices of
   the 4 cubes around it, from the smallest cubes around it, so bricks of different levels connect
   without cracks, split along the diagonal passing nearest to the surface point of the edge.
-  Vertices on smooth surfaces share their normal, at sharp edges every quad gets the normal of its
-  own surface point. Faces get the operation that cut them, and while thin walls are shown, the
+  Vertices on smooth surfaces share their normal, at sharp edges (normals far apart, or in two
+  groups, like a face and a chamfer) every quad gets the normal of its own surface point, or of its
+  own plane where the point has none. Faces get the operation that cut them, and while thin walls are shown, the
   thickness of the material behind them: the length of the material along the dexel of their
   edge, followed into the bricks ahead, times the component of their normal along it (exact for
   walls with flat faces, up to 10 mm). The cubes of every brick are kept until it changes.

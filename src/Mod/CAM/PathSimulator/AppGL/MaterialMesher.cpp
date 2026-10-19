@@ -419,9 +419,10 @@ void SmoothVertex(
     }
 }
 
-// Minimizer of the squared distances to the planes of the points, near their mass point: the
-// eigenvectors of small eigenvalues are left out, so planes in few directions give the point
-// closest to the mass point on their intersection (sharp edges and corners)
+// Minimizer of the squared distances to the planes of the points, near their mass point (of the
+// points without a normal, if any): the eigenvectors of small eigenvalues are left out, so planes
+// in few directions give the point closest to the mass point on their intersection (sharp edges
+// and corners)
 void SolveQef(
     const std::vector<const Crossing*>& points,
     const double lo[3],
@@ -429,14 +430,42 @@ void SolveQef(
     float out[3]
 )
 {
-    double mass[3] = {0, 0, 0};
+    // The vertex is on the planes, nearest to the mass point of the points; points without a
+    // normal were made by a sharp edge of a tool, on the crease it cut (like the tip of a V
+    // groove): nearest to their mass point if they are on the planes
+    double mass[3] = {0, 0, 0}, crease[3] = {0, 0, 0};
+    int creasePoints = 0, withNormals = 0;
     for (const Crossing* c : points) {
         for (int k = 0; k < 3; k++) {
             mass[k] += c->p[k];
+            if (!c->hasNormal) {
+                crease[k] += c->p[k];
+            }
+        }
+        creasePoints += c->hasNormal ? 0 : 1;
+        withNormals += c->hasNormal ? 1 : 0;
+    }
+    // on the crease: on the planes of all points with a normal
+    bool onCrease = creasePoints > 0 && withNormals > 0;
+    const double tolerance = 0.25 * (hi[0] - lo[0]);
+    for (size_t i = 0; i < points.size() && onCrease; i++) {
+        const Crossing* q = points[i];
+        if (q->hasNormal) {
+            continue;
+        }
+        for (const Crossing* c : points) {
+            if (c->hasNormal
+                && std::abs(
+                       c->n[0] * (q->p[0] - c->p[0]) + c->n[1] * (q->p[1] - c->p[1])
+                       + c->n[2] * (q->p[2] - c->p[2])
+                   ) > tolerance) {
+                onCrease = false;
+                break;
+            }
         }
     }
     for (int k = 0; k < 3; k++) {
-        mass[k] /= (double)points.size();
+        mass[k] = onCrease ? crease[k] / creasePoints : mass[k] / (double)points.size();
     }
     // every plane counts the same, however many points it has: the points by groups of their
     // normals, weighted by the size of their group
@@ -1307,11 +1336,19 @@ void Mesher::ComputeGeometry(const Grid& grid, int leaf)
             for (int k = 0; k < 3; k++) {
                 cube.n[k] = (float)(n[k] / len);
             }
+            bool spread = false;
             for (const Crossing* c : points) {
-                if (c->hasNormal
-                    && c->n[0] * cube.n[0] + c->n[1] * cube.n[1] + c->n[2] * cube.n[2] < SharpCos) {
+                const float d = c->n[0] * cube.n[0] + c->n[1] * cube.n[1] + c->n[2] * cube.n[2];
+                if (c->hasNormal && d < SharpCos) {
                     cube.sharp = true;
                 }
+                spread = spread || d < MergeCos;
+            }
+            // two faces meeting at an edge, like the top and a chamfer of 45 degrees, are each
+            // closer than SharpCos to their mean normal: sharp too, unlike a curved face
+            if (!cube.sharp && spread) {
+                thread_local std::vector<int> group;
+                cube.sharp = SharpGroups(points, group) >= 2;
             }
         }
     }
@@ -1445,14 +1482,39 @@ void Mesher::BuildUnit(const Grid& grid, int unit, UnitMesh& out) const
                         if (smaller || leaves[owner] != leaf || cubes[owner] != ci) {
                             continue;
                         }
-                        thickness = mThickness
-                            ? Thickness(grid, leaf, a, s[u], s[v], cr.p[a], cr.startInside, cr.n[a])
-                            : NoThickness;
                         // the vertices around the edge, counter clockwise seen along +a
                         const int order[4] = {0, 1, 3, 2};
+                        // A surface point made by a sharp edge of a tool has no normal: the quad
+                        // gets the normal of its own plane, facing along a as the surface does
+                        Crossing shade = cr;
+                        if (!cr.hasNormal) {
+                            const float* q[4];
+                            for (int k = 0; k < 4; k++) {
+                                q[k] = mGeometry[leaves[order[k]]]->cubes[cubes[order[k]]].p;
+                            }
+                            const float d1[3]
+                                = {q[2][0] - q[0][0], q[2][1] - q[0][1], q[2][2] - q[0][2]};
+                            const float d2[3]
+                                = {q[3][0] - q[1][0], q[3][1] - q[1][1], q[3][2] - q[1][2]};
+                            float n[3] = {
+                                d1[1] * d2[2] - d1[2] * d2[1],
+                                d1[2] * d2[0] - d1[0] * d2[2],
+                                d1[0] * d2[1] - d1[1] * d2[0],
+                            };
+                            const float len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+                            if (len > 1e-12f) {
+                                const float sign = (n[a] >= 0) == (bool)cr.startInside ? 1.0f : -1.0f;
+                                for (int k = 0; k < 3; k++) {
+                                    shade.n[k] = sign * n[k] / len;
+                                }
+                            }
+                        }
+                        thickness = mThickness
+                            ? Thickness(grid, leaf, a, s[u], s[v], cr.p[a], cr.startInside, shade.n[a])
+                            : NoThickness;
                         uint32_t idx[4];
                         for (int k = 0; k < 4; k++) {
-                            idx[k] = vertexOf(leaves[order[k]], cubes[order[k]], cr);
+                            idx[k] = vertexOf(leaves[order[k]], cubes[order[k]], shade);
                         }
                         // the surface faces +a if the edge starts inside
                         const bool facesUp = cr.startInside;
