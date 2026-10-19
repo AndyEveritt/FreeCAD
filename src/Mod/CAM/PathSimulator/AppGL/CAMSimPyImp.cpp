@@ -99,7 +99,7 @@ PyObject* CAMSimPy::BeginSimulation(PyObject* args, PyObject* kwds)
 
 PyObject* CAMSimPy::AddTool(PyObject* args, PyObject* kwds)
 {
-    static const std::array<const char*, 9> kwlist {
+    static const std::array<const char*, 10> kwlist {
         "shape",
         "toolnumber",
         "diameter",
@@ -108,6 +108,7 @@ PyObject* CAMSimPy::AddTool(PyObject* args, PyObject* kwds)
         "flutes",
         "feeds",
         "rapids",
+        "cutting",
         nullptr
     };
     PyObject* pObjToolShape;
@@ -117,10 +118,11 @@ PyObject* CAMSimPy::AddTool(PyObject* args, PyObject* kwds)
     PyObject* pyArcs = Py_None;
     double flutes = 0;
     ToolRates rates;
+    std::pair<double, double> cutting {0, -1};
     if (!Base::Wrapped_ParseTupleAndKeywords(
             args,
             kwds,
-            "Oiff|Od(dd)(dd)",
+            "Oiff|Od(dd)(dd)(dd)",
             kwlist,
             &pObjToolShape,
             &toolNumber,
@@ -131,7 +133,9 @@ PyObject* CAMSimPy::AddTool(PyObject* args, PyObject* kwds)
             &rates.horizFeed,
             &rates.vertFeed,
             &rates.horizRapid,
-            &rates.vertRapid
+            &rates.vertRapid,
+            &cutting.first,
+            &cutting.second
         )) {
         return nullptr;
     }
@@ -169,7 +173,7 @@ PyObject* CAMSimPy::AddTool(PyObject* args, PyObject* kwds)
     }
 
     CAMSim* sim = getCAMSimPtr();
-    sim->addTool(toolProfile, toolNumber, diameter, resolution, arcs, flutes, rates);
+    sim->addTool(toolProfile, toolNumber, diameter, resolution, arcs, flutes, rates, cutting);
 
     Py_INCREF(Py_None);
     return Py_None;

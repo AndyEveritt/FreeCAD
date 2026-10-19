@@ -38,6 +38,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #define VIEWITEM_SIMULATION 1
@@ -93,14 +94,16 @@ public:
     void InitSimulation(float quality, float maxStockDimension);
     void AddTool(EndMill* tool);
     // arcs: of the profile, see Material::Tool. flutes: their length from the tip, 0 if unknown.
-    // rates: for the time of the moves
+    // rates: for the time of the moves. cutting: the heights from the tip between which the tool
+    // cuts, for its display; (0, flutes) if the second is below 0.
     void AddTool(
         const std::vector<float>& toolProfile,
         int toolid,
         float diameter,
         const std::vector<Material::ProfileArc>& arcs = {},
         double flutes = 0,
-        const ToolRates& rates = {}
+        const ToolRates& rates = {},
+        std::pair<double, double> cutting = {0, -1}
     );
     // The rapid rate of tools without one, mm/s
     void SetRapidRate(double rate);
@@ -195,7 +198,7 @@ public:
     void EnableSsao(bool b);
     // The origin of the job (of the workpiece coordinates) and its axes
     void SetOriginVisible(bool b);
-    // The tool at its position, its flutes in their own color
+    // The tool at its position, the part that cuts in its own color
     void SetToolVisible(bool b);
     // A section of the stock and the model across an axis (0 X, 1 Y, 2 Z, -1 for none), at a
     // fraction of the box of the stock along it: the side below is kept, the side above with flip
@@ -360,9 +363,9 @@ public:
     vec3 bgndColor = {0.1f, 0.2f, 0.3f};
     vec3 stockColor = {0.5f, 0.55f, 0.9f};
     vec3 cutColor = {0.5f, 0.84f, 0.73f};
-    vec3 toolColor = {0.5f, 0.4f, 0.3f};
+    vec3 toolColor = {0.5f, 0.4f, 0.3f};  // a tool whose cutting part is unknown
     vec3 fluteColor = {0.9f, 0.55f, 0.15f};  // the cutting length of the tool
-    vec3 shankColor = {0.55f, 0.56f, 0.6f};  // the tool above its flutes
+    vec3 shankColor = {0.55f, 0.56f, 0.6f};  // the rest of the tool
     vec3 baseShapeColor = {0.7f, 0.6f, 0.5f};
 
     clock::duration mTotalElapsed;

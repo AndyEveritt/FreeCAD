@@ -365,6 +365,9 @@ void Shape::SetModelData(const std::vector<Vertex>& vbuffer, const std::vector<G
 
 void Shape::Render() const
 {
+    if (vbo == 0) {
+        return;
+    }
     SetupVertexAttribs();
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
     glDrawElements(GL_TRIANGLES, numIndices, GL_UNSIGNED_SHORT, nullptr);

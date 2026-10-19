@@ -55,11 +55,12 @@ void CAMSim::addTool(
     float resolution,
     const std::vector<Material::ProfileArc>& arcs,
     double flutes,
-    const ToolRates& rates
+    const ToolRates& rates,
+    std::pair<double, double> cutting
 )
 {
     DlgCAMSimulator::instance()
-        ->addTool(toolProfilePoints, toolNumber, diameter, resolution, arcs, flutes, rates);
+        ->addTool(toolProfilePoints, toolNumber, diameter, resolution, arcs, flutes, rates, cutting);
 }
 
 Mesh::MeshObject* CAMSim::GetStockMesh()

@@ -46,34 +46,38 @@ public:
     Shape pathShape;
     Shape halfToolShape;
     Shape toolShape;
-    // the tool split at the end of its flutes: the part that cuts and the shank above it
-    Shape fluteShape;
-    Shape shankShape;
+    // the tool split where it cuts: the part that cuts, the parts above and below it
+    Shape cuttingShape;
+    Shape aboveShape;
+    Shape belowShape;
 
 public:
     EndMill(int toolid, float diameter);
     EndMill(const std::vector<float>& toolProfile, int toolid, float diameter);
     virtual ~EndMill();
-    // The length of the flutes from the tip, 0 if unknown
-    void SetFlutes(float length)
+    // The heights from the tip between which the tool cuts, to below 0 if unknown
+    void SetCutting(float from, float to)
     {
-        fluteLength = length;
+        cutFrom = from;
+        cutTo = to;
     }
-    // Whether fluteShape and shankShape split the tool
-    bool HasFlutes() const
+    // Whether cuttingShape, aboveShape and belowShape split the tool
+    bool HasCutting() const
     {
-        return hasFlutes;
+        return hasCutting;
     }
     void GenerateDisplayLists(float quality);
     unsigned int GenerateArcSegmentDL(float radius, float angleRad, float zShift, Shape* retShape) const;
 
 protected:
     void MirrorPointBuffer();
-    // the profile above and below the end of the flutes, false if they don't split it
-    bool SplitProfile(std::vector<float>& shank, std::vector<float>& flutes) const;
+    // the part of the profile between the heights lo and hi, closed on the axis, empty if none.
+    // Horizontal edges at lo or hi belong to it only if 'closed'.
+    std::vector<float> ClipProfile(float lo, float hi, bool closed) const;
 
-    float fluteLength = 0;
-    bool hasFlutes = false;
+    float cutFrom = 0;
+    float cutTo = -1;
+    bool hasCutting = false;
 };
 
 }  // namespace CAMSimulator

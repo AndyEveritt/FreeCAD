@@ -507,14 +507,39 @@ def _speed(tc, name):
     return float(getattr(value, "Value", value or 0))
 
 
-def toolExtras(tc, arcs):
+def _length(tool, name):
+    """A length parameter of a tool bit, mm, None if it has none."""
+    value = getattr(tool, name, None)
+    if value is None:
+        return None
+    return float(getattr(value, "Value", value))
+
+
+def toolCutting(tool):
+    """toolCutting(tool) ... (from, to): the heights from the tip of the tool
+    between which it cuts, None if unknown. Only what the tool bit says: its
+    CuttingEdgeHeight; a probe doesn't cut."""
+    if str(getattr(tool, "ShapeType", "")) == "Probe":
+        return (0.0, 0.0)
+    height = _length(tool, "CuttingEdgeHeight")
+    if height and height > 0:
+        return (0.0, height)
+    return None
+
+
+def toolExtras(tc, arcs, profile=None):
     """The keyword arguments of PathSim.AddTool for the tool of a tool controller,
-    the arcs of its profile given."""
+    the arcs of its profile given (and the profile, for the height of its tip)."""
     extras = {"arcs": arcs}
-    # the simulator finds the tool above its flutes meeting the material
-    flutes = getattr(tc.Tool, "CuttingEdgeHeight", None)
-    if flutes is not None and float(getattr(flutes, "Value", flutes)) > 0:
-        extras["flutes"] = float(getattr(flutes, "Value", flutes))
+    cutting = toolCutting(tc.Tool)
+    if cutting is not None:
+        # drawn in its own color; the simulator finds the tool above it meeting
+        # the material, by height from the origin of the tool (a saw's cap is
+        # below it)
+        extras["cutting"] = cutting
+        if cutting[1] > 0:
+            tip = min(profile[1::2]) if profile else 0
+            extras["flutes"] = tip + cutting[1]
     # for the time of the machine, mm/s
     extras["feeds"] = (_speed(tc, "HorizFeed"), _speed(tc, "VertFeed"))
     extras["rapids"] = (_speed(tc, "HorizRapid"), _speed(tc, "VertRapid"))
@@ -557,7 +582,7 @@ def simulationSteps(ops, stock, colors):
             yield ("command", cmd)
         yield ("operation", op.Label, color)
         if tc is not None:
-            yield ("tool", profile, tc.ToolNumber, tc.Tool.Diameter, toolExtras(tc, arcs))
+            yield ("tool", profile, tc.ToolNumber, tc.Tool.Diameter, toolExtras(tc, arcs, profile))
         for cmd in opCommands:
             yield ("command", cmd)
 

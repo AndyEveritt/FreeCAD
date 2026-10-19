@@ -33,6 +33,7 @@
 #include <future>
 #include <chrono>
 #include <cstdint>
+#include <utility>
 #include <map>
 #include <string>
 #include <vector>
@@ -98,6 +99,7 @@ public:
     std::vector<Material::ProfileArc> arcs;
     double flutes = 0;
     ToolRates rates;
+    std::pair<double, double> cutting {0, -1};
 };
 
 class DlgCAMSimulator: public QOpenGLWidget
@@ -136,7 +138,8 @@ public:
         float resolution,
         const std::vector<Material::ProfileArc>& arcs = {},
         double flutes = 0,
-        const ToolRates& rates = {}
+        const ToolRates& rates = {},
+        std::pair<double, double> cutting = {0, -1}
     );
     // the rapid rate of tools without one, mm/s
     void setRapidRate(double rate);

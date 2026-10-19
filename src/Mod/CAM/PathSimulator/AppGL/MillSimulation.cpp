@@ -348,7 +348,8 @@ void MillSimulation::AddTool(
     float diameter,
     const std::vector<Material::ProfileArc>& arcs,
     double flutes,
-    const ToolRates& rates
+    const ToolRates& rates,
+    std::pair<double, double> cutting
 )
 {
     // if we have another tool with same id, remove it
@@ -357,7 +358,10 @@ void MillSimulation::AddTool(
     mToolTable.push_back(tool);
     mToolArcs[toolid] = arcs;
     mToolFlutes[toolid] = flutes;
-    tool->SetFlutes((float)flutes);
+    if (cutting.second < 0) {
+        cutting = {0, flutes > 0 ? flutes : -1};
+    }
+    tool->SetCutting((float)cutting.first, (float)cutting.second);
     mToolRates[toolid] = rates;
 }
 
@@ -714,16 +718,17 @@ void MillSimulation::RenderTool()
 
 void MillSimulation::RenderToolShape(const EndMill* tool, const mat4x4& tmat, const mat4x4& nmat)
 {
-    if (!tool->HasFlutes()) {
-        // the cutting length is unknown: all of the tool may cut
-        simDisplay.StartGeometryPass(fluteColor, false);
+    if (!tool->HasCutting()) {
+        // the part that cuts is unknown: all of the tool in the plain color of tools
+        simDisplay.StartGeometryPass(toolColor, false);
         tool->toolShape.Render(tmat, nmat);
         return;
     }
     simDisplay.StartGeometryPass(fluteColor, false);
-    tool->fluteShape.Render(tmat, nmat);
+    tool->cuttingShape.Render(tmat, nmat);
     simDisplay.StartGeometryPass(shankColor, false);
-    tool->shankShape.Render(tmat, nmat);
+    tool->aboveShape.Render(tmat, nmat);
+    tool->belowShape.Render(tmat, nmat);
 }
 
 void MillSimulation::RenderPath()

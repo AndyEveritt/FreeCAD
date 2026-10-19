@@ -52,15 +52,19 @@ class CAMSim(BaseClass):
         flutes: float = 0,
         feeds: tuple = (0, 0),
         rapids: tuple = (0, 0),
+        cutting: tuple = (0, -1),
     ) -> Any:
         """
         Set the shape of the tool to be used for simulation: its profile, radius/height pairs from
         its top down to its tip. arcs: the arcs of the profile, (first, last, r, z): the points
         first to last of the profile (indices of pairs) are on the circle around (r, z), the
-        simulator follows them exactly. flutes: their length from the tip, 0 if unknown: the
+        simulator follows them exactly. flutes: the height of their end above the origin of the
+        profile (the tip of most tools), 0 if unknown: the
         simulator finds the tool above them meeting the material. feeds and rapids: the
         (horizontal, vertical) feed rates of moves without a programmed one and rapid rates, mm/s,
-        0 for unknown, for the time of the machine.
+        0 for unknown, for the time of the machine. cutting: the heights from the tip between which
+        the tool cuts, (from, to), drawn in their own color; (0, flutes) if to is below 0, unknown
+        (the tool in one color) if flutes is unknown as well.
         """
         ...
 

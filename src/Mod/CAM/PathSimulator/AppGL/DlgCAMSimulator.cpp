@@ -477,13 +477,14 @@ void DlgCAMSimulator::addTool(
     float resolution,
     const std::vector<Material::ProfileArc>& arcs,
     double flutes,
-    const ToolRates& rates
+    const ToolRates& rates,
+    std::pair<double, double> cutting
 )
 {
     Q_UNUSED(resolution)
 
     mCommands.push_back({"T" + std::to_string(toolNumber), {}, -1});
-    mTools.push_back({toolProfilePoints, toolNumber, diameter, arcs, flutes, rates});
+    mTools.push_back({toolProfilePoints, toolNumber, diameter, arcs, flutes, rates, cutting});
 }
 
 void DlgCAMSimulator::setMachine(const MachineKinematics& machine)
@@ -847,7 +848,7 @@ void DlgCAMSimulator::updateResources()
     for (const auto& tool : mTools) {
         if (!mMillSimulator->ToolExists(tool.id)) {
             mMillSimulator
-                ->AddTool(tool.profile, tool.id, tool.diameter, tool.arcs, tool.flutes, tool.rates);
+                ->AddTool(tool.profile, tool.id, tool.diameter, tool.arcs, tool.flutes, tool.rates, tool.cutting);
         }
     }
 

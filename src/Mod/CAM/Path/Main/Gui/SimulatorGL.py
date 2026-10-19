@@ -550,7 +550,7 @@ class CAMSimulation:
             if getattr(tc, "Tool", None) is None:
                 continue
             profile, arcs = toolProfile(tc.Tool.Shape, 0.5)
-            self.millSim.AddTool(profile, tc.ToolNumber, tc.Tool.Diameter, 1, **toolExtras(tc, arcs))
+            self.millSim.AddTool(profile, tc.ToolNumber, tc.Tool.Diameter, 1, **toolExtras(tc, arcs, profile))
         # posts write the labels of the operations in comments, in capitals often
         named = {op.Label.upper(): (op.Label, color) for op, color in zip(self.activeOps, colors)}
         for line in text.splitlines():

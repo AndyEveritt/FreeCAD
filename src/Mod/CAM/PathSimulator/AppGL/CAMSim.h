@@ -72,7 +72,8 @@ public:
         float resolution,
         const std::vector<Material::ProfileArc>& arcs = {},
         double flutes = 0,
-        const ToolRates& rates = {}
+        const ToolRates& rates = {},
+        std::pair<double, double> cutting = {0, -1}
     );
     // the stock shown, a closed mesh: the meshes of the parts of the stock joined at their equal
     // vertices

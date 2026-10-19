@@ -312,10 +312,13 @@ around Z. This is the place to add machine specific kinematics.
 - `SimulatorOutlines` (bool, default true): dark lines at the edges of the opaque objects.
 - `SimulatorOriginVisible` (bool, default true): the origin of the job and its axes (X red, Y
   green, Z blue, a fifth of the size of the stock long), seen through the objects in front of it.
-- `SimulatorToolVisible` (bool, default true): the tool at its position. Its cutting length (the
-  flute length of the tool controller, from the tip) is orange, the shank above it gray (the tool
-  is split at that height, `EndMill::fluteShape` and `shankShape`); all of it is orange when the
-  flute length is unknown.
+- `SimulatorToolVisible` (bool, default true): the tool at its position. The part that cuts is
+  orange, the rest gray (the tool is split at its heights, `EndMill::cuttingShape`, `aboveShape`
+  and `belowShape`); a tool whose cutting part is unknown is brown. Only the tool bit says which
+  part cuts (`toolCutting` in `Path/Main/SimulatorFeed.py`): from the tip up to its
+  `CuttingEdgeHeight`, nothing for a probe. Shapes without that parameter (drills, taps, thread
+  mills, slitting saws) are unknown: their parameters don't say which part cuts, and the simulator
+  doesn't guess.
 - `SimulatorInspect` (int, default 0): lines over the stock to inspect it: 0 none, 1 the mesh, 2 the
   normals, 3 the dexels at a click, 4 measure: a click picks a point of any surface (the G-buffer
   position and normal at the pixel), two give their distance, shown at the top left of the view

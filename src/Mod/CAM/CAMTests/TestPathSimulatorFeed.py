@@ -39,6 +39,7 @@ from Path.Main.SimulatorFeed import (
     eventText,
     rotaryForAxis,
     toolAxis,
+    toolCutting,
     toolProfile,
 )
 
@@ -416,3 +417,20 @@ class TestPathSimulatorFeed(PathTestUtils.PathTestBase):
         self.assertEqual(
             eventText(left), "Material left in 3 places, the most over 1 mm at X1.00 Y2.00 Z3.00"
         )
+
+    def test17(self):
+        """The part of a tool that cuts, from its tip: as the tool bit gives it, else unknown."""
+
+        class Tool:
+            def __init__(self, shape, **params):
+                self.ShapeType = shape
+                for k, v in params.items():
+                    setattr(self, k, FreeCAD.Units.Quantity(v, "mm"))
+
+        self.assertEqual(toolCutting(Tool("Endmill", CuttingEdgeHeight=22)), (0, 22))
+        # nothing to go by: unknown, no guess from other parameters
+        self.assertIsNone(toolCutting(Tool("Drill", Diameter=6.8)))
+        self.assertIsNone(toolCutting(Tool("Tap", CuttingEdgeLength=14, Diameter=8)))
+        self.assertIsNone(toolCutting(Tool("SlittingSaw", CapHeight=1, BladeThickness=3)))
+        # a probe doesn't cut
+        self.assertEqual(toolCutting(Tool("Probe", Diameter=2)), (0, 0))

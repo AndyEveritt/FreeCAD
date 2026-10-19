@@ -371,7 +371,7 @@
         <item>
          <widget class="QCheckBox" name="toolVisible">
           <property name="toolTip">
-           <string>The tool at its position: its cutting length in orange, the shank above it in gray</string>
+           <string>The tool at its position: its cutting length in orange, the rest in gray; brown if the tool bit has no cutting edge height</string>
           </property>
           <property name="text">
            <string>Tool</string>

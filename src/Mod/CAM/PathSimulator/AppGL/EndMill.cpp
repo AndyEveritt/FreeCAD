@@ -25,6 +25,7 @@
 #include "EndMill.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace CAMSimulator
 {
@@ -73,8 +74,9 @@ EndMill::EndMill(const std::vector<float>& toolProfile, int toolid, float diamet
 EndMill::~EndMill()
 {
     toolShape.FreeResources();
-    fluteShape.FreeResources();
-    shankShape.FreeResources();
+    cuttingShape.FreeResources();
+    aboveShape.FreeResources();
+    belowShape.FreeResources();
     halfToolShape.FreeResources();
     pathShape.FreeResources();
 }
@@ -92,11 +94,25 @@ void EndMill::GenerateDisplayLists(float quality)
 
     // full tool
     toolShape.RotateProfile(profilePoints.data(), nPoints, 0, 0, nslices, false);
-    std::vector<float> shank, flutes;
-    hasFlutes = SplitProfile(shank, flutes);
-    if (hasFlutes) {
-        shankShape.RotateProfile(shank.data(), (int)shank.size() / 2, 0, 0, nslices, false);
-        fluteShape.RotateProfile(flutes.data(), (int)flutes.size() / 2, 0, 0, nslices, false);
+    // the part that cuts and the rest, by height from the tip
+    hasCutting = false;
+    if (cutTo >= 0 && nPoints >= 2) {
+        float tip = profilePoints[1], top = profilePoints[1];
+        for (int i = 1; i < nPoints; i++) {
+            tip = std::min(tip, profilePoints[i * 2 + 1]);
+            top = std::max(top, profilePoints[i * 2 + 1]);
+        }
+        const float lo = tip + cutFrom, hi = tip + cutTo;
+        const auto rotate = [&](Shape& shape, const std::vector<float>& profile) {
+            shape.FreeResources();
+            if (profile.size() >= 4) {
+                shape.RotateProfile(profile.data(), (int)profile.size() / 2, 0, 0, nslices, false);
+            }
+        };
+        rotate(cuttingShape, ClipProfile(lo, hi, true));
+        rotate(aboveShape, ClipProfile(hi, top, false));
+        rotate(belowShape, ClipProfile(tip, lo, false));
+        hasCutting = true;
     }
 
     // half tool
@@ -114,39 +130,50 @@ unsigned int EndMill::GenerateArcSegmentDL(float radius, float angleRad, float z
     return 0;
 }
 
-bool EndMill::SplitProfile(std::vector<float>& shank, std::vector<float>& flutes) const
+std::vector<float> EndMill::ClipProfile(float lo, float hi, bool closed) const
 {
-    if (fluteLength <= 0 || nPoints < 2) {
-        return false;
-    }
-    // the profile goes from the top down to the tip
-    float tip = profilePoints[1];
-    for (int i = 1; i < nPoints; i++) {
-        tip = std::min(tip, profilePoints[i * 2 + 1]);
-    }
-    const float h = tip + fluteLength;
-    if (profilePoints[1] <= h) {
-        return false;  // the flutes reach the top
+    // the profile goes from the top down to the tip, its heights don't rise
+    std::vector<float> out;
+    const auto add = [&out](float r, float z) {
+        const size_t n = out.size();
+        if (n < 2 || std::abs(out[n - 2] - r) > 1e-6f || std::abs(out[n - 1] - z) > 1e-6f) {
+            out.insert(out.end(), {r, z});
+        }
+    };
+    if (hi - lo <= 1e-6f) {
+        return out;
     }
     for (int i = 1; i < nPoints; i++) {
         const float r0 = profilePoints[i * 2 - 2], z0 = profilePoints[i * 2 - 1];
         const float r1 = profilePoints[i * 2], z1 = profilePoints[i * 2 + 1];
-        if (z1 > h) {
+        if (std::abs(z0 - z1) <= 1e-6f) {
+            // a horizontal edge: within the heights, or at one of them if closed
+            const bool inside = closed ? z0 >= lo - 1e-6f && z0 <= hi + 1e-6f
+                                       : z0 > lo + 1e-6f && z0 < hi - 1e-6f;
+            if (inside) {
+                add(r0, z0);
+                add(r1, z1);
+            }
             continue;
         }
-        // the profile crosses the end of the flutes between points i - 1 and i
-        const float r = r0 + (r1 - r0) * (z0 - h) / (z0 - z1);
-        shank.assign(profilePoints.begin(), profilePoints.begin() + i * 2);
-        shank.insert(shank.end(), {r, h});
-        if (r > 1e-6f) {
-            shank.insert(shank.end(), {0, h});  // the bottom of the shank
+        const float top = std::min(z0, hi), bottom = std::max(z1, lo);
+        if (top - bottom <= 1e-6f) {
+            continue;
         }
-        flutes = {r, h};
-        const int from = z1 >= h - 1e-6f ? i + 1 : i;  // no point twice
-        flutes.insert(flutes.end(), profilePoints.begin() + from * 2, profilePoints.begin() + nPoints * 2);
-        return flutes.size() >= 4;
+        const auto at = [&](float z) {
+            return r0 + (r1 - r0) * (z0 - z) / (z0 - z1);
+        };
+        add(at(top), top);
+        add(at(bottom), bottom);
     }
-    return false;
+    // closed on the axis at the bottom, the top is closed by RotateProfile
+    if (out.size() >= 4 && out[out.size() - 2] > 1e-6f) {
+        add(0, out.back());
+    }
+    if (out.size() < 4) {
+        out.clear();
+    }
+    return out;
 }
 
 void EndMill::MirrorPointBuffer()
