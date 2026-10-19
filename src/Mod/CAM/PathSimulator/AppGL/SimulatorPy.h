@@ -78,7 +78,7 @@ inline MachineKinematics MachineFromPython(const Py::Object& object)
 // A problem of the simulator as a dict, see CAMSim.GetEvents
 inline Py::Dict EventToPython(const Material::Event& e)
 {
-    static const char* kinds[] = {"rapid", "shank", "gouge", "left", "machine"};
+    static const char* kinds[] = {"rapid", "shank", "gouge", "machine"};
     auto triple = [](const double v[3]) {
         return Py::TupleN(Py::Float(v[0]), Py::Float(v[1]), Py::Float(v[2]));
     };

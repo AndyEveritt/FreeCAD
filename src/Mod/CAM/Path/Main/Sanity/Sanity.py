@@ -162,7 +162,6 @@ class CAMSanity:
             "rapid": "CAUTION",
             "shank": "WARNING",
             "gouge": "WARNING",
-            "left": "NOTE",
             "machine": "CAUTION",
         }
         squawks = []

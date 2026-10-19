@@ -413,9 +413,9 @@ class TestPathSimulatorFeed(PathTestUtils.PathTestBase):
         gouge = {"kind": "gouge", "position": (1, 2, 3), "depth": 0.25, "count": 1}
         self.assertEqual(eventText(gouge), "Cut into the model by 0.25 mm at X1.00 Y2.00 Z3.00")
         # the distance is measured up to 1 mm
-        left = {"kind": "left", "position": (1, 2, 3), "depth": 1.0, "count": 3}
+        deep = {"kind": "gouge", "position": (1, 2, 3), "depth": 1.0, "count": 3}
         self.assertEqual(
-            eventText(left), "Material left in 3 places, the most over 1 mm at X1.00 Y2.00 Z3.00"
+            eventText(deep), "Cut into the model in 3 places, the deepest by over 1 mm at X1.00 Y2.00 Z3.00"
         )
 
     def test17(self):

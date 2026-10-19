@@ -945,9 +945,9 @@ void Simulation::FindRegions()
     }
 
     // points of the faces the toolpath cut, at the ends of the material along the lines, about
-    // every RegionSpacing: cut into the model beyond the tolerance, or away from it, closer than
-    // the range of the distance (farther, like the far side of a groove around the part, it is
-    // not the part)
+    // every RegionSpacing, cut into the model beyond the tolerance. Material left away from the
+    // model is not looked for: by the distance alone, faces near the part that are not its faces
+    // (the floor around it, drill points in flat holes) can't be told from material left.
     struct Sample
     {
         float p[3];
@@ -956,7 +956,6 @@ void Simulation::FindRegions()
         int tag;
     };
     const Layout& layout = *mLayout;
-    const float range = model->Range();
     std::vector<std::vector<Sample>> found(mPool->Size() + 1);
     std::atomic<int> next {0};
     mPool->Run([&](int thread) {
@@ -998,8 +997,7 @@ void Simulation::FindRegions()
                         sample.distance = model->SignedDistance(sample.p);
                         sample.spacing = (float)(stride * cell);
                         sample.tag = TagOf(packed);
-                        if (sample.distance < -tolerance
-                            || (sample.distance > tolerance && sample.distance < 0.98f * range)) {
+                        if (sample.distance < -tolerance) {
                             out.push_back(sample);
                         }
                     }
@@ -1012,7 +1010,7 @@ void Simulation::FindRegions()
         samples.insert(samples.end(), f.begin(), f.end());
     }
 
-    // regions: the samples of a kind in cells of a hash, joined to the cells within 2.5 times the
+    // regions: the samples in cells of a hash, joined to the cells within 2.5 times the
     // spacing of their samples, so neighboring samples touch where the cells of the simulation
     // are coarse, and regions apart stay apart where they are fine
     const double hashCell = 4 * RegionSpacing;
@@ -1021,12 +1019,9 @@ void Simulation::FindRegions()
             | ((uint64_t)(z & 0x1FFFFF) << 42);
     };
     std::vector<Event> regions;
-    for (const Event::Kind kind : {Event::Gouge, Event::MaterialLeft}) {
+    {
         std::unordered_map<uint64_t, std::vector<int>> cells;
         for (int i = 0; i < (int)samples.size(); i++) {
-            if ((samples[i].distance < 0) != (kind == Event::Gouge)) {
-                continue;
-            }
             const Sample& s = samples[i];
             cells[keyOf(
                       (long)std::floor(s.p[0] / hashCell),
@@ -1076,7 +1071,7 @@ void Simulation::FindRegions()
                 continue;  // a few points: noise
             }
             Event e;
-            e.kind = kind;
+            e.kind = Event::Gouge;
             std::unordered_map<int, int> tags;
             for (int k = 0; k < 3; k++) {
                 e.lo[k] = 1e300;

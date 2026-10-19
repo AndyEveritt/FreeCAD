@@ -648,10 +648,10 @@ TEST(MaterialSimulation, theToolAboveItsFlutesIsFound)
     EXPECT_TRUE(simulate(0).empty());
 }
 
-TEST(MaterialSimulation, regionsCutIntoTheModelOrLeftAreFound)
+TEST(MaterialSimulation, regionsCutIntoTheModelAreFound)
 {
     // the model 1 mm below the top of the stock; a wide end mill cuts 0.5 mm into it on the left,
-    // and leaves 0.3 mm on the right
+    // and leaves 0.3 mm on the right: material left is not an event
     std::vector<std::shared_ptr<const Tool>> tools = {std::make_shared<Tool>(FlatProfile(12))};
     const double lo[3] = {0, 0, -10}, hi[3] = {40, 20, 0};
     std::vector<float> xyz, modelXyz;
@@ -676,36 +676,20 @@ TEST(MaterialSimulation, regionsCutIntoTheModelOrLeftAreFound)
     sim.SetModel(std::make_shared<ModelDistance>(modelXyz, modelTriangles, 1.0f), 0.05);
     sim.Start(tools, segments, xyz, triangles, 6);
     sim.WaitFrontier();
-    std::vector<Event> events;
-    for (int i = 0; i < 500 && events.size() < 2; i++) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        events = sim.Events();
-    }
-    ASSERT_EQ(events.size(), 2u);
+    sim.WaitEvents();
+    std::vector<Event> events = sim.Events();
+    ASSERT_EQ(events.size(), 1u);
     const Event& gouge = events[0];
-    const Event& left = events[1];
     EXPECT_EQ(gouge.kind, Event::Gouge);
     EXPECT_EQ(gouge.operation, 0);
     EXPECT_EQ(gouge.firstSegment, -1);
     EXPECT_NEAR(gouge.depth, 0.5, 0.02);
     EXPECT_LT(gouge.position[0], 20);
-    EXPECT_EQ(left.kind, Event::MaterialLeft);
-    EXPECT_EQ(left.operation, 1);
-    EXPECT_NEAR(left.depth, 0.3, 0.02);
-    EXPECT_GT(left.position[0], 20);
-    EXPECT_NEAR(left.hi[0], 40, 0.5);
 
-    // another tolerance finds them again, a larger one than the material left only the gouge
-    sim.SetModel(std::make_shared<ModelDistance>(modelXyz, modelTriangles, 1.0f), 0.4);
-    for (int i = 0; i < 500; i++) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        events = sim.Events();
-        if (events.size() == 1) {
-            break;
-        }
-    }
-    ASSERT_EQ(events.size(), 1u);
-    EXPECT_EQ(events[0].kind, Event::Gouge);
+    // another tolerance finds it again, a larger one than the gouge nothing
+    sim.SetModel(std::make_shared<ModelDistance>(modelXyz, modelTriangles, 1.0f), 0.6);
+    sim.WaitEvents();
+    EXPECT_TRUE(sim.Events().empty());
 }
 
 TEST(MaterialSimulation, toolpathsAreCheckedWithoutAView)

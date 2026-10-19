@@ -205,8 +205,6 @@ static QColor EventColor(Material::Event::Kind kind)
             return QColor(190, 80, 240);
         case Material::Event::Gouge:
             return QColor(220, 30, 30);
-        case Material::Event::MaterialLeft:
-            return QColor(60, 120, 255);
         case Material::Event::MachineLimit:
             return QColor(255, 200, 0);
     }

@@ -83,7 +83,6 @@ struct Event
         RapidIntoStock,  // a rapid move (G0) removes material
         ShankContact,    // the tool above its flutes meets material
         Gouge,           // a region of the final stock cut into the model
-        MaterialLeft,    // a region of faces the toolpath cut, away from the model
         MachineLimit,    // the machine can't make the moves, see MachineEvents
     };
     Kind kind = RapidIntoStock;
@@ -138,7 +137,7 @@ public:
 
     // The model of the job, null for none, and the tolerance of the distance of the stock from it:
     // once the whole path is simulated, the faces the toolpath cut are measured against it, and
-    // the regions cut into the model or left away from it are events (Gouge, MaterialLeft).
+    // the regions cut into the model are events (Gouge).
     // Can be set at any time, the regions are found again.
     void SetModel(std::shared_ptr<const ModelDistance> model, double tolerance);
     // Spacing of the points of the surface measured against the model, mm

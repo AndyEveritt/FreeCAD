@@ -627,12 +627,6 @@ def eventText(event, factor=1.0, unit="mm"):
                 "CAM_Simulator", "Cut into the model in %d places, the deepest by %s at %s"
             ) % (count, amount, where)
         return translate("CAM_Simulator", "Cut into the model by %s at %s") % (amount, where)
-    if event["kind"] == "left":
-        if count > 1:
-            return translate(
-                "CAM_Simulator", "Material left in %d places, the most %s at %s"
-            ) % (count, amount, where)
-        return translate("CAM_Simulator", "Material left, %s, at %s") % (amount, where)
     return where
 
 

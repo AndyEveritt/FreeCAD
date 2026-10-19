@@ -98,18 +98,15 @@ operation on motions following each other (up to 3 segments apart) make one even
   tool in mm2 is an event. Only motions where the planner finds the material higher than the
   flutes above the tip are probed.
 
-- cut into the model, material left: once the whole path is simulated, and the model of the job
-  is there (`Simulation::SetModel`, the distance model of the distance colors, made whenever the
-  job has a model), the faces the toolpath cut are measured against it: points of the final stock
-  at the ends of the material along the lines, about every 0.25 mm (`RegionSpacing`), cut into
-  the model by more than the tolerance (`SimulatorDeviationTolerance`), or away from it by more,
-  closer than the 1 mm range of the distance (farther, like the far side of a groove around the
-  part, it is not the part). They are joined into regions (in cells of 1 mm, with the cells
-  within 2.5 times the spacing of their points, 3 points at least), the operation that cut most
-  of a region is its operation. The regions of one kind and operation make one event, at the
-  deepest one, with their number and box, at the end of the operation on the timeline: a finish
-  leaving scallops above the tolerance is one problem. Changing the tolerance or the model finds
-  them again.
+- cut into the model: once the whole path is simulated, and the model of the job is there
+  (`Simulation::SetModel`, the distance model of the distance colors, made whenever the job has a
+  model), the faces the toolpath cut are measured against it: points of the final stock at the
+  ends of the material along the lines, about every 0.25 mm (`RegionSpacing`), cut into the model
+  by more than the tolerance (`SimulatorDeviationTolerance`). They are joined into regions (in
+  cells of 1 mm, with the cells within 2.5 times the spacing of their points, 3 points at least),
+  the operation that cut most of a region is its operation. The regions of one operation make one
+  event, at the deepest one, with their number and box, at the end of the operation on the
+  timeline. Changing the tolerance or the model finds them again.
 
 - the machine can't make the moves: with the Machine of the job (`CAMSim.SetMachine`,
   `machineDescription` in `SimulatorFeed.py`: its linear and rotary axes, `MachineKinematics`), a
@@ -123,7 +120,7 @@ Without a view: `ToolpathCheck` simulates a toolpath, given as the simulator is 
 returns its problems (`CAMSimulator.checkToolpath(steps, stock, model, quality, tolerance)`, the
 steps of `simulationSteps` in `Path/Main/SimulatorFeed.py`). The Sanity Check report lists them as
 squawks of their operation (`Sanity._simulationSquawks`): rapids into the stock CAUTION, the tool
-above its flutes and cuts into the model WARNING, material left NOTE.
+above its flutes and cuts into the model WARNING, moves the machine can't make CAUTION.
 
 The view marks the events on the timeline in the color of their kind, with buttons to go to the
 previous and the next one; the task panel lists them (`CAMSim.GetEvents`,

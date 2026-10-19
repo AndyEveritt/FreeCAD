@@ -34,9 +34,13 @@ Cut as the model has it, with tools whose profiles have arcs, followed exactly:
 Mistakes the simulator should find:
 
     slot          18 mm deep with an end mill of 10 mm flute length: its shank rubs the walls
-    pocket P2     roughed with 0.5 mm left on the walls and 0.3 mm on the floor, never finished
     gouge         a Custom operation that cuts 1 mm into the top of the model
     rapid         a Custom operation that rapids into the stock (G0)
+
+and one it shows, colored by the distance from the model (material left is not a problem it
+reports: the distance alone can't tell it from faces near the part that aren't its faces):
+
+    pocket P2     roughed with 0.5 mm left on the walls and 0.3 mm on the floor, never finished
 
 and what the operations do that the model doesn't have: the slot operation overcuts both ends of
 the slot by the radius of its tool, the drill points leave cones at the bottom of the flat holes
@@ -321,7 +325,7 @@ def build():
     job.Label = "Simulator checks"
     job.Description = (
         "Demo of the checks of the CAM simulator: exact tool arcs, a shank rubbing the walls of a "
-        "deep slot, material left, a gouge and a rapid into the stock. Do not machine."
+        "deep slot, a gouge, a rapid into the stock and material left. Do not machine."
     )
     job.GeometryTolerance = 0.01
     stock = job.Stock
