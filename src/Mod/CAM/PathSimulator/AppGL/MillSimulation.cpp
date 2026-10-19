@@ -1150,6 +1150,57 @@ void MillSimulation::StepCommand(int direction)
     GoToCommand(mSegmentMotions[first - 1].source);
 }
 
+std::vector<SimEvent> MillSimulation::GetEvents() const
+{
+    std::vector<SimEvent> events;
+    if (!mMaterial) {
+        return events;
+    }
+    for (const Material::Event& e : mMaterial->Events()) {
+        SimEvent se;
+        se.event = e;
+        if (e.firstSegment >= 0 && e.firstSegment < (int)mSegmentFirstStep.size()) {
+            se.step = mSegmentFirstStep[e.firstSegment];
+            se.command = mSegmentMotions[e.firstSegment].source;
+        }
+        else if (e.operation >= 0 && e.operation < (int)mOperations.size()) {
+            se.step = mOperations[e.operation].firstStep;
+        }
+        events.push_back(se);
+    }
+    return events;
+}
+
+int MillSimulation::EventCount() const
+{
+    return mMaterial ? mMaterial->EventCount() : 0;
+}
+
+void MillSimulation::GoToEvent(int index)
+{
+    const std::vector<SimEvent> events = GetEvents();
+    if (index >= 0 && index < (int)events.size()) {
+        SetSimulationStep(events[index].step);
+    }
+}
+
+void MillSimulation::StepEvent(int direction)
+{
+    const std::vector<SimEvent> events = GetEvents();
+    int target = -1;
+    for (const SimEvent& e : events) {
+        if (direction > 0 && e.step > mCurStep && (target < 0 || e.step < target)) {
+            target = e.step;
+        }
+        if (direction < 0 && e.step < mCurStep && e.step > target) {
+            target = e.step;
+        }
+    }
+    if (target >= 0) {
+        SetSimulationStep(target);
+    }
+}
+
 void MillSimulation::RequestPick(int x, int y)
 {
     simDisplay.RequestPick(x, y);

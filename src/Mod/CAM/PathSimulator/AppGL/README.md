@@ -79,6 +79,22 @@ Arcs and turning motions are approximated within a fiftieth of the cells of the 
 tool, far below what the cells show. Axes of work planes along the axes of the stock, computed
 from angles, are snapped to them.
 
+## Problems
+
+The simulation finds problems on the toolpath as the frontier simulates it (`Material::Event`,
+`Simulation::Events`): the cut of the frontier measures the material every motion removes
+(`Grid::Cut` with `CutStats`: its volume, the lengths along the lines of the three axes in the
+brick of each line times their cells, averaged, and its centroid). Events of the same kind and
+operation on motions following each other (up to 3 segments apart) make one event. The kinds:
+
+- rapid into the stock: a rapid move (G0) removes more than a twentieth of the square of the
+  radius of its tool (mm3), more than grazing the material.
+
+The view marks the events on the timeline in the color of their kind, with buttons to go to the
+previous and the next one; the task panel lists them (`CAMSim.GetEvents`,
+`SetEventsChangedCallback`), a click goes to the start of one (`CAMSim.GoToEvent`). Seeking and
+scrubbing cut the view grid without measuring, they cost nothing more.
+
 ## Display
 
 - `MaterialMesher`: dual contouring. Grid points are inside the material if the Z dexel through them

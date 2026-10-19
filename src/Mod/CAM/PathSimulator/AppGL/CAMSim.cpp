@@ -106,6 +106,21 @@ void CAMSim::SetOperationPickedHandler(std::function<void(int)> handler)
     DlgCAMSimulator::instance()->setOperationPickedHandler(std::move(handler));
 }
 
+std::vector<SimEvent> CAMSim::GetEvents()
+{
+    return DlgCAMSimulator::instance()->events();
+}
+
+void CAMSim::GoToEvent(int index)
+{
+    DlgCAMSimulator::instance()->goToEvent(index);
+}
+
+void CAMSim::SetEventsChangedHandler(std::function<void(int)> handler)
+{
+    DlgCAMSimulator::instance()->setEventsChangedHandler(std::move(handler));
+}
+
 void CAMSim::GoToCommand(int index)
 {
     DlgCAMSimulator::instance()->goToCommand(index);

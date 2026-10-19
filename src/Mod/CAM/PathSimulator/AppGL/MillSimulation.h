@@ -56,6 +56,14 @@ struct SimOperation
     vec3 color = {0, 0, 0};
 };
 
+// A problem found on the toolpath, where it is on the timeline: the step of its start and its command
+struct SimEvent
+{
+    Material::Event event;
+    int step = 0;
+    int command = -1;
+};
+
 struct MillSimulationState
 {
     int mCurStep = 0;
@@ -126,6 +134,13 @@ public:
     // Go to the start of the next command that moves the tool (direction > 0), or of the command
     // in progress, or the previous one if already there (direction < 0)
     void StepCommand(int direction);
+    // The problems found on the toolpath so far, in the order of the path
+    std::vector<SimEvent> GetEvents() const;
+    int EventCount() const;
+    // Go to the start of an event, or of the next one after the current step (direction > 0) or
+    // the last one before it (direction < 0)
+    void GoToEvent(int index);
+    void StepEvent(int direction);
     // The operation of the stock face at a pixel of the view (from the bottom left), in the next
     // frame: TakePick gives it after that frame, -1 for none (no stock there or uncut stock).
     // 'position' gets the point of the stock there.

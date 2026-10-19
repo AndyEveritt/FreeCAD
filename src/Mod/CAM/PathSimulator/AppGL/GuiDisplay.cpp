@@ -28,6 +28,9 @@
 #include <QCoreApplication>
 #include <QLinearGradient>
 #include <QPainter>
+#include <QSlider>
+#include <QStyle>
+#include <QStyleOptionSlider>
 #include <cmath>
 #include <limits>
 
@@ -133,6 +136,64 @@ private:
     float mTolerance = 0.05f;
 };
 
+// Marks on the timeline slider, over it, at the problems found on the toolpath
+class EventMarks: public QWidget
+{
+public:
+    explicit EventMarks(QSlider* slider)
+        : QWidget(slider)
+        , mSlider(slider)
+    {
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        slider->installEventFilter(this);
+        setGeometry(slider->rect());
+    }
+    // the size of the slider
+    bool eventFilter(QObject* watched, QEvent* event) override
+    {
+        if (watched == mSlider && event->type() == QEvent::Resize) {
+            setGeometry(mSlider->rect());
+        }
+        return false;
+    }
+    void setMarks(const std::vector<std::pair<float, QColor>>& marks)
+    {
+        mMarks = marks;
+        update();
+    }
+
+protected:
+    void paintEvent(QPaintEvent*) override
+    {
+        if (mMarks.empty()) {
+            return;
+        }
+        // where the slider puts its handle for a value, as its style draws it
+        QStyleOptionSlider opt;
+        opt.initFrom(mSlider);
+        opt.orientation = mSlider->orientation();
+        if (opt.orientation == Qt::Horizontal) {
+            opt.state |= QStyle::State_Horizontal;  // as QSlider sets it
+        }
+        opt.minimum = 0;
+        opt.maximum = 10000;
+        const QStyle* style = mSlider->style();
+        const QRect groove = style->subControlRect(QStyle::CC_Slider, &opt, QStyle::SC_SliderGroove, mSlider);
+        const QRect handle = style->subControlRect(QStyle::CC_Slider, &opt, QStyle::SC_SliderHandle, mSlider);
+        const int span = groove.width() - handle.width();
+        QPainter p(this);
+        for (const auto& [place, color] : mMarks) {
+            const int x = groove.left() + handle.width() / 2
+                + QStyle::sliderPositionFromValue(0, 10000, (int)(place * 10000), span);
+            p.fillRect(QRect(x - 1, 1, 3, height() - 2), color);
+        }
+    }
+
+private:
+    QSlider* mSlider;
+    std::vector<std::pair<float, QColor>> mMarks;
+};
+
 }  // namespace
 
 GuiDisplay::GuiDisplay(QWidget* parent)
@@ -155,6 +216,10 @@ GuiDisplay::GuiDisplay(QWidget* parent)
     connect(ui->ssaoButton, &QToolButton::toggled, this, &GuiDisplay::ssaoEnableChanged);
     connect(ui->previousOperationButton, &QToolButton::clicked, this, &GuiDisplay::previousOperation);
     connect(ui->nextOperationButton, &QToolButton::clicked, this, &GuiDisplay::nextOperation);
+    connect(ui->previousEventButton, &QToolButton::clicked, this, &GuiDisplay::previousEvent);
+    connect(ui->nextEventButton, &QToolButton::clicked, this, &GuiDisplay::nextEvent);
+    eventMarks = new EventMarks(ui->stageSlider);
+    setEvents({});
     setOperation(QString(), -1, 0);
     connect(ui->stageSlider, &QSlider::sliderPressed, this, [this] { Q_EMIT scrubbing(true); });
     connect(ui->stageSlider, &QSlider::sliderReleased, this, [this] { Q_EMIT scrubbing(false); });
@@ -168,6 +233,13 @@ void GuiDisplay::setDeviationScale(bool visible, float tolerance)
     static_cast<DeviationScale*>(deviationScale)->setTolerance(tolerance);
     deviationScale->setVisible(visible);
     placeDeviationScale();
+}
+
+void GuiDisplay::setEvents(const std::vector<std::pair<float, QColor>>& marks)
+{
+    static_cast<EventMarks*>(eventMarks)->setMarks(marks);
+    ui->previousEventButton->setVisible(!marks.empty());
+    ui->nextEventButton->setVisible(!marks.empty());
 }
 
 // at the top right of the view

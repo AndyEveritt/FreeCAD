@@ -61,6 +61,14 @@ struct Brick
     uint16_t start[BrickLines + 1] = {};
 };
 
+// The material a sweep removes, or a probe sweep meets, measured by Grid::Cut: its volume (the
+// lengths along the lines of the three axes times their cells, averaged) and its centroid
+struct CutStats
+{
+    double volume = 0;
+    double moment[3] = {0, 0, 0};  // the centroid times the volume
+};
+
 // Stock material as tri-dexels in the bricks of a layout. Bricks are shared by copies of the grid
 // (snapshots) and copied when they change. Empty bricks hold nothing, completely filled bricks
 // share one marker.
@@ -84,11 +92,15 @@ public:
     void SetMesh(const std::vector<float>& xyz, const std::vector<uint32_t>& triangles, ThreadPool& pool);
 
     // Remove the material swept by the sweeps. Returns the work done (lines times sweeps). The
-    // bricks the cut replaces are appended to 'undo' if given.
+    // bricks the cut replaces are appended to 'undo' if given. Sweeps whose 'probes' flag is set
+    // remove nothing, they only measure the material they meet. 'stats' gets what every sweep
+    // removed or met, in the order of the sweeps.
     long Cut(
         const std::vector<const Sweep*>& sweeps,
         ThreadPool& pool,
-        std::vector<std::pair<int, BrickRef>>* undo = nullptr
+        std::vector<std::pair<int, BrickRef>>* undo = nullptr,
+        const std::vector<uint8_t>* probes = nullptr,
+        std::vector<CutStats>* stats = nullptr
     );
 
     // Spans of a line of a leaf. 'scratch' holds the span of a completely filled brick.
@@ -138,7 +150,9 @@ private:
         const std::vector<const Sweep*>& sweeps,
         const int* list,
         int n,
-        std::pair<int, BrickRef>* undo
+        std::pair<int, BrickRef>* undo,
+        const uint8_t* probes,
+        std::atomic<double>* stats
     );
 
     std::shared_ptr<const Layout> mLayout;

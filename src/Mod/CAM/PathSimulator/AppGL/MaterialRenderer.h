@@ -78,6 +78,15 @@ public:
         return mSimulation.GlobalStep(segment, step);
     }
     void SetTarget(long step);
+    // The problems found on the toolpath so far, see Simulation::Events
+    std::vector<Event> Events() const
+    {
+        return mSimulation.Events();
+    }
+    int EventCount() const
+    {
+        return mSimulation.EventCount();
+    }
     // Take finished meshes into the GPU buffers, in the GUI thread. True if the display changed.
     bool Update();
     // A finished mesh waits for Update

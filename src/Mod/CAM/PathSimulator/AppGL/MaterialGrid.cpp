@@ -372,14 +372,21 @@ void Grid::SetMesh(const std::vector<float>& xyz, const std::vector<uint32_t>& t
 long Grid::Cut(
     const std::vector<const Sweep*>& sweeps,
     ThreadPool& pool,
-    std::vector<std::pair<int, BrickRef>>* undo
+    std::vector<std::pair<int, BrickRef>>* undo,
+    const std::vector<uint8_t>* probes,
+    std::vector<CutStats>* stats
 )
 {
     const int leaves = mLayout->LeafCount();
     const int ns = (int)sweeps.size();
+    if (stats) {
+        stats->assign(ns, CutStats());
+    }
     if (ns == 0) {
         return 0;
     }
+    // volume and moment of every sweep, added by the leaves
+    std::vector<std::atomic<double>> measured(stats ? 4 * ns : 0);
     // leaves touched by every sweep
     std::vector<std::vector<int>> touched(ns);
     ParallelFor(pool, ns, 4, [&](int i) {
@@ -439,9 +446,19 @@ long Grid::Cut(
             sweeps,
             bySweep.data() + count[leaf],
             count[leaf + 1] - count[leaf],
-            undo ? &replaced[w] : nullptr
+            undo ? &replaced[w] : nullptr,
+            probes ? probes->data() : nullptr,
+            stats ? measured.data() : nullptr
         );
     });
+    if (stats) {
+        for (int i = 0; i < ns; i++) {
+            (*stats)[i].volume = measured[4 * i];
+            for (int k = 0; k < 3; k++) {
+                (*stats)[i].moment[k] = measured[4 * i + 1 + k];
+            }
+        }
+    }
     if (undo) {
         for (auto& r : replaced) {
             if (r.first >= 0) {
@@ -477,14 +494,21 @@ long Grid::CutLeaf(
     const std::vector<const Sweep*>& sweeps,
     const int* list,
     int n,
-    std::pair<int, BrickRef>* undo
+    std::pair<int, BrickRef>* undo,
+    const uint8_t* probes,
+    std::atomic<double>* stats
 )
 {
     thread_local std::vector<WorkSpan> lines[BrickLines];
     thread_local std::vector<WorkSpan> next;
     thread_local std::vector<Removal> removals;
     thread_local std::vector<PendingEnd> pending;
+    // the volume and the moment measured in the leaf, by the index in the list
+    thread_local std::vector<double> measured;
     pending.clear();
+    if (stats) {
+        measured.assign(4 * n, 0.0);
+    }
 
     const Layout::Leaf& lf = mLayout->GetLeaf(leaf);
     const double cell = lf.cell * mLayout->Unit();
@@ -532,6 +556,36 @@ long Grid::CutLeaf(
                     if (sw.Line(a, origin, spans.front().lo, spans.back().hi, removals) == 0) {
                         continue;
                     }
+                    // the lengths of material the removals meet, a third of their volume each,
+                    // as the lines of the other axes measure it too. Only in the brick (lines
+                    // reach beyond it, its last lines are on its neighbors), so every point is
+                    // measured once.
+                    if (stats && i < Cells && j < Cells) {
+                        const double area = cell * cell / 3;
+                        const double inLo = corner[a], inHi = corner[a] + Cells * cell;
+                        size_t r = 0;
+                        for (const WorkSpan& span : spans) {
+                            while (r < removals.size() && removals[r].hi.s <= span.lo) {
+                                r++;
+                            }
+                            for (size_t q = r; q < removals.size() && removals[q].lo.s < span.hi; q++) {
+                                const double lo = std::max({span.lo, removals[q].lo.s, inLo});
+                                const double hi = std::min({span.hi, removals[q].hi.s, inHi});
+                                if (hi <= lo) {
+                                    continue;
+                                }
+                                const double volume = (hi - lo) * area;
+                                double* m = &measured[4 * k];
+                                m[0] += volume;
+                                for (int c = 0; c < 3; c++) {
+                                    m[1 + c] += volume * (c == a ? (lo + hi) / 2 : origin[c]);
+                                }
+                            }
+                        }
+                    }
+                    if (probes && probes[si]) {
+                        continue;  // measures only
+                    }
                     // subtract
                     next.clear();
                     size_t r = 0;
@@ -574,6 +628,15 @@ long Grid::CutLeaf(
                         spans.swap(next);
                         changed = true;
                     }
+                }
+            }
+        }
+    }
+    if (stats) {
+        for (int k = 0; k < n; k++) {
+            if (measured[4 * k] > 0) {
+                for (int c = 0; c < 4; c++) {
+                    stats[4 * list[k] + c] += measured[4 * k + c];
                 }
             }
         }

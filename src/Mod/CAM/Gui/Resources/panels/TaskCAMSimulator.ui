@@ -141,6 +141,28 @@
     </widget>
    </item>
    <item>
+    <widget class="QGroupBox" name="groupEvents">
+     <property name="title">
+      <string>Problems</string>
+     </property>
+     <layout class="QVBoxLayout" name="layoutEvents">
+      <item>
+       <widget class="QListWidget" name="listEvents">
+        <property name="toolTip">
+         <string>The problems the simulation finds on the toolpath: a click goes to where it starts</string>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>16777215</width>
+          <height>120</height>
+         </size>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
     <widget class="QGroupBox" name="groupCommands">
      <property name="title">
       <string>Commands</string>

@@ -71,6 +71,22 @@ struct Segment
     void AxisAt(double t, double axis[3]) const;
 };
 
+// A problem the simulation finds on the toolpath
+struct Event
+{
+    enum Kind
+    {
+        RapidIntoStock,  // a rapid move (G0) removes material
+    };
+    Kind kind = RapidIntoStock;
+    // the segments of the moves, one after the other
+    int firstSegment = -1;
+    int lastSegment = -1;
+    int operation = -1;
+    double volume = 0;               // of the material met, mm3
+    double position[3] = {0, 0, 0};  // the centroid of the material met
+};
+
 // Simulation of the stock material along the toolpath.
 //
 // Before simulating, the path is divided into motions (arcs into chords) and the layout of the
@@ -143,6 +159,11 @@ public:
     // Blocks until the frontier reached the end (tests, benchmarks)
     void WaitFrontier() const;
 
+    // The problems found on the path up to the frontier, in the order of the path
+    std::vector<Event> Events() const;
+    // Count of the events, changes as they are found
+    int EventCount() const;
+
 private:
     struct Motion2
     {
@@ -161,8 +182,11 @@ private:
     // Plan, the initial stock, then simulate
     void Prepare();
     void Worker();
-    // Cut a batch of the motions from 'from' on, up to 'to', returns where it got
-    long CutBatch(Grid& grid, long from, long to);
+    // Cut a batch of the motions from 'from' on, up to 'to', returns where it got. With 'check',
+    // the events the motions make are found.
+    long CutBatch(Grid& grid, long from, long to, bool check = false);
+    // A motion of a segment meets material in a way the kind of event reports
+    void AddEvent(Event::Kind kind, int segment, const CutStats& stats);
     // Motions done and the partial segment parameter at a step
     void Locate(long step, long& motions, long& partialMotion, double& partialT) const;
     // The step at which a number of motions are done
@@ -225,6 +249,7 @@ private:
     long mFrontierStep = 0;
     std::function<void()> mNotify;
     Stats mStats;
+    std::vector<Event> mEvents;  // guarded by mMutex
 };
 
 }  // namespace CAMSimulator::Material

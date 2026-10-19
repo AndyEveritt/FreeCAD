@@ -191,6 +191,8 @@
         <file>gl_simulator/SkipEnd.png</file>
         <file>gl_simulator/PreviousOperation.png</file>
         <file>gl_simulator/NextOperation.png</file>
+        <file>gl_simulator/NextEvent.png</file>
+        <file>gl_simulator/PreviousEvent.png</file>
         <file>preferences/Advanced.ui</file>
         <file>preferences/PathDressupHoldingTags.ui</file>
         <file>preferences/PathJob.ui</file>

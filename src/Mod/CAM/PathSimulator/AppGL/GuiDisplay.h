@@ -24,7 +24,11 @@
 
 #pragma once
 
+#include <QColor>
 #include <QWidget>
+
+#include <utility>
+#include <vector>
 
 namespace CAMSimulator
 {
@@ -45,6 +49,9 @@ public:
     void setOperation(const QString& name, int index, int count);
     // the scale of the colors of the distance from the model, while they are shown
     void setDeviationScale(bool visible, float tolerance);
+    // marks on the timeline at the problems found on the toolpath: their place from 0 to 1 and
+    // their color
+    void setEvents(const std::vector<std::pair<float, QColor>>& marks);
 
     void setRotateEnabled(bool b);
     void setPathVisible(bool b);
@@ -57,6 +64,8 @@ Q_SIGNALS:
     void skipToEnd();
     void previousOperation();
     void nextOperation();
+    void previousEvent();
+    void nextEvent();
     void speedChanged(int s);
     void stageChanged(float f);
     void scrubbing(bool b);
@@ -83,6 +92,7 @@ private:
     void placeDeviationScale();
     Ui_GuiDisplay* ui;
     QWidget* deviationScale = nullptr;
+    QWidget* eventMarks = nullptr;
 
     bool playing = true;
     int speed = 1;

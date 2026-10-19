@@ -321,6 +321,62 @@ PyObject* CAMSimPy::SetCommandChangedCallback(PyObject* args)
     return Py_None;
 }
 
+PyObject* CAMSimPy::SetEventsChangedCallback(PyObject* args)
+{
+    PyObject* callback;
+    std::function<void(int)> handler;
+    if (!PyArg_ParseTuple(args, "O", &callback) || !IntHandler(callback, handler)) {
+        return nullptr;
+    }
+    getCAMSimPtr()->SetEventsChangedHandler(handler);
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+PyObject* CAMSimPy::GoToEvent(PyObject* args)
+{
+    int index;
+    if (!PyArg_ParseTuple(args, "i", &index)) {
+        return nullptr;
+    }
+    getCAMSimPtr()->GoToEvent(index);
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+// The names of the kinds of events
+static const char* EventKindName(Material::Event::Kind kind)
+{
+    switch (kind) {
+        case Material::Event::RapidIntoStock:
+            return "rapid";
+    }
+    return "";
+}
+
+PyObject* CAMSimPy::GetEvents()
+{
+    Py::List list;
+    for (const SimEvent& e : getCAMSimPtr()->GetEvents()) {
+        Py::Dict d;
+        d.setItem("kind", Py::String(EventKindName(e.event.kind)));
+        d.setItem("step", Py::Long(e.step));
+        d.setItem("command", Py::Long(e.command));
+        d.setItem("operation", Py::Long(e.event.operation));
+        d.setItem("volume", Py::Float(e.event.volume));
+        d.setItem(
+            "position",
+            Py::TupleN(
+                Py::Float(e.event.position[0]),
+                Py::Float(e.event.position[1]),
+                Py::Float(e.event.position[2])
+            )
+        );
+        list.append(d);
+    }
+    return Py::new_reference_to(list);
+}
+
 PyObject* CAMSimPy::GoToCommand(PyObject* args)
 {
     int index;

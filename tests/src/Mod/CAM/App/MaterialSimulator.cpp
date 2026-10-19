@@ -508,6 +508,100 @@ TEST(MaterialGrid, slotIsExact)
     EXPECT_GT(cutEnds, 100);
 }
 
+TEST(MaterialGrid, cutsAreMeasured)
+{
+    ThreadPool pool(4);
+    // walls and floor between the lines of the grid (cells of 0.25)
+    const double lo[3] = {0, 0, -10}, hi[3] = {20, 20, 0.1};
+    Layout::Builder builder(lo, hi, 0.5, 1, pool.Size());
+    const double a[3] = {0, 10.1, -3.1}, b[3] = {20, 10.1, -3.1};
+    builder.AddCapsule(0, a, b, 4, 1);
+    const std::shared_ptr<Layout> layout = builder.Build(pool);
+    std::vector<float> xyz;
+    std::vector<uint32_t> triangles;
+    MakeBox(lo, hi, xyz, triangles);
+    Grid grid;
+    grid.Init(layout);
+    grid.SetMesh(xyz, triangles, pool);
+    grid.TakeDirty();
+
+    // a slot 4 wide and 3.2 deep through the block: 256 mm3 around (10, 10.1, -1.5)
+    const Tool tool(FlatProfile(2));
+    Motion m;
+    m.tool = &tool;
+    m.p0[0] = -5;
+    m.p1[0] = 25;
+    m.p0[1] = m.p1[1] = 10.1;
+    m.p0[2] = m.p1[2] = -3.1;
+    const Sweep sweep(m);
+    auto check = [](const CutStats& s) {
+        EXPECT_NEAR(s.volume, 256, 256 * 0.02);
+        const double c[3] = {10, 10.1, -1.5};
+        for (int k = 0; k < 3; k++) {
+            EXPECT_NEAR(s.moment[k] / s.volume, c[k], 0.1) << k;
+        }
+    };
+
+    // a probe measures the material it meets and removes nothing
+    const std::vector<uint8_t> probe = {1};
+    std::vector<CutStats> stats;
+    grid.Cut({&sweep}, pool, nullptr, &probe, &stats);
+    ASSERT_EQ(stats.size(), 1u);
+    check(stats[0]);
+    EXPECT_TRUE(grid.TakeDirty().empty());
+
+    // the cut removes it, then there is nothing left to remove
+    grid.Cut({&sweep}, pool, nullptr, nullptr, &stats);
+    check(stats[0]);
+    EXPECT_FALSE(grid.TakeDirty().empty());
+    grid.Cut({&sweep, &sweep}, pool, nullptr, nullptr, &stats);
+    ASSERT_EQ(stats.size(), 2u);
+    // touching the walls it left, within the tolerance of the ends
+    EXPECT_LT(stats[0].volume, 1e-3);
+    EXPECT_LT(stats[1].volume, 1e-3);
+}
+
+TEST(MaterialSimulation, rapidsIntoTheStockAreFound)
+{
+    std::vector<std::shared_ptr<const Tool>> tools = {std::make_shared<Tool>(FlatProfile(2))};
+    const double lo[3] = {0, 0, -10}, hi[3] = {40, 20, 0};
+    std::vector<float> xyz;
+    std::vector<uint32_t> triangles;
+    MakeBox(lo, hi, xyz, triangles);
+    const float p[][3] = {
+        {-5, 5, 5},
+        {-5, 5, -2},
+        {45, 5, -2},  // feed: a slot
+        {45, 5, 5},
+        {-5, 15, 5},  // rapid above the stock
+        {-5, 15, -1.3f},
+        {20, 15, -1.3f},  // rapid into the stock: 1.3 mm deep, 4 wide, 25 long
+        {45, 15, -1.3f},  // and on, another rapid of the same operation
+        {45, 15, 5},
+    };
+    std::vector<Segment> segments;
+    for (int i = 1; i < 9; i++) {
+        segments.push_back(Line(0, p[i - 1], p[i]));
+        segments.back().rapid = i != 2;
+        segments.back().operation = i < 4 ? 0 : 1;
+    }
+    Simulation sim;
+    sim.Start(tools, segments, xyz, triangles, 6);
+    sim.WaitFrontier();
+    const std::vector<Event> events = sim.Events();
+    ASSERT_EQ(events.size(), 1u);
+    const Event& e = events[0];
+    EXPECT_EQ(e.kind, Event::RapidIntoStock);
+    EXPECT_EQ(e.firstSegment, 5);
+    EXPECT_EQ(e.lastSegment, 6);
+    EXPECT_EQ(e.operation, 1);
+    // measured on the cells of the simulation
+    EXPECT_NEAR(e.volume, 1.3 * 4 * 40, 208 * 0.15);
+    EXPECT_NEAR(e.position[0], 20, 0.5);
+    EXPECT_NEAR(e.position[1], 15, 0.2);
+    EXPECT_NEAR(e.position[2], -0.65, 0.2);
+}
+
 TEST(MaterialSimulation, seeksMatchTheWholePath)
 {
     // a pocket with arcs and ramps, cut by two tools

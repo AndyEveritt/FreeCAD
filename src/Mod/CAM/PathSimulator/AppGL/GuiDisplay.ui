@@ -118,6 +118,34 @@
       </widget>
      </item>
      <item>
+      <widget class="QToolButton" name="previousEventButton">
+       <property name="toolTip">
+        <string>Go to the previous problem found on the toolpath</string>
+       </property>
+       <property name="icon">
+        <iconset resource="../../Gui/Resources/Path.qrc">
+         <normaloff>:/gl_simulator/PreviousEvent.png</normaloff>:/gl_simulator/PreviousEvent.png</iconset>
+       </property>
+       <property name="autoRaise">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QToolButton" name="nextEventButton">
+       <property name="toolTip">
+        <string>Go to the next problem found on the toolpath</string>
+       </property>
+       <property name="icon">
+        <iconset resource="../../Gui/Resources/Path.qrc">
+         <normaloff>:/gl_simulator/NextEvent.png</normaloff>:/gl_simulator/NextEvent.png</iconset>
+       </property>
+       <property name="autoRaise">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
       <widget class="QToolButton" name="slowerButton">
        <property name="toolTip">
         <string>Decrease simulation speed</string>

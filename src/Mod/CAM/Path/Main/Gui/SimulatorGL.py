@@ -64,6 +64,24 @@ OPERATION_COLORS = [
 ]
 
 
+# The colors of the kinds of problems, as the marks on the timeline of the simulator view
+EVENT_COLORS = {
+    "rapid": (255, 110, 20),
+}
+
+
+def EventText(event, factor=1.0, unit="mm"):
+    """The text of a problem the simulation found, its sizes in a length unit of factor mm"""
+    x, y, z = (v / factor for v in event["position"])
+    where = "X%.2f Y%.2f Z%.2f" % (x, y, z)
+    if event["kind"] == "rapid":
+        volume = event["volume"] / factor**3
+        return QtCore.QT_TRANSLATE_NOOP(
+            "CAM_Simulator", "Rapid move into the stock, %.3g %s³ at %s"
+        ) % (volume, unit, where)
+    return where
+
+
 def PathColor(op):
     """The color of the path of an operation, None if it has none"""
     view = getattr(op, "ViewObject", None)
@@ -225,6 +243,8 @@ class CAMSimulation:
         form.previousCommand.clicked.connect(lambda: self.onStepCommand(-1))
         form.nextCommand.clicked.connect(lambda: self.onStepCommand(1))
         form.listCommands.clicked.connect(self.onCommandClicked)
+        form.listEvents.itemClicked.connect(self.onEventClicked)
+        form.groupEvents.hide()
         font = QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.FixedFont)
         form.listCommands.setFont(font)
         self.commandModel = None
@@ -506,6 +526,10 @@ class CAMSimulation:
             QtCore.QT_TRANSLATE_NOOP("CAM_Simulator", "Commands") + " (%s, %s)" % (lengthUnit, feedUnit)
         )
         self.millSim.SetCommandChangedCallback(self.onCommandChanged)
+        self.units = (lengthFactor, lengthUnit)
+        self.operationLabels = labels
+        self.taskForm.form.listEvents.clear()
+        self.millSim.SetEventsChangedCallback(self.onEventsChanged)
 
     def onCommandChanged(self, index):
         """The simulation got to another command: show it in the list"""
@@ -524,6 +548,42 @@ class CAMSimulation:
         label = self.commandModel.operations[op] if op >= 0 else ""
         form.commandLabel.setText("%d / %d  %s" % (index + 1, count, label))
 
+    def onEventsChanged(self, count):
+        """The simulation found problems on the toolpath: list them"""
+        form = self.taskForm.form
+        form.listEvents.clear()
+        factor, unit = self.units
+        for event in self.millSim.GetEvents():
+            text = EventText(event, factor, unit)
+            op = event["operation"]
+            if 0 <= op < len(self.operationLabels):
+                text += " - " + self.operationLabels[op]
+            item = QtGui.QListWidgetItem(text)
+            item.setIcon(self._eventIcon(event["kind"]))
+            item.setToolTip(text)
+            form.listEvents.addItem(item)
+        form.groupEvents.setVisible(count > 0)
+        form.groupEvents.setTitle(
+            QtCore.QT_TRANSLATE_NOOP("CAM_Simulator", "Problems") + " (%d)" % count
+        )
+
+    @staticmethod
+    def _eventIcon(kind):
+        """A square in the color of the marks of a kind of problem on the timeline"""
+        pixmap = QtGui.QPixmap(16, 16)
+        pixmap.fill(QtCore.Qt.transparent)
+        painter = QtGui.QPainter(pixmap)
+        painter.setPen(QtGui.QColor(40, 40, 40))
+        painter.setBrush(QtGui.QColor(*EVENT_COLORS.get(kind, (255, 255, 255))))
+        painter.drawRect(2, 2, 11, 11)
+        painter.end()
+        return QtGui.QIcon(pixmap)
+
+    def onEventClicked(self, item):
+        """Go to the start of the clicked problem"""
+        if self.millSim is not None:
+            self.millSim.GoToEvent(self.taskForm.form.listEvents.row(item))
+
     def onCommandClicked(self, index):
         """Go to the start of the clicked command"""
         if self.millSim is not None and index.isValid():
@@ -539,6 +599,7 @@ class CAMSimulation:
         if self.millSim is not None:
             self.millSim.SetOperationPickedCallback(None)
             self.millSim.SetCommandChangedCallback(None)
+            self.millSim.SetEventsChangedCallback(None)
 
 
 class CommandCAMSimulate:

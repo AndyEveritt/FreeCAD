@@ -37,6 +37,7 @@
 #include <Mod/Part/App/TopoShape.h>
 
 #include "DlgCAMSimulator.h"
+#include "MillSimulation.h"
 
 using namespace Path;
 
@@ -86,6 +87,10 @@ public:
     void GoToCommand(int index);
     void StepCommand(int direction);
     void SetCommandChangedHandler(std::function<void(int)> handler);
+    // the problems found on the toolpath, see DlgCAMSimulator::events
+    std::vector<SimEvent> GetEvents();
+    void GoToEvent(int index);
+    void SetEventsChangedHandler(std::function<void(int)> handler);
 };
 
 }  // namespace CAMSimulator

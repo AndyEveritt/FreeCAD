@@ -63,6 +63,7 @@ namespace CAMSimulator
 // use short declaration as using 'include' causes a header loop
 class MillSimulation;
 struct MillSimulationState;
+struct SimEvent;
 struct Vertex;
 namespace Material
 {
@@ -171,11 +172,17 @@ public:
     void goToCommand(int index);
     void stepCommand(int direction);
     void setCommandChangedHandler(std::function<void(int)> handler);
+    // The problems found on the toolpath so far: go to the start of one, and the handler gets
+    // their count when it changes
+    std::vector<SimEvent> events() const;
+    void goToEvent(int index);
+    void setEventsChangedHandler(std::function<void(int)> handler);
 
 Q_SIGNALS:
     void simulationStarted();
     void operationPicked(int operation);
     void commandChanged(int command);
+    void eventsChanged(int count);
 
 protected:
     void timerEvent(QTimerEvent* event) override;
@@ -193,6 +200,9 @@ protected:
 private:
     std::function<void(int)> mOperationPicked;
     std::function<void(int)> mCommandChanged;
+    std::function<void(int)> mEventsChanged;
+    int mEventCount = 0;  // the events shown
+    void updateEvents();
     int mLastCommandShown = -2;  // the command in progress last reported
     bool mFrameTiming = false;
     std::vector<double> mFrameTimes;  // milliseconds

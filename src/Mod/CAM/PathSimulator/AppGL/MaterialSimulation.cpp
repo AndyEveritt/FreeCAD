@@ -281,6 +281,7 @@ void Simulation::Start(
         mTarget = 0;
         mFrontierStep = 0;
         mDisplayStep = -1;
+        mEvents.clear();
     }
     mWorker = std::thread([this] { Worker(); });
 }
@@ -774,7 +775,7 @@ long Simulation::StepOfMotion(long motions) const
     return mBase[m.segment] + (long)std::floor(m.t0 * std::max(1, seg.sweepSteps));
 }
 
-long Simulation::CutBatch(Grid& grid, long from, long to)
+long Simulation::CutBatch(Grid& grid, long from, long to, bool check)
 {
     const long end = std::min(to, from + std::max(1L, (long)mMotionsPerBatch));
     std::vector<Sweep> sweeps;
@@ -787,9 +788,21 @@ long Simulation::CutBatch(Grid& grid, long from, long to)
     for (const Sweep& s : sweeps) {
         ptrs.push_back(&s);
     }
+    std::vector<CutStats> stats;
     const auto start = Clock::now();
-    grid.Cut(ptrs, *mPool);
+    grid.Cut(ptrs, *mPool, nullptr, nullptr, check ? &stats : nullptr);
     const double ms = MsSince(start);
+    if (check) {
+        for (long i = from; i < end; i++) {
+            const Motion2& m = mMotions[i];
+            const CutStats& s = stats[i - from];
+            // more than grazing the material: a twentieth of the square of the radius of the tool
+            const double radius = m.motion.tool->Radius();
+            if (mSegments[m.segment].rapid && s.volume > std::max(1e-3, 0.05 * radius * radius)) {
+                AddEvent(Event::RapidIntoStock, m.segment, s);
+            }
+        }
+    }
     // batches of about BatchMs
     if (ms < BatchMs / 2) {
         mMotionsPerBatch = std::min(65536.0, mMotionsPerBatch * 1.5);
@@ -798,6 +811,48 @@ long Simulation::CutBatch(Grid& grid, long from, long to)
         mMotionsPerBatch = std::max(8.0, mMotionsPerBatch * 0.6);
     }
     return end;
+}
+
+void Simulation::AddEvent(Event::Kind kind, int segment, const CutStats& stats)
+{
+    std::lock_guard<std::mutex> lock(mMutex);
+    // the moves of one operation following each other make one event
+    const int operation = mSegments[segment].operation;
+    for (auto it = mEvents.rbegin(); it != mEvents.rend(); ++it) {
+        if (it->lastSegment < segment - 3) {
+            break;
+        }
+        if (it->kind == kind && it->operation == operation) {
+            const double volume = it->volume + stats.volume;
+            for (int k = 0; k < 3; k++) {
+                it->position[k] = (it->position[k] * it->volume + stats.moment[k]) / volume;
+            }
+            it->volume = volume;
+            it->lastSegment = segment;
+            return;
+        }
+    }
+    Event e;
+    e.kind = kind;
+    e.firstSegment = e.lastSegment = segment;
+    e.operation = operation;
+    e.volume = stats.volume;
+    for (int k = 0; k < 3; k++) {
+        e.position[k] = stats.moment[k] / stats.volume;
+    }
+    mEvents.push_back(e);
+}
+
+std::vector<Event> Simulation::Events() const
+{
+    std::lock_guard<std::mutex> lock(mMutex);
+    return mEvents;
+}
+
+int Simulation::EventCount() const
+{
+    std::lock_guard<std::mutex> lock(mMutex);
+    return (int)mEvents.size();
 }
 
 void Simulation::TrackView()
@@ -1049,7 +1104,7 @@ void Simulation::Worker()
         }
         if (!frontierDone) {
             const auto t0 = Clock::now();
-            mFrontierMotion = CutBatch(mFrontier, mFrontierMotion, (long)mMotions.size());
+            mFrontierMotion = CutBatch(mFrontier, mFrontierMotion, (long)mMotions.size(), true);
             sinceCheckpoint += MsSince(t0);
             for (int leaf : mFrontier.TakeDirty()) {
                 if (!mFrontierFlag[leaf]) {

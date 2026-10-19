@@ -138,6 +138,29 @@ class CAMSim(BaseClass):
         ...
 
     @no_args
+    def GetEvents(self) -> list:
+        """
+        Return the problems found on the toolpath so far, in the order of the path, as dicts:
+        kind ("rapid": a rapid move into the stock), step (on the timeline), command (the index of
+        the command where it starts, -1 for none), operation (its index, -1 for none), volume (of
+        the material met, mm3) and position (its centroid).
+        """
+        ...
+
+    def GoToEvent(self, index: int, /) -> None:
+        """
+        Go to the start of a problem, by its index in GetEvents.
+        """
+        ...
+
+    def SetEventsChangedCallback(self, callback: Any, /) -> None:
+        """
+        Call callback(count) when the problems found on the toolpath change, with their count.
+        None removes the callback.
+        """
+        ...
+
+    @no_args
     def GetRendererInfo(self) -> dict:
         """
         Return the OpenGL vendor, renderer and version and the simulator view size in pixels.

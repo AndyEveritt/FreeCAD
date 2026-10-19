@@ -106,6 +106,17 @@ DlgCAMSimulator::DlgCAMSimulator(QWidget* parent)
     );
     connect(
         this,
+        &DlgCAMSimulator::eventsChanged,
+        this,
+        [this](int count) {
+            if (mEventsChanged) {
+                mEventsChanged(count);
+            }
+        },
+        Qt::QueuedConnection
+    );
+    connect(
+        this,
         &DlgCAMSimulator::commandChanged,
         this,
         [this](int command) {
@@ -164,6 +175,53 @@ void DlgCAMSimulator::setCommandChangedHandler(std::function<void(int)> handler)
     mLastCommandShown = -2;  // reported again
 }
 
+std::vector<SimEvent> DlgCAMSimulator::events() const
+{
+    return mMillSimulator->GetEvents();
+}
+
+void DlgCAMSimulator::goToEvent(int index)
+{
+    mMillSimulator->GoToEvent(index);
+    updateGui();
+    update();
+}
+
+void DlgCAMSimulator::setEventsChangedHandler(std::function<void(int)> handler)
+{
+    mEventsChanged = std::move(handler);
+    mEventCount = -1;  // reported again, the simulation may have found them already
+}
+
+// The color of the problems of a kind
+static QColor EventColor(Material::Event::Kind kind)
+{
+    switch (kind) {
+        case Material::Event::RapidIntoStock:
+            return QColor(255, 110, 20);
+    }
+    return QColor(255, 255, 255);
+}
+
+// The marks of the events on the timeline, and the handler, when their count changed
+void DlgCAMSimulator::updateEvents()
+{
+    const int count = mMillSimulator->EventCount();
+    if (count == mEventCount) {
+        return;
+    }
+    mEventCount = count;
+    if (mGui) {
+        const int total = std::max(1, mMillSimulator->GetState().mNTotalSteps);
+        std::vector<std::pair<float, QColor>> marks;
+        for (const SimEvent& e : mMillSimulator->GetEvents()) {
+            marks.emplace_back((float)e.step / total, EventColor(e.event.kind));
+        }
+        mGui->setEvents(marks);
+    }
+    Q_EMIT eventsChanged(count);
+}
+
 void DlgCAMSimulator::connectTo(GuiDisplay& gui, Dummy3DViewer& dv)
 {
     // connect to gui
@@ -192,6 +250,16 @@ void DlgCAMSimulator::connectTo(GuiDisplay& gui, Dummy3DViewer& dv)
 
     connect(&gui, &GuiDisplay::nextOperation, this, [this] {
         mMillSimulator->GoToOperation(1);
+        updateGui();
+    });
+
+    connect(&gui, &GuiDisplay::previousEvent, this, [this] {
+        mMillSimulator->StepEvent(-1);
+        updateGui();
+    });
+
+    connect(&gui, &GuiDisplay::nextEvent, this, [this] {
+        mMillSimulator->StepEvent(1);
         updateGui();
     });
 
@@ -292,6 +360,7 @@ void DlgCAMSimulator::cloneFrom(const DlgCAMSimulator& from)
     mState = std::make_unique<MillSimulationState>(state);
     mOperationPicked = from.mOperationPicked;
     mCommandChanged = from.mCommandChanged;
+    mEventsChanged = from.mEventsChanged;
 }
 
 DlgCAMSimulator* DlgCAMSimulator::instance(Gui::Document* doc)
@@ -647,6 +716,7 @@ void DlgCAMSimulator::timerEvent(QTimerEvent* event)
     }
 
     updateGui();
+    updateEvents();
 }
 
 void DlgCAMSimulator::updateResources()
