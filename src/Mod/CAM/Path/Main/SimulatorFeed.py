@@ -40,6 +40,10 @@ program retracts and cancels the plane before the table turns; the feed does
 the same: the tool backs out along the old direction until it is clear of the
 stock, swings around it at that distance, and comes in along the new one.
 
+Before the first move the simulator doesn't know where the tool is: the
+first moves take the axes they don't name from the first move that does, so
+the tool starts where the program takes it, not at the origin.
+
 An operation whose path carries rotary words of its own is simultaneous
 machining. Its path is passed on as the operation's Placement puts it, with
 only the drill cycles expanded and every word filled in.
@@ -175,6 +179,17 @@ class SimulatorFeed:
         frame = placement.inverse()
         local = frame.multVec(self.position)
         current = self.rotary if rotary is None else rotary
+        if not self.started:
+            # where the tool is before its first move: each axis where a move first names it
+            first = {}
+            for cmd in commands:
+                if cmd.Name.upper() in _MOVES:
+                    for k in "XYZABC":
+                        if k in cmd.Parameters:
+                            first.setdefault(k, cmd.Parameters[k])
+            local = Vector(first.get("X", local.x), first.get("Y", local.y), first.get("Z", local.z))
+            if rotary is None:
+                current = tuple(first.get(k, v) for k, v in zip("ABC", current))
         axis = placement.Rotation.multVec(Vector(0, 0, 1))
         flat = abs(abs(axis.z) - 1) < _AXIS_TOLERANCE
         turnedOver = axis.z < 0

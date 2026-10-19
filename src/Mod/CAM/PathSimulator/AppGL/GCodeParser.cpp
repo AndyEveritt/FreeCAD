@@ -304,6 +304,7 @@ bool GCodeParser::Apply(const std::vector<Word>& words, double feedScale, int so
     double* coords[6] = {&target.x, &target.y, &target.z, &target.a, &target.b, &target.c};
     for (int k = 0; k < 6; k++) {
         if (has[k]) {
+            target.named |= 1 << k;
             // positions in the units, angles in degrees
             const double v = k < 3 ? value[k] * mUnit : value[k];
             *coords[k] = mIncremental ? *coords[k] + v : v;
@@ -335,6 +336,7 @@ bool GCodeParser::Apply(const std::vector<Word>& words, double feedScale, int so
         m.i = m.j = m.k = 0;
         m.operation = currentOperation;
         m.source = source;
+        m.named = target.named;
         m.rapid = true;
         if (lastState.z < above) {
             m.z = above;
@@ -402,6 +404,29 @@ bool GCodeParser::Apply(const std::vector<Word>& words, double feedScale, int so
 
     push(target);
     return true;
+}
+
+void GCodeParser::FillStart()
+{
+    for (int k = 0; k < 6; k++) {
+        auto coord = [k](MillMotion& m) -> double& {
+            double* coords[6] = {&m.x, &m.y, &m.z, &m.a, &m.b, &m.c};
+            return *coords[k];
+        };
+        // the first motion that names the axis
+        size_t first = 0;
+        while (first < Operations.size() && (Operations[first].named & (1 << k)) == 0) {
+            first++;
+        }
+        if (first == Operations.size()) {
+            continue;  // never named: stays at 0
+        }
+        const double value = coord(Operations[first]);
+        for (size_t i = 0; i < first; i++) {
+            coord(Operations[i]) = value;
+            Operations[i].named |= 1 << k;
+        }
+    }
 }
 
 // An arc outside the XY plane, in lines from the last position to end within ArcTolerance

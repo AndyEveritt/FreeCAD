@@ -174,7 +174,9 @@ incremental positions (G90, G91) and the units (G20, G21) are modal; drill cycle
 the tool (to the hole, rapid to R, down to Z, back to the initial height or R); arcs are given by
 their center or their radius (R), arcs outside the XY plane become lines within 1 um; comments in
 parentheses are skipped within a line; home and offset commands (G28, G30, G53, G10, G92) don't
-move.
+move. Where the tool is before its first motions is unknown: they take the axes they don't name
+from the first motion that names them (`FillStart`, and `SimulatorFeed` for the first
+operation), so the tool starts where the program takes it, not at the origin.
 
 ## 5 axis toolpaths
 

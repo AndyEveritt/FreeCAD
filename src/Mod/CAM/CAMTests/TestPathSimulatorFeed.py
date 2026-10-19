@@ -97,7 +97,8 @@ class TestPathSimulatorFeed(PathTestUtils.PathTestBase):
         retract, cmds = SimulatorFeed(BOUNDS).add(op, TOOL_LENGTH)
         self.assertEqual(retract, [])
         self.assertEqual([c.Name for c in cmds], ["G0", "G0", "G1", "G2"])
-        self.assertVector(_point(cmds[0]), Vector(0, 0, 20))
+        # the tool starts above the first position, not at the origin
+        self.assertVector(_point(cmds[0]), Vector(10, 10, 20))
         self.assertVector(_point(cmds[3]), Vector(20, 10, -1))
         self.assertRoughly(cmds[3].Parameters["I"], 5)
         for cmd in cmds:
@@ -371,3 +372,18 @@ class TestPathSimulatorFeed(PathTestUtils.PathTestBase):
         self.assertGreater(len(loop), 10)
         self.assertRoughly(min(c.z for c in loop), 35, 0.011)
         self.assertVector(_point(cmds[-1]), Vector(60, 40, 40))
+
+    def test14(self):
+        """Before the first move the tool is where the moves first take each axis; later
+        operations go on from where the one before ended."""
+        feed = SimulatorFeed(BOUNDS)
+        _, cmds = feed.add(_Op("G0 Z15\nG0 X30\nG0 Y20\nG1 Z-1"), TOOL_LENGTH)
+        self.assertVector(_point(cmds[0]), Vector(30, 20, 15))
+        self.assertVector(_point(cmds[1]), Vector(30, 20, 15))
+        _, cmds = feed.add(_Op("G0 Z15\nG0 X50 Y5"), TOOL_LENGTH)
+        self.assertVector(_point(cmds[0]), Vector(30, 20, 15))
+        # rotary words of their own too, axes never named stay at 0
+        _, cmds = SimulatorFeed(BOUNDS).add(_Op("G0 X5 Z50\nG1 X10 B30"), TOOL_LENGTH)
+        self.assertVector(_point(cmds[0]), Vector(5, 0, 50))
+        self.assertRoughly(cmds[0].Parameters["B"], 30)
+        self.assertRoughly(cmds[0].Parameters["A"], 0)

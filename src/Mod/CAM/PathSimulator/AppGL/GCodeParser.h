@@ -61,6 +61,10 @@ public:
         const std::map<std::string, double>& params,
         int source = -1
     );
+    // The position before the first motions is unknown: the axes they don't name are taken from
+    // the first motion that names them, so the tool starts where the program takes it, not at the
+    // origin. Call once all motions are added.
+    void FillStart();
 
 public:
     std::vector<MillMotion> Operations;

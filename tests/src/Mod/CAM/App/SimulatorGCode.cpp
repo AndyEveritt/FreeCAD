@@ -181,4 +181,26 @@ TEST(SimulatorGCode, arcsOutsideTheXYPlaneAreLines)
     EXPECT_GT(n[n.size() / 2].z, 4);
 }
 
+TEST(SimulatorGCode, theToolStartsWhereTheProgramTakesIt)
+{
+    // not at the origin: the first motions take the axes they don't name from the first motion
+    // that names them
+    GCodeParser parser;
+    for (const char* line : {"G0 Z15", "G0 X30", "G0 Y20", "G1 Z-1", "G1 X40"}) {
+        parser.AddLine(line);
+    }
+    parser.FillStart();
+    const auto& m = parser.Operations;
+    ASSERT_EQ(m.size(), 5u);
+    for (int i = 0; i < 3; i++) {
+        EXPECT_DOUBLE_EQ(m[i].x, 30) << i;
+        EXPECT_DOUBLE_EQ(m[i].y, 20) << i;
+        EXPECT_DOUBLE_EQ(m[i].z, 15) << i;
+    }
+    EXPECT_DOUBLE_EQ(m[3].z, -1);
+    EXPECT_DOUBLE_EQ(m[4].x, 40);
+    // axes never named stay at 0
+    EXPECT_DOUBLE_EQ(m[0].a, 0);
+}
+
 // NOLINTEND(cppcoreguidelines-*,readability-*)

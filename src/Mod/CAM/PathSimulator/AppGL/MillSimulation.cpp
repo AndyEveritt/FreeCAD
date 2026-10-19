@@ -138,6 +138,7 @@ void MillSimulation::InitSimulation(float quality, float maxStockDimension)
     for (SimOperation& op : mOperations) {
         op.firstStep = op.endStep = -1;
     }
+    mCodeParser.FillStart();
 
     int nOperations = (int)mCodeParser.Operations.size();
     int segId = 0;

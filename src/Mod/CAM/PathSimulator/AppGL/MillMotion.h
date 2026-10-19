@@ -62,6 +62,7 @@ struct MillMotion
     double feed = 0;     // programmed feed rate in mm/s, 0 if none
     int operation = -1;  // index of the operation the motion belongs to, -1 for none
     int source = -1;     // index of the toolpath command the motion comes from, -1 for none
+    int named = 0;       // the axes named up to the motion, bits 0 to 5: X, Y, Z, A, B, C
 };
 
 // Tool axis (unit vector from the tip towards the shank) in workpiece coordinates. Positions are
