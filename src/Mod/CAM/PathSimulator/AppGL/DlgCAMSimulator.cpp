@@ -199,6 +199,8 @@ static QColor EventColor(Material::Event::Kind kind)
     switch (kind) {
         case Material::Event::RapidIntoStock:
             return QColor(255, 110, 20);
+        case Material::Event::ShankContact:
+            return QColor(190, 80, 240);
     }
     return QColor(255, 255, 255);
 }
@@ -427,13 +429,14 @@ void DlgCAMSimulator::addTool(
     int toolNumber,
     float diameter,
     float resolution,
-    const std::vector<Material::ProfileArc>& arcs
+    const std::vector<Material::ProfileArc>& arcs,
+    double flutes
 )
 {
     Q_UNUSED(resolution)
 
     mCommands.push_back({"T" + std::to_string(toolNumber), {}, -1});
-    mTools.push_back({toolProfilePoints, toolNumber, diameter, arcs});
+    mTools.push_back({toolProfilePoints, toolNumber, diameter, arcs, flutes});
 }
 
 static SimShape getMeshData(const Part::TopoShape& shape, float resolution)
@@ -753,7 +756,7 @@ void DlgCAMSimulator::updateResources()
 
     for (const auto& tool : mTools) {
         if (!mMillSimulator->ToolExists(tool.id)) {
-            mMillSimulator->AddTool(tool.profile, tool.id, tool.diameter, tool.arcs);
+            mMillSimulator->AddTool(tool.profile, tool.id, tool.diameter, tool.arcs, tool.flutes);
         }
     }
 

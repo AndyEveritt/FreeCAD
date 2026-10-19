@@ -49,12 +49,14 @@ class CAMSim(BaseClass):
         diameter: float,
         resolution: float,
         arcs: list | None = None,
+        flutes: float = 0,
     ) -> Any:
         """
         Set the shape of the tool to be used for simulation: its profile, radius/height pairs from
         its top down to its tip. arcs: the arcs of the profile, (first, last, r, z): the points
         first to last of the profile (indices of pairs) are on the circle around (r, z), the
-        simulator follows them exactly.
+        simulator follows them exactly. flutes: their length from the tip, 0 if unknown: the
+        simulator finds the tool above them meeting the material.
         """
         ...
 
@@ -141,7 +143,8 @@ class CAMSim(BaseClass):
     def GetEvents(self) -> list:
         """
         Return the problems found on the toolpath so far, in the order of the path, as dicts:
-        kind ("rapid": a rapid move into the stock), step (on the timeline), command (the index of
+        kind ("rapid": a rapid move into the stock, "shank": the tool above its flutes meets the
+        material), step (on the timeline), command (the index of
         the command where it starts, -1 for none), operation (its index, -1 for none), volume (of
         the material met, mm3) and position (its centroid).
         """

@@ -102,6 +102,7 @@ void MillSimulation::Clear()
     }
     mToolTable.clear();
     mToolArcs.clear();
+    mToolFlutes.clear();
 
     mStockObject.Clear();
     GLDELETE_BUFFER(mOriginVbo);
@@ -272,7 +273,8 @@ void MillSimulation::AddTool(
     const std::vector<float>& toolProfile,
     int toolid,
     float diameter,
-    const std::vector<Material::ProfileArc>& arcs
+    const std::vector<Material::ProfileArc>& arcs,
+    double flutes
 )
 {
     // if we have another tool with same id, remove it
@@ -280,6 +282,7 @@ void MillSimulation::AddTool(
     EndMill* tool = new EndMill(toolProfile, toolid, diameter);
     mToolTable.push_back(tool);
     mToolArcs[toolid] = arcs;
+    mToolFlutes[toolid] = flutes;
 }
 
 bool MillSimulation::ToolExists(int toolid)
@@ -1308,6 +1311,8 @@ Material::Job MillSimulation::MaterialJob() const
         job.profiles.push_back(tool->rawProfile);
         const auto arcs = mToolArcs.find(tool->toolId);
         job.arcs.push_back(arcs != mToolArcs.end() ? arcs->second : std::vector<Material::ProfileArc>());
+        const auto flutes = mToolFlutes.find(tool->toolId);
+        job.flutes.push_back(flutes != mToolFlutes.end() ? flutes->second : 0);
         toolIds.push_back(tool->toolId);
     }
     job.segments = mSegments;
@@ -1338,6 +1343,7 @@ void MillSimulation::StartMaterialSimulation()
     if (!mMaterial) {
         mMaterial = std::make_unique<Material::View>();
     }
+    mMaterial->SetFluteHeights(job.flutes);
     mMaterial->SetMeasureThickness(mThinWalls);
     mMaterial->SetDeviation(mDeviation ? mDeviationModel : nullptr);
     ApplyInspect();

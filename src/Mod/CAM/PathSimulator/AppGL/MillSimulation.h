@@ -91,12 +91,13 @@ public:
     void Clear();
     void InitSimulation(float quality, float maxStockDimension);
     void AddTool(EndMill* tool);
-    // arcs: of the profile, see Material::Tool
+    // arcs: of the profile, see Material::Tool. flutes: their length from the tip, 0 if unknown
     void AddTool(
         const std::vector<float>& toolProfile,
         int toolid,
         float diameter,
-        const std::vector<Material::ProfileArc>& arcs = {}
+        const std::vector<Material::ProfileArc>& arcs = {},
+        double flutes = 0
     );
     bool ToolExists(int toolid);
     void RenderSimulation();
@@ -263,6 +264,7 @@ protected:
     std::vector<MillMotion> mSegmentMotions;   // the motion to the end of each segment
     std::vector<int> mSegmentFirstStep;        // the first step of each segment
     std::map<int, std::vector<Material::ProfileArc>> mToolArcs;  // by tool id
+    std::map<int, double> mToolFlutes;                           // by tool id
     std::vector<SimOperation> mOperations;
     StockColoring mColoring;
     bool mThinWalls = false;

@@ -78,6 +78,11 @@ public:
         return mSimulation.GlobalStep(segment, step);
     }
     void SetTarget(long step);
+    // see Simulation::SetFluteHeights, for the next start
+    void SetFluteHeights(std::vector<double> heights)
+    {
+        mSimulation.SetFluteHeights(std::move(heights));
+    }
     // The problems found on the toolpath so far, see Simulation::Events
     std::vector<Event> Events() const
     {

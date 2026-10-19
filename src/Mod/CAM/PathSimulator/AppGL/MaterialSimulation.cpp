@@ -370,6 +370,16 @@ void Simulation::Plan(const std::vector<float>& xyz, float quality)
         }
     }
 
+    // the tools above their flutes, where flutes are shorter than the tool
+    mShanks.assign(mTools.size(), nullptr);
+    for (size_t t = 0; t < mTools.size() && t < mFluteHeights.size(); t++) {
+        const Tool* tool = mTools[t].get();
+        const double h = mFluteHeights[t];
+        if (tool && tool->Cuts() && h > tool->MinZ() + 1e-6 && h < tool->MaxZ() - 1e-6) {
+            mShanks[t] = std::make_shared<Tool>(tool->ProfileAbove(h, ShankMargin));
+        }
+    }
+
     // motions: arcs into chords
     mMotions.clear();
     mSegmentMotion.assign(1, 0);
@@ -558,6 +568,11 @@ void Simulation::Plan(const std::vector<float>& xyz, float quality)
                 }
             }
             reach = std::min(reach, top - tipLo);
+        }
+        // the material reaches above the flutes
+        const int toolIndex = mSegments[m2.segment].tool;
+        if (mShanks[toolIndex] && reach > mFluteHeights[toolIndex]) {
+            m2.shank = true;
         }
         if (reach <= tool.MinZ()) {
             continue;  // above the material
@@ -778,10 +793,24 @@ long Simulation::StepOfMotion(long motions) const
 long Simulation::CutBatch(Grid& grid, long from, long to, bool check)
 {
     const long end = std::min(to, from + std::max(1L, (long)mMotionsPerBatch));
+    // with the check, the tool above its flutes probes the material before the motion: it is
+    // above the part of the tool that cuts in the motion, which can't remove the material it meets
     std::vector<Sweep> sweeps;
+    std::vector<uint8_t> probes;
+    std::vector<long> motionOf;  // of the sweeps
     sweeps.reserve(end - from);
     for (long i = from; i < end; i++) {
-        sweeps.emplace_back(mMotions[i].motion);
+        const Motion2& m = mMotions[i];
+        if (check && m.shank) {
+            Motion shank = m.motion;
+            shank.tool = mShanks[mSegments[m.segment].tool].get();
+            sweeps.emplace_back(shank);
+            probes.push_back(1);
+            motionOf.push_back(i);
+        }
+        sweeps.emplace_back(m.motion);
+        probes.push_back(0);
+        motionOf.push_back(i);
     }
     std::vector<const Sweep*> ptrs;
     ptrs.reserve(sweeps.size());
@@ -790,15 +819,21 @@ long Simulation::CutBatch(Grid& grid, long from, long to, bool check)
     }
     std::vector<CutStats> stats;
     const auto start = Clock::now();
-    grid.Cut(ptrs, *mPool, nullptr, nullptr, check ? &stats : nullptr);
+    grid.Cut(ptrs, *mPool, nullptr, check ? &probes : nullptr, check ? &stats : nullptr);
     const double ms = MsSince(start);
     if (check) {
-        for (long i = from; i < end; i++) {
-            const Motion2& m = mMotions[i];
-            const CutStats& s = stats[i - from];
-            // more than grazing the material: a twentieth of the square of the radius of the tool
+        for (size_t k = 0; k < sweeps.size(); k++) {
+            const Motion2& m = mMotions[motionOf[k]];
+            const CutStats& s = stats[k];
             const double radius = m.motion.tool->Radius();
-            if (mSegments[m.segment].rapid && s.volume > std::max(1e-3, 0.05 * radius * radius)) {
+            if (probes[k]) {
+                // rubbing at the margin over more than the radius of the tool in mm2
+                if (s.volume > ShankMargin * radius) {
+                    AddEvent(Event::ShankContact, m.segment, s);
+                }
+            }
+            // more than grazing the material: a twentieth of the square of the radius of the tool
+            else if (mSegments[m.segment].rapid && s.volume > std::max(1e-3, 0.05 * radius * radius)) {
                 AddEvent(Event::RapidIntoStock, m.segment, s);
             }
         }

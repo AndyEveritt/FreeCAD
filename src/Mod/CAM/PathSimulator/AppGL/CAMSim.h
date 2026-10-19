@@ -70,7 +70,8 @@ public:
         int toolNumber,
         float diameter,
         float resolution,
-        const std::vector<Material::ProfileArc>& arcs = {}
+        const std::vector<Material::ProfileArc>& arcs = {},
+        double flutes = 0
     );
     void SetBaseShape(const Part::TopoShape& baseShape, float resolution);
     void AddCommand(Command* cmd);

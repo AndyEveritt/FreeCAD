@@ -1022,6 +1022,7 @@ Mesh SimulateMaterial(const Material::Job& job, float quality, long step, RunSta
         tools.push_back(std::make_shared<Material::Tool>(job.profiles[t], true, arcs));
     }
     Material::Simulation sim;
+    sim.SetFluteHeights(job.flutes);
     const auto start = clock::now();
     sim.Start(tools, job.segments, job.stockXyz, job.stockTriangles, quality);
     const long target = step < 0 ? sim.TotalSteps() : std::min(step, sim.TotalSteps());

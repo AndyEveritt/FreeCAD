@@ -546,6 +546,41 @@ bool Tool::Contains(double r, double z) const
     return r <= RadiusAt(z);
 }
 
+std::vector<float> Tool::ProfileAbove(double height, double grow) const
+{
+    // the heights where the radius changes its slope, the spheres sampled
+    std::vector<double> zs = {height, mMaxZ};
+    for (const Frustum& f : mFrustums) {
+        zs.push_back(f.z0);
+        zs.push_back(f.z1);
+    }
+    for (const Sphere& s : mSpheres) {
+        for (int i = 0; i <= 64; i++) {
+            zs.push_back(s.zc - s.radius + 2 * s.radius * i / 64);
+        }
+    }
+    std::sort(zs.begin(), zs.end());
+    std::vector<float> profile;
+    double last = Inf;
+    for (auto it = zs.rbegin(); it != zs.rend(); ++it) {
+        const double z = *it;
+        if (z < height - 1e-12 || z > mMaxZ + 1e-12 || last - z < 1e-9) {
+            continue;
+        }
+        last = z;
+        // both sides of a step of the radius
+        const double above = RadiusAt(std::min(mMaxZ, z + 1e-9));
+        const double below = z > height ? RadiusAt(z - 1e-9) : above;
+        profile.push_back((float)(std::max(0.0, above) + grow));
+        profile.push_back((float)z);
+        if (std::abs(above - below) > 1e-7) {
+            profile.push_back((float)(std::max(0.0, below) + grow));
+            profile.push_back((float)z);
+        }
+    }
+    return profile;
+}
+
 // ---------------------------------------------------------------------------------- normals
 
 uint32_t PackNormal(const float n[3])

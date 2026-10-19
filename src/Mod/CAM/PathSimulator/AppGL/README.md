@@ -89,6 +89,14 @@ operation on motions following each other (up to 3 segments apart) make one even
 
 - rapid into the stock: a rapid move (G0) removes more than a twentieth of the square of the
   radius of its tool (mm3), more than grazing the material.
+- the tool above its flutes meets the material: the length of the flutes of the tools comes with
+  them (`CAMSim.AddTool(flutes=...)`, the `CuttingEdgeHeight` of the tool bit), the part of the
+  tool above it (`Tool::ProfileAbove`) grown by 0.01 mm (`ShankMargin`) probes the material before
+  the motion (a probe sweep: it measures, it doesn't remove), so it finds a shank rubbing the
+  walls the flutes cut as well as plunging into the material. Its flutes are below it in the
+  motion, they can't remove the material it meets. More than the margin over the radius of the
+  tool in mm2 is an event. Only motions where the planner finds the material higher than the
+  flutes above the tip are probed.
 
 The view marks the events on the timeline in the color of their kind, with buttons to go to the
 previous and the next one; the task panel lists them (`CAMSim.GetEvents`,

@@ -67,6 +67,7 @@ OPERATION_COLORS = [
 # The colors of the kinds of problems, as the marks on the timeline of the simulator view
 EVENT_COLORS = {
     "rapid": (255, 110, 20),
+    "shank": (190, 80, 240),
 }
 
 
@@ -79,6 +80,10 @@ def EventText(event, factor=1.0, unit="mm"):
         return QtCore.QT_TRANSLATE_NOOP(
             "CAM_Simulator", "Rapid move into the stock, %.3g %s³ at %s"
         ) % (volume, unit, where)
+    if event["kind"] == "shank":
+        return QtCore.QT_TRANSLATE_NOOP(
+            "CAM_Simulator", "Tool above its flutes meets the material at %s"
+        ) % where
     return where
 
 
@@ -480,7 +485,12 @@ class CAMSimulation:
                 yield ("command", cmd)
             yield ("operation", op.Label, color)
             if tc is not None:
-                yield ("tool", profile, tc.ToolNumber, tc.Tool.Diameter, {"arcs": arcs})
+                extras = {"arcs": arcs}
+                # the simulator finds the tool above its flutes meeting the material
+                flutes = getattr(tc.Tool, "CuttingEdgeHeight", None)
+                if flutes is not None and float(getattr(flutes, "Value", flutes)) > 0:
+                    extras["flutes"] = float(getattr(flutes, "Value", flutes))
+                yield ("tool", profile, tc.ToolNumber, tc.Tool.Diameter, extras)
             for cmd in opCommands:
                 yield ("command", cmd)
 

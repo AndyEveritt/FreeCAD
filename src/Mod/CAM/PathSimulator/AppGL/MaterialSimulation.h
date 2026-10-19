@@ -77,6 +77,7 @@ struct Event
     enum Kind
     {
         RapidIntoStock,  // a rapid move (G0) removes material
+        ShankContact,    // the tool above its flutes meets material
     };
     Kind kind = RapidIntoStock;
     // the segments of the moves, one after the other
@@ -103,6 +104,15 @@ class Simulation
 public:
     Simulation();
     ~Simulation();
+
+    // The length of the flutes of the tools (by index, 0 or less for unknown) for the next start:
+    // the tool above them meets the material, see Event::ShankContact
+    void SetFluteHeights(std::vector<double> heights)
+    {
+        mFluteHeights = std::move(heights);
+    }
+    // How far the tool above its flutes is grown to find it rubbing walls cut by the flutes, mm
+    static constexpr double ShankMargin = 0.01;
 
     // Start a simulation. xyz/triangles: closed stock mesh. quality: 1 (coarse) to 10 (fine).
     // Tools that don't cut (probes) are null.
@@ -169,7 +179,8 @@ private:
     {
         Motion motion;
         int segment;
-        double t0, t1;  // range of the segment parameter
+        double t0, t1;       // range of the segment parameter
+        bool shank = false;  // the tool above its flutes may meet the material
     };
     struct Checkpoint
     {
@@ -204,6 +215,9 @@ private:
     void Publish(long step, const Grid& grid);
 
     std::vector<std::shared_ptr<const Tool>> mTools;
+    std::vector<double> mFluteHeights;
+    // the tools above their flutes, grown by ShankMargin, null for none
+    std::vector<std::shared_ptr<const Tool>> mShanks;
     std::vector<Segment> mSegments;
     std::vector<long> mBase;           // timeline step of the start of each segment, and the total
     std::vector<long> mSegmentMotion;  // first motion of each segment, and the total

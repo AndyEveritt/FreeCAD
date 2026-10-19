@@ -122,6 +122,9 @@ public:
     double FeatureSize() const;
     // True if the point (radius, height) is inside the solid
     bool Contains(double r, double z) const;
+    // The profile (as the constructor takes it) of the part of the solid above a height, its
+    // radius grown by 'grow': the shank above the flutes, say
+    std::vector<float> ProfileAbove(double height, double grow) const;
     // True if every line along the axis meets the solid in one interval at most (no undercuts)
     bool SingleAxial() const
     {

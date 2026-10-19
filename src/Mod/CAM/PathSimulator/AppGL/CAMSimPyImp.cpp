@@ -98,23 +98,25 @@ PyObject* CAMSimPy::BeginSimulation(PyObject* args, PyObject* kwds)
 
 PyObject* CAMSimPy::AddTool(PyObject* args, PyObject* kwds)
 {
-    static const std::array<const char*, 6>
-        kwlist {"shape", "toolnumber", "diameter", "resolution", "arcs", nullptr};
+    static const std::array<const char*, 7>
+        kwlist {"shape", "toolnumber", "diameter", "resolution", "arcs", "flutes", nullptr};
     PyObject* pObjToolShape;
     int toolNumber;
     float resolution;
     float diameter;
     PyObject* pyArcs = Py_None;
+    double flutes = 0;
     if (!Base::Wrapped_ParseTupleAndKeywords(
             args,
             kwds,
-            "Oiff|O",
+            "Oiff|Od",
             kwlist,
             &pObjToolShape,
             &toolNumber,
             &diameter,
             &resolution,
-            &pyArcs
+            &pyArcs,
+            &flutes
         )) {
         return nullptr;
     }
@@ -152,7 +154,7 @@ PyObject* CAMSimPy::AddTool(PyObject* args, PyObject* kwds)
     }
 
     CAMSim* sim = getCAMSimPtr();
-    sim->addTool(toolProfile, toolNumber, diameter, resolution, arcs);
+    sim->addTool(toolProfile, toolNumber, diameter, resolution, arcs, flutes);
 
     Py_INCREF(Py_None);
     return Py_None;
@@ -350,6 +352,8 @@ static const char* EventKindName(Material::Event::Kind kind)
     switch (kind) {
         case Material::Event::RapidIntoStock:
             return "rapid";
+        case Material::Event::ShankContact:
+            return "shank";
     }
     return "";
 }

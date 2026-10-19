@@ -602,6 +602,51 @@ TEST(MaterialSimulation, rapidsIntoTheStockAreFound)
     EXPECT_NEAR(e.position[2], -0.65, 0.2);
 }
 
+TEST(MaterialSimulation, theToolAboveItsFlutesIsFound)
+{
+    // a slot 6 wide and 12 deep in two passes with an end mill of 8 mm flutes: the first pass is
+    // within the flutes, the second rubs the walls above them
+    std::vector<std::shared_ptr<const Tool>> tools = {std::make_shared<Tool>(FlatProfile(3))};
+    const double lo[3] = {0, 0, -20}, hi[3] = {40, 20, 0};
+    std::vector<float> xyz;
+    std::vector<uint32_t> triangles;
+    MakeBox(lo, hi, xyz, triangles);
+    const float p[][3] = {
+        {-5, 10, 5},
+        {-5, 10, -6},
+        {45, 10, -6},
+        {45, 10, -12},
+        {-5, 10, -12},
+        {-5, 10, 5},
+    };
+    std::vector<Segment> segments;
+    for (int i = 1; i < 6; i++) {
+        segments.push_back(Line(0, p[i - 1], p[i]));
+        segments.back().operation = 0;
+    }
+    auto simulate = [&](double flutes) {
+        Simulation sim;
+        sim.SetFluteHeights({flutes});
+        sim.Start(tools, segments, xyz, triangles, 6);
+        sim.WaitFrontier();
+        return sim.Events();
+    };
+    const std::vector<Event> events = simulate(8);
+    ASSERT_EQ(events.size(), 1u);
+    const Event& e = events[0];
+    EXPECT_EQ(e.kind, Event::ShankContact);
+    EXPECT_EQ(e.firstSegment, 3);
+    EXPECT_EQ(e.lastSegment, 3);
+    // the walls 4 high above the flutes along the slot, rubbed at the margin: thinner than the
+    // cells, measured by the lines across the walls only
+    EXPECT_GT(e.volume, Simulation::ShankMargin * 3);
+    EXPECT_LT(e.volume, 2 * 4 * 40 * Simulation::ShankMargin * 1.5);
+    EXPECT_NEAR(e.position[2], -2, 0.5);
+    // flutes longer than the slot is deep, or not known: nothing
+    EXPECT_TRUE(simulate(13).empty());
+    EXPECT_TRUE(simulate(0).empty());
+}
+
 TEST(MaterialSimulation, seeksMatchTheWholePath)
 {
     // a pocket with arcs and ramps, cut by two tools

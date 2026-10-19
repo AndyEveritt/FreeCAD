@@ -35,7 +35,7 @@ namespace CAMSimulator::Material
 namespace
 {
 
-constexpr char Magic[8] = "CAMJOB3";
+constexpr char Magic[8] = "CAMJOB4";
 
 using File = std::unique_ptr<FILE, int (*)(FILE*)>;
 
@@ -73,6 +73,8 @@ bool SaveJob(const std::string& path, const Job& job)
             write(&a.r, 8);
             write(&a.z, 8);
         }
+        const double flutes = t < job.flutes.size() ? job.flutes[t] : 0;
+        write(&flutes, 8);
     }
     u32((uint32_t)job.segments.size());
     for (const Segment& s : job.segments) {
@@ -138,8 +140,9 @@ bool LoadJob(const std::string& path, Job& job)
     }
     Job j;
     read(&j.quality, 4);
-    j.profiles.resize(count(8));
+    j.profiles.resize(count(16));
     j.arcs.resize(j.profiles.size());
+    j.flutes.resize(j.profiles.size());
     for (size_t t = 0; t < j.profiles.size(); t++) {
         auto& p = j.profiles[t];
         p.resize(count(4));
@@ -151,6 +154,7 @@ bool LoadJob(const std::string& path, Job& job)
             read(&a.r, 8);
             read(&a.z, 8);
         }
+        read(&j.flutes[t], 8);
     }
     j.segments.resize(count(156));
     for (Segment& s : j.segments) {

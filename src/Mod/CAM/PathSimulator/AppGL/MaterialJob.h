@@ -42,6 +42,7 @@ struct Job
     float quality = 10;
     std::vector<std::vector<float>> profiles;
     std::vector<std::vector<ProfileArc>> arcs;  // of the profiles, empty or one list per profile
+    std::vector<double> flutes;  // flute heights of the tools, 0 for unknown, empty or one each
     std::vector<Segment> segments;
     std::vector<float> stockXyz;
     std::vector<uint32_t> stockTriangles;

@@ -94,6 +94,7 @@ public:
     int id;
     float diameter;
     std::vector<Material::ProfileArc> arcs;
+    double flutes = 0;
 };
 
 class DlgCAMSimulator: public QOpenGLWidget
@@ -127,7 +128,8 @@ public:
         int toolNumber,
         float diameter,
         float resolution,
-        const std::vector<Material::ProfileArc>& arcs = {}
+        const std::vector<Material::ProfileArc>& arcs = {},
+        double flutes = 0
     );
 
     void setStockShape(const Part::TopoShape& shape, float resolution);
