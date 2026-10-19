@@ -342,3 +342,32 @@ class TestPathSimulatorFeed(PathTestUtils.PathTestBase):
             self.assertRoughly(math.hypot(pr - 3, pz - 2), 2, 1e-6)
         self.assertRoughly(points[first][0], 5)
         self.assertRoughly(points[last][1], 0)
+
+    def test13(self):
+        """Arcs in the XZ and YZ planes are followed by lines in their plane."""
+        op = _Op(
+            """
+            G0 X10 Y30 Z40
+            G18
+            G2 X56 Z40 I23 K64.125
+            G19
+            G3 Y40 Z40 J5 K0
+            G17
+            G1 X60
+            """
+        )
+        _, cmds = SimulatorFeed(BOUNDS, tolerance=0.01).add(op, TOOL_LENGTH)
+        self.assertFalse([c for c in cmds if c.Name in Path.Geom.CmdMoveArc])
+        center = Vector(33, 30, 104.125)
+        scoop = [c for c in cmds if abs(c.y - 30) < 1e-9 and c.x > 10]
+        self.assertGreater(len(scoop), 10)
+        for cmd in scoop:
+            self.assertRoughly((_point(cmd) - center).Length, 68.125, 1e-6)
+            # G2 in the XZ plane from X10 to X56 goes under its center, down into the part
+            self.assertLessEqual(cmd.z, 40 + 1e-9)
+        # G3 in the YZ plane from Y30 to Y40 around Y35: counterclockwise from +Y towards +Z
+        # seen from +X, down through Z35
+        loop = [c for c in cmds if abs(c.x - 56) < 1e-9 and c.y > 30 + 1e-6]
+        self.assertGreater(len(loop), 10)
+        self.assertRoughly(min(c.z for c in loop), 35, 0.011)
+        self.assertVector(_point(cmds[-1]), Vector(60, 40, 40))

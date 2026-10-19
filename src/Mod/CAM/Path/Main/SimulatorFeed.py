@@ -30,8 +30,8 @@ that. So each operation is given to the simulator as:
   * every move with its full X, Y, Z in the world and the tool direction of
     the work plane in A, B, C, and its feed rate (F) where it has one;
   * drill cycles expanded into the plain moves they make, in the plane's frame;
-  * arcs on a tilted plane split into short lines, since they no longer lie
-    in the world XY plane.
+  * arcs on a tilted plane, and arcs in the XZ or YZ plane (G18, G19), split
+    into short lines, since they don't lie in the world XY plane.
 
 Between operations whose tool direction differs, the simulator turns the tool
 over the length of a move, as a five axis machine does. Going straight from
@@ -64,6 +64,10 @@ _TURN_TOLERANCE = 1e-6
 
 _DEFAULT_TOOL_LENGTH = 50.0
 _RETURN_MODES = {"G98", "G99"}
+_PLANES = {"G17": "G17", "G18": "G18", "G19": "G19"}
+# the axes of the arcs of a plane: (u, v), counterclockwise from u towards v
+_PLANE_AXES = {"G17": ("x", "y"), "G18": ("z", "x"), "G19": ("y", "z")}
+_CENTER_WORDS = {"x": "I", "y": "J", "z": "K"}
 _CYCLES = set(Constants.GCODE_DRILL_COMMANDS + Constants.GCODE_MOVE_TAP)
 _MOVES = set(Constants.GCODE_MOVE_LINE + Constants.GCODE_MOVE_ARC) | _CYCLES
 
@@ -175,6 +179,7 @@ class SimulatorFeed:
         flat = abs(abs(axis.z) - 1) < _AXIS_TOLERANCE
         turnedOver = axis.z < 0
         returnMode = "G98"
+        plane = "G17"
 
         def emit(name, point, extra=None):
             out.append(_move(name, placement.multVec(point), current, extra))
@@ -184,6 +189,9 @@ class SimulatorFeed:
             params = cmd.Parameters
             if name in _RETURN_MODES:
                 returnMode = name
+                continue
+            if name in _PLANES:
+                plane = name
                 continue
             # a cycle that cannedCycleTerminator() has taken the G98 or G99 into
             returnMode = cmd.Annotations.get("RetractMode", returnMode)
@@ -214,7 +222,7 @@ class SimulatorFeed:
                 continue
 
             if name in Path.Geom.CmdMoveArc:
-                if flat:
+                if flat and plane == "G17":
                     offset = placement.Rotation.multVec(
                         Vector(params.get("I", 0), params.get("J", 0), 0)
                     )
@@ -222,7 +230,7 @@ class SimulatorFeed:
                         name = {"G2": "G3", "G02": "G03", "G3": "G2", "G03": "G02"}[name]
                     emit(name, target, {"I": offset.x, "J": offset.y, **feed})
                 else:
-                    for point in self._arcPoints(name, params, local, target):
+                    for point in self._arcPoints(name, params, local, target, plane):
                         emit("G1", point, feed)
                 local = target
                 continue
@@ -232,12 +240,15 @@ class SimulatorFeed:
 
         return out
 
-    def _arcPoints(self, name, params, start, end):
-        """The points, after start, of lines that follow an XY arc within tolerance."""
-        center = start + Vector(params.get("I", 0), params.get("J", 0), 0)
-        radius = math.hypot(start.x - center.x, start.y - center.y)
-        a0 = math.atan2(start.y - center.y, start.x - center.x)
-        a1 = math.atan2(end.y - center.y, end.x - center.x)
+    def _arcPoints(self, name, params, start, end, plane="G17"):
+        """The points, after start, of lines that follow an arc in the plane (G17, G18
+        or G19) within tolerance, helical along the normal of the plane."""
+        u, v = _PLANE_AXES[plane]
+        cu = getattr(start, u) + params.get(_CENTER_WORDS[u], 0)
+        cv = getattr(start, v) + params.get(_CENTER_WORDS[v], 0)
+        radius = math.hypot(getattr(start, u) - cu, getattr(start, v) - cv)
+        a0 = math.atan2(getattr(start, v) - cv, getattr(start, u) - cu)
+        a1 = math.atan2(getattr(end, v) - cv, getattr(end, u) - cu)
         sweep = a1 - a0
         clockwise = name in Path.Geom.CmdMoveCW
         if clockwise:
@@ -256,13 +267,10 @@ class SimulatorFeed:
         for k in range(1, n + 1):
             t = k / n
             angle = a0 + sweep * t
-            points.append(
-                Vector(
-                    center.x + radius * math.cos(angle),
-                    center.y + radius * math.sin(angle),
-                    start.z + (end.z - start.z) * t,
-                )
-            )
+            point = start + (end - start) * t
+            setattr(point, u, cu + radius * math.cos(angle))
+            setattr(point, v, cv + radius * math.sin(angle))
+            points.append(point)
         points[-1] = Vector(end)
         return points
 
