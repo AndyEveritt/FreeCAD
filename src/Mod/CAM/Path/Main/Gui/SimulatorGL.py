@@ -235,6 +235,8 @@ class CAMSimulation:
         form.outlines.toggled.connect(self.onOutlinesChange)
         form.originVisible.setChecked(prefs.GetBool("SimulatorOriginVisible", True))
         form.originVisible.toggled.connect(self.onOriginChange)
+        form.toolVisible.setChecked(prefs.GetBool("SimulatorToolVisible", True))
+        form.toolVisible.toggled.connect(self.onToolVisibleChange)
         form.sectionAxis.setCurrentIndex(prefs.GetInt("SimulatorSection", 0))
         form.sectionPosition.setValue(round(1000 * prefs.GetFloat("SimulatorSectionPosition", 0.5)))
         form.sectionFlip.setChecked(prefs.GetBool("SimulatorSectionFlip", False))
@@ -420,6 +422,11 @@ class CAMSimulation:
         """The origin of the job and its axes in the simulator view"""
         prefs = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/CAM")
         prefs.SetBool("SimulatorOriginVisible", self.taskForm.form.originVisible.isChecked())
+
+    def onToolVisibleChange(self, *_args):
+        """The tool at its position in the simulator view"""
+        prefs = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/CAM")
+        prefs.SetBool("SimulatorToolVisible", self.taskForm.form.toolVisible.isChecked())
 
     def onInspectChange(self, *_args):
         """Lines over the stock to inspect it: its mesh, its normals or its dexels at a click"""

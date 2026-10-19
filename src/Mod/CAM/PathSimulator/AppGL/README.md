@@ -312,6 +312,10 @@ around Z. This is the place to add machine specific kinematics.
 - `SimulatorOutlines` (bool, default true): dark lines at the edges of the opaque objects.
 - `SimulatorOriginVisible` (bool, default true): the origin of the job and its axes (X red, Y
   green, Z blue, a fifth of the size of the stock long), seen through the objects in front of it.
+- `SimulatorToolVisible` (bool, default true): the tool at its position. Its cutting length (the
+  flute length of the tool controller, from the tip) is orange, the shank above it gray (the tool
+  is split at that height, `EndMill::fluteShape` and `shankShape`); all of it is orange when the
+  flute length is unknown.
 - `SimulatorInspect` (int, default 0): lines over the stock to inspect it: 0 none, 1 the mesh, 2 the
   normals, 3 the dexels at a click, 4 measure: a click picks a point of any surface (the G-buffer
   position and normal at the pixel), two give their distance, shown at the top left of the view

@@ -357,6 +357,7 @@ void MillSimulation::AddTool(
     mToolTable.push_back(tool);
     mToolArcs[toolid] = arcs;
     mToolFlutes[toolid] = flutes;
+    tool->SetFlutes((float)flutes);
     mToolRates[toolid] = rates;
 }
 
@@ -664,7 +665,7 @@ void MillSimulation::RenderStockCuts(bool incremental)
 
 void MillSimulation::RenderTool()
 {
-    if (mPathStep < 0) {
+    if (mPathStep < 0 || !mToolVisible) {
         return;
     }
 
@@ -674,8 +675,7 @@ void MillSimulation::RenderTool()
         p->GetHeadPosition(toolPos);
         mat4x4 tmat;
         mat4x4_translate(tmat, toolPos[0], toolPos[1], toolPos[2]);
-        simDisplay.StartGeometryPass(toolColor, false);
-        p->endmill->toolShape.Render(tmat, identityMat);
+        RenderToolShape(p->endmill, tmat, identityMat);
         return;
     }
 
@@ -709,8 +709,21 @@ void MillSimulation::RenderTool()
     }
     mat4x4_translate(tmat, pos[0], pos[1], pos[2]);
     mat4x4_mul(tmat, tmat, rmat);
-    simDisplay.StartGeometryPass(toolColor, false);
-    p->endmill->toolShape.Render(tmat, rmat);
+    RenderToolShape(p->endmill, tmat, rmat);
+}
+
+void MillSimulation::RenderToolShape(const EndMill* tool, const mat4x4& tmat, const mat4x4& nmat)
+{
+    if (!tool->HasFlutes()) {
+        // the cutting length is unknown: all of the tool may cut
+        simDisplay.StartGeometryPass(fluteColor, false);
+        tool->toolShape.Render(tmat, nmat);
+        return;
+    }
+    simDisplay.StartGeometryPass(fluteColor, false);
+    tool->fluteShape.Render(tmat, nmat);
+    simDisplay.StartGeometryPass(shankColor, false);
+    tool->shankShape.Render(tmat, nmat);
 }
 
 void MillSimulation::RenderPath()
@@ -1125,6 +1138,12 @@ void MillSimulation::ApplySection()
 void MillSimulation::SetOriginVisible(bool b)
 {
     mOriginVisible = b;
+    simDisplay.updateDisplay = true;
+}
+
+void MillSimulation::SetToolVisible(bool b)
+{
+    mToolVisible = b;
     simDisplay.updateDisplay = true;
 }
 

@@ -119,6 +119,7 @@ public:
     bool ToolExists(int toolid);
     void RenderSimulation();
     void RenderTool();
+    void RenderToolShape(const EndMill* tool, const mat4x4& tmat, const mat4x4& nmat);
     void RenderPath();
     void RenderBaseShape();
     void RenderOrigin();
@@ -194,6 +195,8 @@ public:
     void EnableSsao(bool b);
     // The origin of the job (of the workpiece coordinates) and its axes
     void SetOriginVisible(bool b);
+    // The tool at its position, its flutes in their own color
+    void SetToolVisible(bool b);
     // A section of the stock and the model across an axis (0 X, 1 Y, 2 Z, -1 for none), at a
     // fraction of the box of the stock along it: the side below is kept, the side above with flip
     void SetSection(int axis, float position, bool flip);
@@ -330,6 +333,7 @@ protected:
     float mBaseOpacity = 1;
     float mThinThreshold = 0.5f;
     bool mOriginVisible = true;
+    bool mToolVisible = true;
     int mSectionAxis = -1;
     float mSectionPosition = 0.5f;
     bool mSectionFlip = false;
@@ -357,6 +361,8 @@ public:
     vec3 stockColor = {0.5f, 0.55f, 0.9f};
     vec3 cutColor = {0.5f, 0.84f, 0.73f};
     vec3 toolColor = {0.5f, 0.4f, 0.3f};
+    vec3 fluteColor = {0.9f, 0.55f, 0.15f};  // the cutting length of the tool
+    vec3 shankColor = {0.55f, 0.56f, 0.6f};  // the tool above its flutes
     vec3 baseShapeColor = {0.7f, 0.6f, 0.5f};
 
     clock::duration mTotalElapsed;

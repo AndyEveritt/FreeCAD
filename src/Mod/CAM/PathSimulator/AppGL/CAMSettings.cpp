@@ -56,6 +56,7 @@ void CAMSettings::applySettings()
     OnChange(*hGrp, "SimulatorInspect");
     OnChange(*hGrp, "SimulatorOutlines");
     OnChange(*hGrp, "SimulatorOriginVisible");
+    OnChange(*hGrp, "SimulatorToolVisible");
     OnChange(*hGrp, "SimulatorRapidRate");
     OnChange(*hGrp, "SimulatorSection");
     OnChange(*hGrp, "SimulatorStockOpacity");
@@ -117,6 +118,9 @@ void CAMSettings::OnChange(ParameterGrp::SubjectType& rCaller, ParameterGrp::Mes
     }
     else if (Reason == "SimulatorOriginVisible"sv) {
         mDlg.setOriginVisible(hGrp->GetBool("SimulatorOriginVisible", true));
+    }
+    else if (Reason == "SimulatorToolVisible"sv) {
+        mDlg.setToolVisible(hGrp->GetBool("SimulatorToolVisible", true));
     }
     else if (Reason == "SimulatorInspect"sv) {
         mDlg.setInspect((int)hGrp->GetInt("SimulatorInspect", 0));

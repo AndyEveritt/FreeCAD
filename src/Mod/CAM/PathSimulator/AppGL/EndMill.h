@@ -46,16 +46,34 @@ public:
     Shape pathShape;
     Shape halfToolShape;
     Shape toolShape;
+    // the tool split at the end of its flutes: the part that cuts and the shank above it
+    Shape fluteShape;
+    Shape shankShape;
 
 public:
     EndMill(int toolid, float diameter);
     EndMill(const std::vector<float>& toolProfile, int toolid, float diameter);
     virtual ~EndMill();
+    // The length of the flutes from the tip, 0 if unknown
+    void SetFlutes(float length)
+    {
+        fluteLength = length;
+    }
+    // Whether fluteShape and shankShape split the tool
+    bool HasFlutes() const
+    {
+        return hasFlutes;
+    }
     void GenerateDisplayLists(float quality);
     unsigned int GenerateArcSegmentDL(float radius, float angleRad, float zShift, Shape* retShape) const;
 
 protected:
     void MirrorPointBuffer();
+    // the profile above and below the end of the flutes, false if they don't split it
+    bool SplitProfile(std::vector<float>& shank, std::vector<float>& flutes) const;
+
+    float fluteLength = 0;
+    bool hasFlutes = false;
 };
 
 }  // namespace CAMSimulator
